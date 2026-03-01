@@ -712,8 +712,15 @@ async def clear_seed_data() -> None:
         print("[seed] All seed data cleared.")
 
 
-if __name__ == "__main__":
+async def main() -> None:
     import sys
     if "--force" in sys.argv:
-        asyncio.run(clear_seed_data())
-    asyncio.run(seed())
+        await clear_seed_data()
+        # Reset the cached engine so the seed gets a fresh connection
+        from app.core.database import engine
+        await engine.dispose()
+    await seed()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
