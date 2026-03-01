@@ -6,7 +6,7 @@ import "@/styles/globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "DealWise AI",
+  title: "Deal Companion",
   description: "AI-powered deal intelligence platform for finance professionals",
 };
 

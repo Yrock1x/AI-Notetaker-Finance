@@ -1,5 +1,5 @@
 """
-Database seed script for DealWise AI.
+Database seed script for Deal Companion.
 
 Populates the development database with realistic sample data:
   - 2 organizations

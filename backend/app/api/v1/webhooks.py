@@ -79,10 +79,14 @@ async def zoom_webhook(
 
     logger.info("Zoom webhook received: %s", event)
 
+    settings = get_settings()
+
+    # Verify signature for ALL requests including challenges
+    _verify_zoom_signature(request, raw_body, settings)
+
     # Zoom URL validation challenge — must return plainToken + encryptedToken
     if event == "endpoint.url_validation":
         plain_token = body.get("payload", {}).get("plainToken", "")
-        settings = get_settings()
         encrypted_token = hmac.new(
             settings.zoom_webhook_secret_token.encode(),
             plain_token.encode(),
@@ -91,10 +95,6 @@ async def zoom_webhook(
         return JSONResponse(
             content={"plainToken": plain_token, "encryptedToken": encrypted_token}
         )
-
-    # Verify signature for all non-challenge events
-    settings = get_settings()
-    _verify_zoom_signature(request, raw_body, settings)
 
     if event == "recording.completed":
         payload = body.get("payload", {}).get("object", {})
@@ -138,14 +138,16 @@ async def teams_webhook(
 
     body = await request.json()
 
-    # Validate the client state token matches our configured secret
+    # Validate the client state token
     settings = get_settings()
+    if not settings.teams_webhook_secret:
+        raise HTTPException(status_code=500, detail="Teams webhook secret not configured")
+
     notifications = body.get("value", [])
     for notification in notifications:
         client_state = notification.get("clientState", "")
-        if client_state and hasattr(settings, "teams_webhook_secret"):
-            if not hmac.compare_digest(client_state, settings.teams_webhook_secret):
-                raise HTTPException(status_code=401, detail="Invalid Teams client state")
+        if not hmac.compare_digest(client_state, settings.teams_webhook_secret):
+            raise HTTPException(status_code=401, detail="Invalid Teams client state")
 
     for notification in notifications:
         resource = notification.get("resource", "")
@@ -177,14 +179,14 @@ async def slack_events(
     raw_body = await request.body()
     body = await request.json()
 
-    # Slack URL verification — must return the challenge value (no signature on this)
+    # Verify signature for ALL requests including challenges
+    settings = get_settings()
+    _verify_slack_signature(request, raw_body, settings)
+
+    # Slack URL verification — return the challenge value
     if body.get("type") == "url_verification":
         logger.info("Slack URL verification challenge received")
         return JSONResponse(content={"challenge": body.get("challenge", "")})
-
-    # Verify signature for all non-challenge events
-    settings = get_settings()
-    _verify_slack_signature(request, raw_body, settings)
 
     event = body.get("event", {})
     event_type = event.get("type", "")
@@ -193,8 +195,8 @@ async def slack_events(
 
     if event_type == "message":
         channel = event.get("channel", "")
-        text = event.get("text", "")
-        logger.info("Slack message in channel %s: %s", channel, text[:50])
+        # Don't log message content for security
+        logger.info("Slack message in channel %s", channel)
 
     elif event_type == "app_mention":
         logger.info("Slack app mention received")
@@ -233,7 +235,7 @@ async def slack_commands(
         return {
             "response_type": "ephemeral",
             "text": (
-                "*DealWise AI Commands:*\n"
+                "*Deal Companion Commands:*\n"
                 "• `/dealwise status` — Show recent meeting processing status\n"
                 "• `/dealwise meetings` — List recent meetings\n"
                 "• `/dealwise help` — Show this help message"
@@ -254,5 +256,5 @@ async def slack_commands(
 
     return {
         "response_type": "ephemeral",
-        "text": f"Unknown command: `{subcommand}`. Use `/dealwise help` for usage.",
+        "text": "Unknown command. Use `/dealwise help` for usage.",
     }

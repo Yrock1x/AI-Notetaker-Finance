@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # App
     app_env: Literal["development", "staging", "production"] = "development"
-    app_name: str = "DealWise AI"
+    app_name: str = "Deal Companion"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
 
