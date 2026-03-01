@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.integrations.aws.cognito import CognitoClient, get_cognito_client
+from app.integrations.supabase.auth import SupabaseAuthClient, get_supabase_auth_client
 from app.models.user import User
 from app.services.auth_service import AuthService
 
@@ -31,11 +32,14 @@ async def get_current_user(
     authorization: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
     cognito: CognitoClient = Depends(get_cognito_client),
+    supabase_auth: SupabaseAuthClient = Depends(get_supabase_auth_client),
 ) -> User:
     """Extract and verify the current user from the Authorization header.
 
-    In demo mode, verifies a locally-signed HS256 JWT.
-    In production, verifies the Cognito RS256 JWT token.
+    Routes to the appropriate auth provider:
+    - Demo mode: locally-signed HS256 JWT
+    - Supabase: when SUPABASE_URL is configured
+    - Cognito: fallback (original behavior)
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -52,10 +56,10 @@ async def get_current_user(
             claims = jwt.decode(
                 token, settings.demo_jwt_secret, algorithms=["HS256"]
             )
-        except JWTError as e:
+        except JWTError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid demo token: {e}",
+                detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -70,15 +74,28 @@ async def get_current_user(
                 detail="User not found",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+    elif settings.supabase_url:
+        # Supabase Auth: verify Supabase JWT
+        try:
+            auth_service = AuthService(db=db, supabase_auth=supabase_auth)
+            user = await auth_service.verify_and_get_user_supabase(token)
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     else:
-        # Production: Cognito JWT verification
+        # Cognito: verify Cognito RS256 JWT
         try:
             auth_service = AuthService(db=db, cognito=cognito)
             user = await auth_service.verify_and_get_user(token)
-        except JWTError as e:
+        except JWTError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid token: {e}",
+                detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -87,6 +104,9 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated",
         )
+
+    # Set user_id on request state for audit logging middleware
+    request.state.user_id = user.id
 
     return user
 
@@ -114,10 +134,14 @@ async def get_org_id(
 async def get_db_with_rls(
     db: AsyncSession = Depends(get_db),
     org_id: UUID = Depends(get_org_id),
+    current_user: User = Depends(get_current_user),
 ) -> AsyncSession:
     """Provide a database session with Row-Level Security context set."""
-    await db.execute(
-        text("SET LOCAL app.current_org_id = :org_id"),
-        {"org_id": str(org_id)},
-    )
+    from app.core.security import verify_org_membership
+    await verify_org_membership(db, current_user.id, org_id)
+    if not settings.demo_mode:
+        await db.execute(
+            text("SET LOCAL app.current_org_id = :org_id"),
+            {"org_id": str(org_id)},
+        )
     return db
