@@ -1,6 +1,7 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class ConflictError(DealWiseError):
         super().__init__(message=message, code="CONFLICT", status_code=409)
 
 
-class ValidationError(DealWiseError):
+class DomainValidationError(DealWiseError):
     def __init__(self, message: str):
         super().__init__(message=message, code="VALIDATION_ERROR", status_code=422)
 
@@ -70,15 +71,23 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        # Let FastAPI handle its own exception types natively
+        if isinstance(exc, (HTTPException, RequestValidationError)):
+            raise exc
+
         logger.exception(
-            "Unhandled error on %s %s", request.method, request.url.path
+            "unhandled_error: %s %s - %s", request.method, request.url.path, exc
         )
+
+        from app.core.config import settings as _settings
+        error_message = str(exc) if _settings.demo_mode else "An unexpected error occurred"
+
         return JSONResponse(
             status_code=500,
             content={
                 "error": {
                     "code": "INTERNAL_ERROR",
-                    "message": "An unexpected error occurred",
+                    "message": error_message,
                 }
             },
         )
