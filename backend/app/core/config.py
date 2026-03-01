@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +38,11 @@ class Settings(BaseSettings):
     cognito_app_client_id: str = ""
     cognito_domain: str = ""
 
+    # Supabase
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_jwt_secret: str = ""
+
     # LLM Providers
     anthropic_api_key: str = ""
     openai_api_key: str = ""
@@ -50,6 +56,20 @@ class Settings(BaseSettings):
     # Demo mode (bypasses Cognito auth for local/demo deployments)
     demo_mode: bool = False
     demo_jwt_secret: str = "demo-secret-change-in-production"
+
+    # Webhook Secrets
+    zoom_webhook_secret_token: str = ""
+    slack_signing_secret: str = ""
+    teams_webhook_secret: str = ""
+
+    @model_validator(mode="after")
+    def validate_demo_mode(self) -> "Settings":
+        if self.demo_mode:
+            if self.demo_jwt_secret == "demo-secret-change-in-production":
+                raise ValueError(
+                    "demo_jwt_secret must be changed from the default value when demo_mode is enabled"
+                )
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

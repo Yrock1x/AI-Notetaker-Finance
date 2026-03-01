@@ -1,15 +1,21 @@
 FROM python:3.11-slim AS base
 
+WORKDIR /app
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-# Copy full source first (needed for editable install)
+# Copy all source first (needed for pip install ".")
 COPY . .
 
-RUN pip install --no-cache-dir -e "."
+# Install Python dependencies
+RUN pip install --no-cache-dir "."
+
+# Create non-root user
+RUN adduser --disabled-password --gecos "" appuser
+USER appuser
 
 EXPOSE 8000
 
