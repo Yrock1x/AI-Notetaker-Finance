@@ -39,8 +39,26 @@ export default function LoginPage() {
     }
   };
 
-  const handleQuickLogin = (userEmail: string) => {
+  const handleQuickLogin = async (userEmail: string) => {
     setEmail(userEmail);
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await apiClient.post("/auth/demo-login", {
+        email: userEmail,
+      });
+      const { access_token, refresh_token, expires_in, token_type, user } =
+        response.data;
+      login(user, { access_token, refresh_token, expires_in, token_type });
+      router.push("/dashboard");
+    } catch {
+      setError(
+        "Login failed. Please use one of the demo accounts listed below."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
