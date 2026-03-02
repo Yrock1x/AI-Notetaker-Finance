@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -9,12 +10,13 @@ from app.schemas.common import BaseSchema
 class MeetingCreate(BaseSchema):
     title: str = Field(min_length=1, max_length=500)
     meeting_date: datetime | None = None
-    source: str = "upload"
+    source: Literal["upload", "zoom", "teams", "bot", "slack"] = "upload"
 
 
 class MeetingUpdate(BaseSchema):
     title: str | None = Field(None, min_length=1, max_length=500)
     meeting_date: datetime | None = None
+    bot_enabled: bool | None = None
 
 
 class MeetingResponse(BaseSchema):
@@ -27,6 +29,7 @@ class MeetingResponse(BaseSchema):
     source: str
     status: str
     error_message: str | None = None
+    bot_enabled: bool = True
     created_by: UUID
     created_at: datetime
     updated_at: datetime

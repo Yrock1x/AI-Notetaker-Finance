@@ -186,6 +186,7 @@ class MeetingService:
         title: Optional[str] = None,
         meeting_date: Optional[datetime] = None,
         duration_seconds: Optional[int] = None,
+        bot_enabled: Optional[bool] = None,
     ) -> Meeting:
         """Update editable meeting fields."""
         meeting = await self.get_meeting(meeting_id)
@@ -195,6 +196,8 @@ class MeetingService:
             meeting.meeting_date = meeting_date
         if duration_seconds is not None:
             meeting.duration_seconds = duration_seconds
+        if bot_enabled is not None:
+            meeting.bot_enabled = bot_enabled
         await self.db.flush()
         return meeting
 

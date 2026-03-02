@@ -4,6 +4,7 @@ import {
   DealStatus,
   DealType,
   MeetingSource,
+  MeetingStatus,
 } from "./enums";
 
 export interface Organization {
@@ -57,9 +58,10 @@ export interface Meeting {
   title: string;
   meeting_date?: string;
   duration_seconds?: number;
-  source: string;
-  status: string;
+  source: MeetingSource;
+  status: MeetingStatus;
   error_message?: string;
+  bot_enabled?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -91,9 +93,9 @@ export interface TranscriptSegment {
 export interface Analysis {
   id: string;
   meeting_id: string;
-  analysis_type: string;
+  analysis_type: CallType;
   call_type: CallType;
-  status: string;
+  status: MeetingStatus;
   result?: Record<string, unknown>;
   model_version: string;
   processing_time_ms?: number;
@@ -117,10 +119,9 @@ export interface Citation {
   source_type: string;
   source_id: string;
   source_title: string;
-  excerpt: string;
+  text_excerpt: string;
   timestamp?: number;
-  page_number?: number;
-  confidence: number;
+  page?: number;
 }
 
 export interface QAInteraction {

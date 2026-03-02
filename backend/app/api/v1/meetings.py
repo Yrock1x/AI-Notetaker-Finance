@@ -32,6 +32,9 @@ async def list_meetings(
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[MeetingResponse]:
     """List meetings in a deal. Requires deal membership."""
+    deal_service = DealService(db)
+    await deal_service.check_deal_access(deal_id, current_user.id)
+
     settings = get_settings()
     s3_client = get_s3_client()
     service = MeetingService(db, s3_client, settings)
@@ -101,6 +104,9 @@ async def confirm_meeting_upload(
     current_user: User = Depends(get_current_user),
 ) -> MeetingResponse:
     """Confirm that a meeting file upload is complete. Triggers processing pipeline."""
+    deal_service = DealService(db)
+    await deal_service.check_deal_access(deal_id, current_user.id, min_role=DealRole.ANALYST)
+
     settings = get_settings()
     s3_client = get_s3_client()
     service = MeetingService(db, s3_client, settings)
@@ -129,6 +135,9 @@ async def get_meeting(
     s3_client = get_s3_client()
     service = MeetingService(db, s3_client, settings)
     meeting = await service.get_meeting(meeting_id)
+    if meeting.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Meeting", str(meeting_id))
     return MeetingResponse.model_validate(meeting)
 
 
@@ -147,10 +156,16 @@ async def update_meeting(
     settings = get_settings()
     s3_client = get_s3_client()
     service = MeetingService(db, s3_client, settings)
+    # Verify meeting belongs to this deal
+    existing = await service.get_meeting(meeting_id)
+    if existing.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Meeting", str(meeting_id))
     meeting = await service.update_meeting(
         meeting_id=meeting_id,
         title=payload.title,
         meeting_date=payload.meeting_date,
+        bot_enabled=payload.bot_enabled,
     )
     return MeetingResponse.model_validate(meeting)
 
@@ -169,4 +184,8 @@ async def delete_meeting(
     settings = get_settings()
     s3_client = get_s3_client()
     service = MeetingService(db, s3_client, settings)
+    meeting = await service.get_meeting(meeting_id)
+    if meeting.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Meeting", str(meeting_id))
     await service.delete_meeting(meeting_id)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +39,7 @@ class Meeting(OrgScopedMixin, Base):
         default="uploading",
     )  # uploading, transcribing, analyzing, ready, failed
     error_message: Mapped[str | None] = mapped_column(Text)
+    bot_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id"),
@@ -47,7 +48,7 @@ class Meeting(OrgScopedMixin, Base):
 
     # Relationships
     deal = relationship("Deal", back_populates="meetings")
-    participants = relationship("MeetingParticipant", back_populates="meeting", lazy="selectin")
+    participants = relationship("MeetingParticipant", back_populates="meeting", lazy="noload")
     transcript = relationship("Transcript", back_populates="meeting", uselist=False, lazy="noload")
     analyses = relationship("Analysis", back_populates="meeting", lazy="noload")
 

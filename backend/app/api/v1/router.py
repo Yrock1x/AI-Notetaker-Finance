@@ -14,6 +14,7 @@ from app.api.v1 import (
     transcripts,
     webhooks,
 )
+from app.api.v1.qa import meeting_qa_router
 
 api_router = APIRouter()
 
@@ -26,6 +27,7 @@ api_router.include_router(transcripts.router, prefix="/meetings/{meeting_id}/tra
 api_router.include_router(analysis.router, prefix="/meetings/{meeting_id}/analyses", tags=["Analysis"])
 api_router.include_router(documents.router, prefix="/deals/{deal_id}/documents", tags=["Documents"])
 api_router.include_router(qa.router, prefix="/deals/{deal_id}/qa", tags=["Q&A"])
+api_router.include_router(meeting_qa_router, prefix="/meetings/{meeting_id}/qa", tags=["Q&A"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])

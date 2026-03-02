@@ -60,6 +60,13 @@ MTG_BEACON_3 = uuid.UUID("d4000000-0000-0000-0000-000000000007")
 MTG_CIPHER_1 = uuid.UUID("d4000000-0000-0000-0000-000000000008")
 MTG_CIPHER_2 = uuid.UUID("d4000000-0000-0000-0000-000000000009")
 
+# Future meeting UUIDs (scheduled)
+MTG_FUTURE_1 = uuid.UUID("d4000000-0000-0000-0000-00000000000a")
+MTG_FUTURE_2 = uuid.UUID("d4000000-0000-0000-0000-00000000000b")
+MTG_FUTURE_3 = uuid.UUID("d4000000-0000-0000-0000-00000000000c")
+MTG_FUTURE_4 = uuid.UUID("d4000000-0000-0000-0000-00000000000d")
+MTG_FUTURE_5 = uuid.UUID("d4000000-0000-0000-0000-00000000000e")
+
 # Transcript UUIDs
 TXN_ATLAS_1 = uuid.UUID("e5000000-0000-0000-0000-000000000001")
 TXN_ATLAS_2 = uuid.UUID("e5000000-0000-0000-0000-000000000002")
@@ -293,6 +300,47 @@ MEETINGS = [
         meeting_date=_ts(days_offset=-20, hours_offset=14),
         duration_seconds=5400,
         source="zoom", status="ready", created_by=USER_SARAH_ID,
+    ),
+    # --- Future scheduled meetings (next 2 weeks from "now") ---
+    Meeting(
+        id=MTG_FUTURE_1, deal_id=DEAL_ATLAS_ID, org_id=ORG1_ID,
+        title="TechCorp - Customer Reference Call (Acme Corp)",
+        meeting_date=_ts(days_offset=16, hours_offset=10),
+        duration_seconds=3600,
+        source="zoom", status="scheduled", created_by=USER_SARAH_ID,
+        bot_enabled=True,
+    ),
+    Meeting(
+        id=MTG_FUTURE_2, deal_id=DEAL_ATLAS_ID, org_id=ORG1_ID,
+        title="Atlas Deal Team - IC Prep Session",
+        meeting_date=_ts(days_offset=18, hours_offset=14),
+        duration_seconds=5400,
+        source="teams", status="scheduled", created_by=USER_MICHAEL_ID,
+        bot_enabled=True,
+    ),
+    Meeting(
+        id=MTG_FUTURE_3, deal_id=DEAL_BEACON_ID, org_id=ORG1_ID,
+        title="GreenEnergy Co - Regulatory Deep-Dive with Counsel",
+        meeting_date=_ts(days_offset=21, hours_offset=11),
+        duration_seconds=3600,
+        source="zoom", status="scheduled", created_by=USER_EMILY_ID,
+        bot_enabled=False,
+    ),
+    Meeting(
+        id=MTG_FUTURE_4, deal_id=DEAL_BEACON_ID, org_id=ORG1_ID,
+        title="Beacon Investment Committee Presentation",
+        meeting_date=_ts(days_offset=24, hours_offset=9),
+        duration_seconds=7200,
+        source="teams", status="scheduled", created_by=USER_MICHAEL_ID,
+        bot_enabled=True,
+    ),
+    Meeting(
+        id=MTG_FUTURE_5, deal_id=DEAL_CIPHER_ID, org_id=ORG1_ID,
+        title="DataFlow Analytics - Technical Architecture Review",
+        meeting_date=_ts(days_offset=27, hours_offset=15),
+        duration_seconds=4500,
+        source="zoom", status="scheduled", created_by=USER_SARAH_ID,
+        bot_enabled=False,
     ),
 ]
 

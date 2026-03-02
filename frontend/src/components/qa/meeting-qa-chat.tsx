@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useAskQuestion } from "@/hooks/use-qa";
+import { useMeetingAskQuestion } from "@/hooks/use-qa";
 import { LoadingState } from "@/components/shared/loading-state";
 import { Send, MessageCircle, BookOpen } from "lucide-react";
 
-interface QAChatProps {
-  dealId: string;
+interface MeetingQAChatProps {
+  meetingId: string;
 }
 
 interface QAEntry {
@@ -23,10 +23,10 @@ interface QAEntry {
   grounding_score?: number;
 }
 
-export function QAChat({ dealId }: QAChatProps) {
+export function MeetingQAChat({ meetingId }: MeetingQAChatProps) {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<QAEntry[]>([]);
-  const askQuestion = useAskQuestion();
+  const askQuestion = useMeetingAskQuestion();
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function QAChat({ dealId }: QAChatProps) {
 
     try {
       const response = await askQuestion.mutateAsync({
-        dealId,
+        meetingId,
         payload: { question: q },
       });
       setHistory((prev) => [
@@ -75,17 +75,17 @@ export function QAChat({ dealId }: QAChatProps) {
             <MessageCircle className="h-12 w-12 text-muted-foreground/30" />
             <h3 className="mt-4 text-lg font-medium">Ask a question</h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Questions are answered using meeting transcripts and documents
-              from this deal, with source citations.
+              Questions are answered using the transcript and analysis
+              from this meeting, with source citations.
             </p>
             <div className="mt-6 space-y-2">
               <p className="text-xs font-medium text-muted-foreground">
                 Example questions:
               </p>
               {[
-                "What are the key financial metrics discussed?",
-                "What risks were identified in the due diligence?",
-                "Summarize the management team's growth strategy",
+                "What were the key takeaways from this meeting?",
+                "What action items were discussed?",
+                "Summarize the financial metrics mentioned",
               ].map((example) => (
                 <button
                   key={example}
@@ -159,7 +159,7 @@ export function QAChat({ dealId }: QAChatProps) {
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask a question about this deal..."
+            placeholder="Ask a question about this meeting..."
             className="flex-1 rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             disabled={askQuestion.isPending}
           />

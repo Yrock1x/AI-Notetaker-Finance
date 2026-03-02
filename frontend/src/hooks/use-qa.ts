@@ -9,7 +9,7 @@ export function useQAHistory(dealId: string | undefined) {
     queryKey: [QA_KEY, dealId],
     queryFn: async () => {
       const { data } = await apiClient.get<QAInteraction[]>(
-        `/deals/${dealId}/qa`
+        `/deals/${dealId}/qa/history`
       );
       return data;
     },
@@ -28,7 +28,7 @@ export function useAskQuestion() {
       payload: QARequest;
     }) => {
       const { data } = await apiClient.post<QAResponse>(
-        `/deals/${dealId}/qa`,
+        `/deals/${dealId}/qa/ask`,
         payload
       );
       return data;
@@ -37,6 +37,24 @@ export function useAskQuestion() {
       queryClient.invalidateQueries({
         queryKey: [QA_KEY, variables.dealId],
       });
+    },
+  });
+}
+
+export function useMeetingAskQuestion() {
+  return useMutation({
+    mutationFn: async ({
+      meetingId,
+      payload,
+    }: {
+      meetingId: string;
+      payload: QARequest;
+    }) => {
+      const { data } = await apiClient.post<QAResponse>(
+        `/meetings/${meetingId}/qa/ask`,
+        payload
+      );
+      return data;
     },
   });
 }

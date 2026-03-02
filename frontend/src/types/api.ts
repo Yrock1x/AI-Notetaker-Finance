@@ -33,11 +33,11 @@ export interface DealUpdate {
 }
 
 export interface DealFilters {
-  status?: DealStatus;
-  deal_type?: DealType;
   search?: string;
-  page?: number;
-  page_size?: number;
+  status?: string;
+  deal_type?: string;
+  cursor?: string;
+  limit?: number;
 }
 
 // Deal member requests
@@ -90,17 +90,21 @@ export interface QARequest {
 }
 
 export interface QAResponse {
+  id: string;
+  deal_id: string;
+  question: string;
   answer: string;
   citations: Array<{
     source_type: string;
     source_id: string;
     source_title: string;
-    excerpt: string;
+    text_excerpt: string;
     timestamp?: number;
-    page_number?: number;
-    confidence: number;
+    page?: number;
   }>;
-  processing_time_ms: number;
+  grounding_score?: number;
+  model_used: string;
+  created_at: string;
 }
 
 // Document requests
