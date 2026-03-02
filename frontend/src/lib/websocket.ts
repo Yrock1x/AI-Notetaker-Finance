@@ -16,8 +16,18 @@ export class WebSocketClient {
   connect(): void {
     if (typeof window === "undefined") return;
 
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      console.warn("WebSocket: No auth token available, skipping connection");
+      return;
+    }
+
+    this.shouldReconnect = true; // Reset on new connection
+
     try {
-      this.ws = new WebSocket(this.url);
+      const separator = this.url.includes("?") ? "&" : "?";
+      const authUrl = `${this.url}${separator}token=${encodeURIComponent(token)}`;
+      this.ws = new WebSocket(authUrl);
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranscript, useTranscriptSegments } from "@/hooks/use-transcripts";
 import { LoadingState } from "@/components/shared/loading-state";
 import { formatTimestamp } from "@/lib/utils";
@@ -37,21 +37,25 @@ export function TranscriptViewer({ meetingId }: TranscriptViewerProps) {
   }
 
   const segments = Array.isArray(segmentsData) ? segmentsData : segmentsData?.items ?? [];
-  const speakerMap = new Map<string, number>();
-  let speakerIndex = 0;
+
+  const speakerColors = useMemo(() => {
+    const map = new Map<string, string>();
+    let index = 0;
+    for (const segment of segments || []) {
+      const speaker = segment.speaker_label || "Unknown";
+      if (!map.has(speaker)) {
+        map.set(speaker, SPEAKER_COLORS[index % SPEAKER_COLORS.length]);
+        index++;
+      }
+    }
+    return map;
+  }, [segments]);
 
   const filteredSegments = searchQuery
     ? segments.filter((s) =>
         s.text.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : segments;
-
-  const getSpeakerColor = (speaker: string) => {
-    if (!speakerMap.has(speaker)) {
-      speakerMap.set(speaker, speakerIndex++);
-    }
-    return SPEAKER_COLORS[speakerMap.get(speaker)! % SPEAKER_COLORS.length];
-  };
 
   return (
     <div className="space-y-4">
@@ -92,7 +96,7 @@ export function TranscriptViewer({ meetingId }: TranscriptViewerProps) {
                   {formatTimestamp(segment.start_time)}
                 </span>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getSpeakerColor(segment.speaker_label)}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${speakerColors.get(segment.speaker_label) || SPEAKER_COLORS[0]}`}
                 >
                   <User className="h-2.5 w-2.5" />
                   {segment.speaker_name ?? segment.speaker_label}

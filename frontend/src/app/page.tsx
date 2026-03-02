@@ -1,281 +1,557 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import gsap from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
+import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
-import "../styles/landing.css";
+import "../styles/landing-v2.css";
 
-const FEATURES = [
-  {
-    icon: "M12 18.75a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5ZM12 2.25v1.5M12 20.25v1.5M4.22 4.22l1.06 1.06M18.72 18.72l1.06 1.06M2.25 12h1.5M20.25 12h1.5M4.22 19.78l1.06-1.06M18.72 5.28l1.06-1.06",
-    title: "AI Transcription",
-    description:
-      "Automatically transcribe meetings with speaker diarization powered by Deepgram, capturing every detail with financial-grade accuracy.",
-  },
-  {
-    icon: "M3.75 6.75h16.5M3.75 12h16.5M12 17.25h8.25",
-    title: "Deal Intelligence",
-    description:
-      "Extract key terms, action items, and risk signals from every conversation. AI-powered analysis tailored for IB, PE, and VC workflows.",
-  },
-  {
-    icon: "M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155",
-    title: "Q&A Over Meetings",
-    description:
-      "Ask questions across your entire meeting history. Get instant, sourced answers powered by Claude with full context from your deal pipeline.",
-  },
-  {
-    icon: "M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z",
-    title: "Enterprise Security",
-    description:
-      "SOC 2 ready architecture with row-level security, role-based access control, and full audit logging. Your deal data stays protected.",
-  },
-  {
-    icon: "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z",
-    title: "Deal Analytics",
-    description:
-      "Track deal progress, meeting cadence, and team engagement across your entire portfolio with real-time dashboards and insights.",
-  },
-  {
-    icon: "M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244",
-    title: "Integrations",
-    description:
-      "Connect with Zoom, Microsoft Teams, Slack, and your CRM. Seamless workflow integration that fits how your team already works.",
-  },
-];
-
-const STEPS = [
-  {
-    num: "01",
-    title: "Connect your meetings",
-    description: "Link Zoom, Teams, or upload recordings directly. DealWise joins automatically.",
-  },
-  {
-    num: "02",
-    title: "AI processes everything",
-    description: "Transcription, speaker identification, and intelligent analysis happen in minutes.",
-  },
-  {
-    num: "03",
-    title: "Get deal insights",
-    description: "Key terms, action items, risk signals, and searchable Q&A across all your meetings.",
-  },
-];
-
-function FeatureIcon({ path }: { path: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-      strokeWidth={1.5}
-      stroke="currentColor"
-      className="lp-feature-icon"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d={path} />
-    </svg>
-  );
+// Ensure GSAP registers on client side
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
 }
 
-export default function HomePage() {
-  const [scrolled, setScrolled] = useState(false);
+// --------------------------------------------------------------------------
+// SHARED COMPONENTS
+// --------------------------------------------------------------------------
+
+const Navbar = () => {
+  const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    let ctx = gsap.context(() => {
+      ScrollTrigger.create({
+        start: "top -50",
+        onUpdate: (self) => {
+          if (self.progress > 0) {
+            gsap.to(navRef.current, {
+              backgroundColor: "rgba(242, 240, 233, 0.8)",
+              backdropFilter: "blur(16px)",
+              color: "#1A1A1A",
+              border: "1px solid rgba(26,26,26,0.1)",
+              duration: 0.3
+            });
+          } else {
+            gsap.to(navRef.current, {
+              backgroundColor: "transparent",
+              backdropFilter: "blur(0px)",
+              color: "#F2F0E9",
+              border: "1px solid transparent",
+              duration: 0.3
+            });
+          }
+        }
+      });
+    });
+    return () => ctx.revert();
   }, []);
 
   return (
-    <div className="landing-page">
-      {/* NAV */}
-      <nav className={`lp-nav${scrolled ? " lp-nav--scrolled" : ""}`}>
-        <div className="lp-nav-inner">
-          <Link href="/" className="lp-logo">
-            <span className="lp-logo-icon">D</span>
-            <span>DealWise AI</span>
-          </Link>
+    <div ref={navRef} className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center justify-between px-6 py-3 rounded-[3rem] w-[90%] max-w-5xl transition-all border border-transparent text-[#F2F0E9]">
+      <div className="font-heading font-bold text-lg tracking-tight">Deal Companion</div>
+      <div className="hidden md:flex items-center gap-8 font-subheading text-sm font-medium">
+        <a href="#features" className="link-lift">Features</a>
+        <a href="#philosophy" className="link-lift">Philosophy</a>
+        <a href="#protocol" className="link-lift">Protocol</a>
+      </div>
+      <Link href="/login" className="magnetic-btn relative bg-[#CC5833] text-white px-6 py-2.5 rounded-[2rem] font-subheading text-sm font-semibold overflow-hidden group shadow-lg">
+        <span className="relative z-10 transition-colors">Log in</span>
+        <div className="absolute inset-0 bg-[#2E4036] translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-in-out z-0"></div>
+      </Link>
+    </div>
+  );
+};
 
-          <div className="lp-nav-links">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How It Works</a>
-          </div>
+// --------------------------------------------------------------------------
+// HERO
+// --------------------------------------------------------------------------
 
-          <div className="lp-nav-actions">
-            <Link href="/login" className="lp-btn lp-btn--ghost">
-              Log In
-            </Link>
-            <Link href="/login" className="lp-btn lp-btn--primary">
-              Get Started
-            </Link>
-          </div>
-        </div>
-      </nav>
+const Hero = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
 
-      {/* HERO */}
-      <section className="lp-hero">
-        <div className="lp-hero-glow" />
-        <div className="lp-hero-content">
-          <div className="lp-badge">AI-Powered Meeting Intelligence</div>
-          <h1 className="lp-hero-title">
-            Turn every deal meeting
-            <br />
-            into a <span className="lp-gradient-text">competitive edge</span>
-          </h1>
-          <p className="lp-hero-sub">
-            DealWise AI automatically transcribes, analyzes, and extracts
-            actionable intelligence from your investment meetings — so your
-            team never misses a detail.
-          </p>
-          <div className="lp-hero-cta">
-            <Link href="/login" className="lp-btn lp-btn--primary lp-btn--lg">
-              Start Free Trial
-            </Link>
-            <a href="#how-it-works" className="lp-btn lp-btn--outline lp-btn--lg">
-              See How It Works
-            </a>
-          </div>
-          <p className="lp-hero-note">No credit card required. Free for up to 10 meetings/month.</p>
-        </div>
+  useEffect(() => {
+    let ctx = gsap.context(() => {
+      gsap.from(".hero-elem", { y: 40, opacity: 0, stagger: 0.08, duration: 1.2, ease: "power3.out", delay: 0.2 });
+    }, containerRef);
+    return () => ctx.revert();
+  }, []);
 
-        {/* Dashboard preview */}
-        <div className="lp-hero-visual">
-          <div className="lp-dash-preview">
-            <div className="lp-dash-topbar">
-              <div className="lp-dash-dots">
-                <span /><span /><span />
-              </div>
-              <span className="lp-dash-url">app.dealwise.ai/dashboard</span>
-            </div>
-            <div className="lp-dash-body">
-              <div className="lp-dash-sidebar">
-                <div className="lp-dash-sidebar-item lp-dash-sidebar-item--active" />
-                <div className="lp-dash-sidebar-item" />
-                <div className="lp-dash-sidebar-item" />
-                <div className="lp-dash-sidebar-item" />
-              </div>
-              <div className="lp-dash-main">
-                <div className="lp-dash-card lp-dash-card--wide">
-                  <div className="lp-dash-card-title" />
-                  <div className="lp-dash-bars">
-                    <div className="lp-dash-bar" style={{ width: "85%" }} />
-                    <div className="lp-dash-bar" style={{ width: "62%" }} />
-                    <div className="lp-dash-bar" style={{ width: "94%" }} />
-                    <div className="lp-dash-bar" style={{ width: "45%" }} />
-                  </div>
-                </div>
-                <div className="lp-dash-grid">
-                  <div className="lp-dash-card">
-                    <div className="lp-dash-card-title" />
-                    <div className="lp-dash-metric">24</div>
-                    <div className="lp-dash-card-sub" />
-                  </div>
-                  <div className="lp-dash-card">
-                    <div className="lp-dash-card-title" />
-                    <div className="lp-dash-metric">3</div>
-                    <div className="lp-dash-card-sub" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* LOGOS / SOCIAL PROOF */}
-      <section className="lp-logos">
-        <p>Trusted by leading investment firms</p>
-        <div className="lp-logos-row">
-          {["Meridian Capital", "Atlas Ventures", "Pinnacle Partners", "Crestview PE", "Summit Advisory"].map(
-            (name) => (
-              <span key={name} className="lp-logo-text">{name}</span>
-            )
-          )}
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section className="lp-features" id="features">
-        <div className="lp-section-header">
-          <div className="lp-badge">Capabilities</div>
-          <h2>Everything your deal team needs</h2>
-          <p>
-            From automatic transcription to AI-powered analysis, DealWise AI
-            handles the full meeting intelligence lifecycle.
-          </p>
-        </div>
-        <div className="lp-features-grid">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="lp-feature-card">
-              <FeatureIcon path={f.icon} />
-              <h3>{f.title}</h3>
-              <p>{f.description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section className="lp-how" id="how-it-works">
-        <div className="lp-section-header">
-          <div className="lp-badge">Workflow</div>
-          <h2>Up and running in minutes</h2>
-          <p>
-            Three simple steps from meeting to actionable intelligence.
-          </p>
-        </div>
-        <div className="lp-steps">
-          {STEPS.map((s) => (
-            <div key={s.num} className="lp-step">
-              <span className="lp-step-num">{s.num}</span>
-              <h3>{s.title}</h3>
-              <p>{s.description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="lp-cta">
-        <div className="lp-cta-glow" />
-        <h2>Ready to transform your deal workflow?</h2>
-        <p>
-          Join top-tier investment teams already using DealWise AI to capture
-          every insight from every meeting.
+  return (
+    <section ref={containerRef} className="relative h-[100dvh] w-full flex flex-col justify-end p-8 md:p-16 rounded-b-[3rem] overflow-hidden">
+      <div className="absolute inset-0 z-0">
+        <img src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=2000" alt="Corporate skyline" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#1A1A1A] via-[#1A1A1A]/60 to-transparent"></div>
+      </div>
+      <div className="relative z-10 w-full md:w-2/3 lg:w-1/2 text-[#F2F0E9] mb-[5vh]">
+        <h1 className="hero-elem font-heading text-5xl md:text-7xl lg:text-[5.5rem] font-extrabold leading-[0.9] mb-2 uppercase tracking-tighter">
+          Intelligence is the
+        </h1>
+        <h2 className="hero-elem font-drama text-6xl md:text-8xl lg:text-[7rem] italic leading-none text-[#CC5833] mb-8 pr-4">
+          Advantage.
+        </h2>
+        <p className="hero-elem font-subheading text-lg md:text-xl max-w-md mb-10 text-[#F2F0E9]/80 font-medium leading-relaxed">
+          Deal Companion joins your meetings to take live transcriptions, notes, and summaries. Ask anything, collaborate with your deal team, and produce deliverables instantly.
         </p>
-        <div className="lp-hero-cta">
-          <Link href="/login" className="lp-btn lp-btn--primary lp-btn--lg">
-            Get Started Free
+        <div className="hero-elem flex flex-wrap gap-4">
+          <Link href="/login" className="magnetic-btn relative bg-[#CC5833] text-white px-8 py-4 rounded-[2rem] font-subheading text-sm font-semibold overflow-hidden group shadow-xl">
+            <span className="relative z-10">Sign up</span>
+            <div className="absolute inset-0 bg-[#2E4036] translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
           </Link>
+          <button className="magnetic-btn relative bg-white/10 backdrop-blur-md border border-white/20 text-white px-8 py-4 rounded-[2rem] font-subheading text-sm font-semibold overflow-hidden group hover:border-transparent transition-colors shadow-xl">
+            <span className="relative z-10 transition-colors">Book a demo</span>
+            <div className="absolute inset-0 bg-[#2E4036] translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+          </button>
         </div>
-      </section>
+      </div>
+    </section>
+  );
+};
 
-      {/* FOOTER */}
-      <footer className="lp-footer">
-        <div className="lp-footer-inner">
-          <div className="lp-footer-brand">
-            <span className="lp-logo">
-              <span className="lp-logo-icon">D</span>
-              <span>DealWise AI</span>
-            </span>
-            <p>AI-powered meeting intelligence for investment professionals.</p>
+// --------------------------------------------------------------------------
+// FEATURES - Artifacts
+// --------------------------------------------------------------------------
+
+const Features = () => {
+  return (
+    <section id="features" className="py-32 px-6 md:px-12 xl:px-24">
+      <div className="mb-20 max-w-2xl">
+        <h2 className="font-heading text-4xl md:text-6xl font-bold text-[#2E4036] tracking-tight leading-tight">
+          Interactive <br /> Functional Artifacts
+        </h2>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <CardShuffler />
+        <CardTypewriter />
+        <CardScheduler />
+      </div>
+    </section>
+  );
+};
+
+const CardShuffler = () => {
+  const [stack, setStack] = useState([
+    { id: 1, label: "// Financial Models", bg: "bg-[#2E4036]" },
+    { id: 2, label: "// Pitch Decks", bg: "bg-[#CC5833]" },
+    { id: 3, label: "// Deal Memos", bg: "bg-[#1A1A1A]" }
+  ]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStack(prev => {
+        const newArr = [...prev];
+        const last = newArr.pop();
+        if (last) newArr.unshift(last);
+        return newArr;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-[#1A1A1A]/5 h-[420px] flex flex-col relative group overflow-hidden">
+      <h3 className="font-heading font-bold text-xl text-[#2E4036] mb-2">Generate Deliverables</h3>
+      <p className="font-subheading text-[#1A1A1A]/60 text-sm mb-12 max-w-[80%]">Instantly produce comprehensive financial models and presentations from meeting context.</p>
+      <div className="relative flex-1 flex items-center justify-center w-full">
+        {stack.map((item, i) => (
+          <div
+            key={item.id}
+            className={`absolute w-[90%] h-[140px] rounded-[2rem] ${item.bg} text-[#F2F0E9] p-6 flex flex-col justify-end font-data text-xs shadow-[0_10px_30px_rgba(0,0,0,0.1)]`}
+            style={{
+              transition: 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
+              transform: `translateY(${i * -24}px) scale(${1 - i * 0.06})`,
+              zIndex: 10 - i,
+              opacity: 1 - i * 0.15
+            }}
+          >
+            <span className="opacity-80 font-medium">{item.label}</span>
           </div>
-          <div className="lp-footer-col">
-            <h4>Product</h4>
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How It Works</a>
-            <Link href="/login">Dashboard</Link>
-          </div>
-          <div className="lp-footer-col">
-            <h4>Company</h4>
-            <a href="#features">About</a>
-            <a href="#features">Security</a>
-            <a href="#features">Contact</a>
-          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const CardTypewriter = () => {
+  const text = "> Joining meeting...\n> Live transcription active.\n> Summarizing deal points.\n> Ready for queries.";
+  const [displayed, setDisplayed] = useState("");
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (index < text.length) {
+      const timeout = setTimeout(() => {
+        setDisplayed(prev => prev + text.charAt(index));
+        setIndex(index + 1);
+      }, 60);
+      return () => clearTimeout(timeout);
+    } else {
+      const reset = setTimeout(() => { setDisplayed(""); setIndex(0); }, 4000);
+      return () => clearTimeout(reset);
+    }
+  }, [index, text]);
+
+  return (
+    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-[#1A1A1A]/5 h-[420px] flex flex-col relative">
+      <h3 className="font-heading font-bold text-xl text-[#2E4036] mb-2">Live Notes & Q&A</h3>
+      <p className="font-subheading text-[#1A1A1A]/60 text-sm mb-8 max-w-[80%]">Seamlessly takes live transcriptions and summaries. Ask it anything relating to the meeting.</p>
+
+      <div className="flex-1 bg-[#1A1A1A] rounded-[2rem] p-6 overflow-hidden relative shadow-inner">
+        <div className="flex items-center gap-2 mb-4 bg-white/5 inline-flex px-3 py-1.5 rounded-full border border-white/10">
+          <div className="w-2 h-2 rounded-full bg-[#CC5833] animate-pulse"></div>
+          <span className="font-data text-[10px] text-[#F2F0E9]/70 uppercase tracking-widest">Telemetry</span>
         </div>
-        <div className="lp-footer-bottom">
-          <p>&copy; {new Date().getFullYear()} DealWise AI. All rights reserved.</p>
+        <div className="font-data text-[13px] text-[#F2F0E9]/90 whitespace-pre-line leading-loose">
+          {displayed}<span className="inline-block w-2 bg-[#CC5833] h-4 ml-1 translate-y-1 animate-pulse"></span>
         </div>
-      </footer>
+      </div>
+    </div>
+  );
+};
+
+const CardScheduler = () => {
+  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const saveRef = useRef<HTMLDivElement>(null);
+  const [activeDay, setActiveDay] = useState(-1);
+
+  useEffect(() => {
+    let ctx = gsap.context(() => {
+      const tl = gsap.timeline({ repeat: -1, repeatDelay: 1 });
+      tl.set(cursorRef.current, { x: 50, y: 150, opacity: 0 });
+      tl.to(cursorRef.current, { opacity: 1, duration: 0.2 });
+      tl.to(cursorRef.current, { x: -28, y: -24, duration: 0.8, ease: "power2.inOut" });
+      tl.to(cursorRef.current, { scale: 0.8, duration: 0.1 });
+      tl.call(() => setActiveDay(3));
+      tl.to(boxRef.current, { scale: 0.9, duration: 0.1 }, "<");
+      tl.to(cursorRef.current, { scale: 1, duration: 0.1 });
+      tl.to(boxRef.current, { scale: 1, duration: 0.1 }, "<");
+      tl.to(cursorRef.current, { x: 0, y: 65, duration: 0.8, ease: "power2.inOut", delay: 0.2 });
+      tl.to(cursorRef.current, { scale: 0.8, duration: 0.1 });
+      tl.to(saveRef.current, { scale: 0.95, duration: 0.1 }, "<");
+      tl.to(cursorRef.current, { scale: 1, duration: 0.1 });
+      tl.to(saveRef.current, { scale: 1, duration: 0.1 }, "<");
+      tl.to(saveRef.current, { backgroundColor: "#CC5833", color: "white", borderColor: "transparent", duration: 0.2 }, "<");
+      tl.to(cursorRef.current, { opacity: 0, duration: 0.2, delay: 0.5 });
+      tl.call(() => setActiveDay(-1));
+      tl.to(saveRef.current, { backgroundColor: "transparent", color: "#1A1A1A", borderColor: "rgba(26,26,26,0.2)", duration: 0.2, clearProps: "all" }, "<");
+    });
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-[#1A1A1A]/5 h-[420px] flex flex-col relative">
+      <h3 className="font-heading font-bold text-xl text-[#2E4036] mb-2">Collaborative Deal Rooms</h3>
+      <p className="font-subheading text-[#1A1A1A]/60 text-sm mb-8 max-w-[80%]">Segmented by deal. Your whole deal team can work collaboratively inside dedicated workspaces.</p>
+
+      <div className="flex-1 w-full bg-[#F2F0E9]/50 rounded-[2rem] border border-[#1A1A1A]/5 p-6 flex flex-col items-center justify-center relative overflow-hidden">
+        <div className="flex gap-2 mb-10 w-full justify-center">
+          {days.map((d, i) => (
+            <div
+              key={i}
+              ref={i === 3 ? boxRef : null}
+              className={`w-9 h-9 flex items-center justify-center rounded-xl font-data text-xs transition-colors duration-300 font-medium ${activeDay === i ? 'bg-[#CC5833] text-white shadow-lg' : 'bg-white text-[#1A1A1A] border border-[#1A1A1A]/10'}`}
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+
+        <div ref={saveRef} className="px-6 py-2.5 bg-transparent text-[#1A1A1A] font-subheading font-medium text-sm rounded-full border border-[#1A1A1A]/20 transition-all">
+          Sync to Pipeline
+        </div>
+
+        <div ref={cursorRef} className="absolute z-10 text-[#2E4036]" style={{ pointerEvents: 'none' }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="drop-shadow-xl" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86h7.6c.45 0 .81-.36.81-.81V3.21c0-.45-.36-.81-.81-.81H6.31c-.45 0-.81.36-.81.81z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --------------------------------------------------------------------------
+// PHILOSOPHY
+// --------------------------------------------------------------------------
+
+const Philosophy = () => {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const phrases1 = ["broad transcription.", "generic outputs.", "cookie cutter templates."];
+  const phrases2 = ["deal-level intelligence.", "deliverable production.", "deal team collaboration."];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhraseIndex((prev) => (prev + 1) % phrases1.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let ctx = gsap.context(() => {
+      gsap.from(".split-word", {
+        y: 50, opacity: 0, stagger: 0.05, duration: 1, ease: "power3.out",
+        scrollTrigger: { trigger: sectionRef.current, start: "top 60%" }
+      });
+    }, sectionRef);
+    return () => ctx.revert();
+  }, []);
+
+  const sentence1Prefix = "Most AI tools focus on:".split(" ");
+  const sentence2Prefix = "We focus on:".split(" ");
+
+  return (
+    <section ref={sectionRef} id="philosophy" className="relative py-40 px-6 flex items-center justify-center overflow-hidden bg-[#1A1A1A] text-[#F2F0E9] rounded-[3rem] mx-2 shadow-2xl">
+      <div className="absolute inset-0 opacity-[0.15]">
+        <img src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=2000" className="w-full h-full object-cover grayscale mix-blend-overlay" />
+      </div>
+      <div className="relative z-10 max-w-6xl mx-auto text-center space-y-16">
+        <h3 className="font-heading text-2xl md:text-3xl lg:text-4xl text-[#F2F0E9]/40 tracking-tight font-semibold flex flex-wrap justify-center items-center gap-x-2 md:gap-x-3 transition-all">
+          {sentence1Prefix.map((w, i) => <span key={i} className="split-word inline-block">{w}</span>)}
+          <span className="inline-block text-left text-white/90 ml-1">
+            <span key={phraseIndex} className="block animate-slide-up-fade text-[#CC5833]">{phrases1[phraseIndex]}</span>
+          </span>
+        </h3>
+        <h2 className="font-drama text-5xl md:text-7xl lg:text-8xl italic leading-tight flex flex-wrap justify-center items-center gap-x-3 md:gap-x-4">
+          {sentence2Prefix.map((w, i) => <span key={`s2-${i}`} className="split-word inline-block">{w}</span>)}
+          <span className="inline-block text-left text-[#CC5833] font-bold ml-1">
+            <span key={phraseIndex} className="block animate-slide-up-fade">{phrases2[phraseIndex]}</span>
+          </span>
+        </h2>
+      </div>
+    </section>
+  );
+};
+
+// --------------------------------------------------------------------------
+// PROTOCOL
+// --------------------------------------------------------------------------
+
+const Protocol = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let ctx = gsap.context(() => {
+      const cards = gsap.utils.toArray<HTMLElement>('.protocol-card');
+      cards.forEach((card, i) => {
+        const inner = card.querySelector('.protocol-inner');
+        if (!inner) return;
+
+        ScrollTrigger.create({
+          trigger: card,
+          start: "top top",
+          pin: true,
+          pinSpacing: false,
+          endTrigger: ".protocol-end",
+          end: "bottom bottom",
+        });
+
+        if (i < cards.length - 1) {
+          gsap.to(inner, {
+            scale: 0.9,
+            opacity: 0.5,
+            filter: "blur(20px)",
+            ease: "none",
+            scrollTrigger: {
+              trigger: cards[i + 1],
+              start: "top bottom",
+              end: "top top",
+              scrub: true,
+            }
+          });
+        }
+      });
+    }, containerRef);
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <section ref={containerRef} id="protocol" className="relative bg-[#F2F0E9] pt-32 pb-0 z-20">
+      <div className="text-center mb-16 px-6">
+        <h2 className="font-heading text-4xl md:text-6xl font-bold text-[#2E4036] tracking-tight">The Deal Protocol</h2>
+      </div>
+
+      <ProtocolCard
+        num="01/03"
+        title="Meeting Ingestion"
+        desc="The AI joins your calls, taking live notes, full transcriptions, and executive summaries."
+        Graphic={ProtoGraphic1}
+        color="bg-[#2E4036]"
+        textColor="text-[#F2F0E9]"
+      />
+      <ProtocolCard
+        num="02/03"
+        title="Deal-Team Collaboration"
+        desc="Information is dynamically routed into deal-specific segments for your team to work collaboratively."
+        Graphic={ProtoGraphic2}
+        color="bg-white border-2 border-[#1A1A1A]/10"
+        textColor="text-[#1A1A1A]"
+      />
+      <ProtocolCard
+        num="03/03"
+        title="Deliverable Production"
+        desc="Generate structured outputs like financial models, PowerPoints, and presentations in seconds."
+        Graphic={ProtoGraphic3}
+        color="bg-[#CC5833]"
+        textColor="text-white"
+      />
+      {/* The spacer that allows the last card to scroll out */}
+      <div className="protocol-end h-[60vh] pointer-events-none md:h-[100vh]"></div>
+    </section>
+  );
+};
+
+const ProtocolCard = ({ num, title, desc, Graphic, color, textColor }: any) => {
+  return (
+    <div className={`protocol-card h-[100dvh] w-full flex items-center justify-center sticky top-0 px-4 md:px-12`}>
+      <div className={`protocol-inner w-full max-w-6xl h-[75vh] md:h-[80vh] rounded-[3rem] ${color} ${textColor} p-8 md:p-20 flex flex-col md:flex-row items-center justify-between gap-12 shadow-[0_30px_60px_rgba(0,0,0,0.1)]`}>
+        <div className="flex-1 space-y-8 w-full">
+          <div className="font-data text-sm opacity-60 flex items-center gap-4 uppercase tracking-widest font-semibold">
+            <span className="w-12 h-px bg-current"></span>
+            {num}
+          </div>
+          <h3 className="font-heading text-4xl md:text-6xl font-bold leading-tight tracking-tight">{title}</h3>
+          <p className="font-subheading text-lg md:text-xl opacity-80 max-w-md leading-relaxed">{desc}</p>
+        </div>
+        <div className="flex-1 w-full h-full relative flex items-center justify-center">
+          <Graphic />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ProtoGraphic1 = () => (
+  <div className="w-48 h-48 md:w-80 md:h-80 relative animate-[spin_25s_linear_infinite]">
+    <svg viewBox="0 0 100 100" className="w-full h-full stroke-current fill-none overflow-visible" strokeWidth="0.5">
+      <circle cx="50" cy="50" r="45" className="opacity-20" />
+      <circle cx="50" cy="50" r="30" className="opacity-40" strokeWidth="1" />
+      <circle cx="50" cy="50" r="15" className="opacity-80" strokeWidth="2" />
+      <rect x="25" y="25" width="50" height="50" className="animate-[spin_12s_linear_infinite] origin-center opacity-30" />
+      <rect x="35" y="35" width="30" height="30" className="animate-[spin_8s_linear_infinite_reverse] origin-center opacity-60" strokeWidth="1" />
+    </svg>
+  </div>
+);
+
+const ProtoGraphic2 = () => {
+  return (
+    <div className="w-48 h-48 md:w-80 md:h-80 relative bg-black/5 rounded-[2rem] overflow-hidden flex items-center justify-center border border-black/10">
+      <div className="grid grid-cols-6 gap-3 opacity-30">
+        {Array.from({ length: 36 }).map((_, i) => <div key={i} className={`w-2 h-2 md:w-3 md:h-3 rounded-full ${i % 7 === 0 ? 'bg-[#CC5833]' : 'bg-current'}`}></div>)}
+      </div>
+      <div className="absolute top-0 w-full h-[2px] bg-[#CC5833] animate-[bounce_4s_infinite] shadow-[0_0_20px_#CC5833]"></div>
+    </div>
+  );
+};
+
+const ProtoGraphic3 = () => (
+  <div className="w-full h-40 flex items-center justify-center opacity-90">
+    <svg viewBox="0 0 200 50" className="w-full h-full stroke-current fill-none stroke-2">
+      <path strokeDasharray="300" strokeDashoffset="300" className="animate-[dash_4s_linear_infinite]"
+        d="M0,25 L30,25 L40,10 L50,40 L60,25 L100,25 L110,5 L120,45 L130,25 L200,25" />
+      <path strokeDasharray="300" strokeDashoffset="300" className="animate-[dash_4s_linear_infinite] opacity-30" style={{ animationDelay: '1s' }}
+        d="M0,25 L30,25 L40,10 L50,40 L60,25 L100,25 L110,5 L120,45 L130,25 L200,25" />
+    </svg>
+  </div>
+);
+
+// --------------------------------------------------------------------------
+// PRICING / GET STARTED
+// --------------------------------------------------------------------------
+
+const Pricing = () => {
+  return (
+    <section className="py-20 md:py-40 px-6 max-w-7xl mx-auto relative z-30 bg-[#F2F0E9] rounded-t-[4rem] -mt-10">
+      <div className="text-center mb-20 max-w-2xl mx-auto">
+        <h2 className="font-heading text-4xl md:text-6xl font-bold text-[#1A1A1A] mb-6 tracking-tight">Select your protocol.</h2>
+        <p className="font-subheading text-[#1A1A1A]/70 text-lg">Secure, encrypted, multi-tenant intelligence for every deal room.</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
+        <PricingCard title="Essential" price="Free" features={["5h transcription limit", "Basic entity extraction", "Shared workspace", "Standard support"]} />
+        <PricingCard title="Performance" price="$99/mo" features={["Unlimited transcription", "Deal-level RBAC", "CRM deep integration", "Priority 24/7 Support"]} highlight />
+        <PricingCard title="Enterprise" price="Custom" features={["On-prem deployment", "Custom Entity Models", "Dedicated Success Manager", "SLA guarantees"]} />
+      </div>
+    </section>
+  );
+};
+
+const PricingCard = ({ title, price, features, highlight }: any) => (
+  <div className={`rounded-[3rem] p-10 font-subheading flex flex-col h-full min-h-[500px] ${highlight ? 'bg-[#2E4036] text-[#F2F0E9] md:scale-105 shadow-2xl relative z-10' : 'bg-white text-[#1A1A1A] border border-[#1A1A1A]/10 shadow-sm'}`}>
+    <div className="font-data text-xs uppercase tracking-widest mb-10 opacity-70 font-semibold">{title}</div>
+    <div className="font-heading text-5xl font-bold mb-12">{price}</div>
+    <ul className="space-y-4 mb-12 flex-1">
+      {features.map((f: string, i: number) => (
+        <li key={i} className="flex items-center gap-4 text-sm font-medium opacity-90">
+          <Check className={`w-5 h-5 flex-shrink-0 ${highlight ? 'text-[#CC5833]' : 'text-[#2E4036]'}`} />
+          <span>{f}</span>
+        </li>
+      ))}
+    </ul>
+    <button className={`magnetic-btn w-full py-5 rounded-[2rem] font-bold text-sm transition-all overflow-hidden relative group ${highlight ? 'bg-[#CC5833] text-white' : 'bg-[#F2F0E9] text-[#1A1A1A] hover:bg-[#1A1A1A] hover:text-white border border-[#1A1A1A]/10'}`}>
+      <span className="relative z-10">Choose Protocol</span>
+      {highlight && <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform"></div>}
+    </button>
+  </div>
+);
+
+// --------------------------------------------------------------------------
+// FOOTER
+// --------------------------------------------------------------------------
+
+const Footer = () => (
+  <footer className="bg-[#1A1A1A] pt-24 pb-12 px-8 md:px-16 rounded-t-[4rem] text-[#F2F0E9] font-subheading relative z-40">
+    <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-16 mb-24">
+      <div className="md:col-span-2">
+        <div className="font-heading text-3xl font-bold mb-6 tracking-tight text-white">Deal Companion</div>
+        <p className="text-white/50 max-w-md mb-10 text-lg leading-relaxed">
+          The ultimate digital instrument for investment banking, private equity, and venture capital.
+        </p>
+        <div className="flex items-center gap-3 bg-white/5 inline-flex px-5 py-2.5 rounded-full border border-white/10 shadow-inner">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-[pulse_2s_infinite]"></div>
+          <span className="font-data text-xs uppercase tracking-[0.2em] text-white/70 font-medium">System Operational</span>
+        </div>
+      </div>
+      <div>
+        <div className="font-data text-xs uppercase tracking-widest mb-8 opacity-40">Platform</div>
+        <ul className="space-y-4 text-sm text-white/70 font-medium">
+          <li><a href="#" className="hover:text-white transition-colors">Features</a></li>
+          <li><a href="#" className="hover:text-white transition-colors">Integrations</a></li>
+          <li><a href="#" className="hover:text-white transition-colors">Security Architecture</a></li>
+        </ul>
+      </div>
+      <div>
+        <div className="font-data text-xs uppercase tracking-widest mb-8 opacity-40">Company</div>
+        <ul className="space-y-4 text-sm text-white/70 font-medium">
+          <li><a href="#" className="hover:text-white transition-colors">Manifesto</a></li>
+          <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+          <li><a href="#" className="hover:text-white transition-colors">Privacy</a></li>
+        </ul>
+      </div>
+    </div>
+    <div className="max-w-7xl mx-auto border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-xs text-white/30 font-data tracking-wider gap-4">
+      <div>© 2026 DEAL COMPANION.</div>
+      <div>GENERATION 01.</div>
+    </div>
+  </footer>
+);
+
+// --------------------------------------------------------------------------
+// MAIN EXTERNAL EXPORT
+// --------------------------------------------------------------------------
+
+export default function LandingPage() {
+  return (
+    <div className="bg-[#F2F0E9] text-[#1A1A1A] font-subheading min-h-screen overflow-x-hidden selection:bg-[#CC5833] selection:text-white relative antialiased">
+      <div className="noise-bg pointer-events-none fixed inset-0 z-[999] opacity-5"></div>
+
+      <Navbar />
+      <Hero />
+      <Features />
+      <Philosophy />
+      <Protocol />
+      <Pricing />
+      <Footer />
     </div>
   );
 }

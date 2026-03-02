@@ -39,6 +39,11 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (selected) {
+      if (!ACCEPTED_TYPES.includes(selected.type)) {
+        setError("Unsupported file type. Please upload an audio or video file.");
+        return;
+      }
+      setError("");
       setFile(selected);
       if (!title) {
         setTitle(selected.name.replace(/\.[^/.]+$/, ""));
@@ -50,6 +55,11 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
     e.preventDefault();
     const dropped = e.dataTransfer.files[0];
     if (dropped) {
+      if (!ACCEPTED_TYPES.includes(dropped.type)) {
+        setError("Unsupported file type. Please upload an audio or video file.");
+        return;
+      }
+      setError("");
       setFile(dropped);
       if (!title) {
         setTitle(dropped.name.replace(/\.[^/.]+$/, ""));
@@ -76,11 +86,14 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
       });
 
       // Step 2: Upload file directly to S3
-      await fetch(initResult.upload_url, {
+      const uploadResponse = await fetch(initResult.upload_url, {
         method: "PUT",
         body: file,
         headers: { "Content-Type": file.type },
       });
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload to storage failed: ${uploadResponse.status}`);
+      }
 
       // Step 3: Confirm upload
       await confirmUpload.mutateAsync({

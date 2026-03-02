@@ -1,11 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUIStore } from "@/stores/ui-store";
 
 export default function SettingsPage() {
   const user = useAuthStore((state) => state.user);
   const { theme, setTheme } = useUIStore();
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else if (theme === "light") {
+      root.classList.remove("dark");
+    } else {
+      // System preference
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.toggle("dark", prefersDark);
+    }
+  }, [theme]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">

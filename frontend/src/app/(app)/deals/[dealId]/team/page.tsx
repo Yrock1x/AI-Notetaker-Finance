@@ -70,12 +70,15 @@ export default function TeamPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() =>
+                      onClick={() => {
+                        if (!confirm("Are you sure you want to remove this team member?")) {
+                          return;
+                        }
                         removeMember.mutate({
                           dealId: params.dealId,
                           userId: member.user_id,
-                        })
-                      }
+                        });
+                      }}
                       className="text-muted-foreground hover:text-red-600"
                       title="Remove member"
                     >

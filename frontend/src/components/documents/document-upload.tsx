@@ -43,11 +43,14 @@ export function DocumentUpload({ dealId }: DocumentUploadProps) {
         content_type: file.type,
       });
 
-      await fetch(initResult.upload_url, {
+      const uploadResponse = await fetch(initResult.upload_url, {
         method: "PUT",
         body: file,
         headers: { "Content-Type": file.type },
       });
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload to storage failed: ${uploadResponse.status}`);
+      }
 
       await confirmUpload.mutateAsync({
         document_id: initResult.document_id,
