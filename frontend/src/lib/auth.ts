@@ -1,51 +1,94 @@
-// TODO: Configure AWS Amplify with Cognito
-// This file will contain the Cognito authentication configuration
-// and helper functions once AWS Amplify is integrated.
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// TODO: Initialize Amplify
-// import { Amplify } from 'aws-amplify';
-// Amplify.configure({
-//   Auth: {
-//     Cognito: {
-//       userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
-//       userPoolClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
-//       loginWith: {
-//         oauth: {
-//           domain: process.env.NEXT_PUBLIC_COGNITO_DOMAIN!,
-//           scopes: ['openid', 'email', 'profile'],
-//           redirectSignIn: [process.env.NEXT_PUBLIC_REDIRECT_SIGN_IN!],
-//           redirectSignOut: [process.env.NEXT_PUBLIC_REDIRECT_SIGN_OUT!],
-//           responseType: 'code',
-//         },
-//       },
-//     },
-//   },
-// });
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-export async function signIn(): Promise<void> {
-  // TODO: Implement Cognito sign in
-  console.warn("Auth not configured: signIn() is a stub");
+let supabase: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient | null {
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  if (!supabase) {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  }
+  return supabase;
+}
+
+export { getSupabase };
+
+export async function signIn(
+  email: string,
+  password: string
+): Promise<{ error: string | null }> {
+  const client = getSupabase();
+  if (!client) {
+    console.warn("Supabase not configured: signIn() is a no-op");
+    return { error: "Auth not configured" };
+  }
+
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  return { error: error?.message ?? null };
+}
+
+export async function signInWithOAuth(
+  provider: "google" | "github" | "azure"
+): Promise<void> {
+  const client = getSupabase();
+  if (!client) {
+    console.warn("Supabase not configured: signInWithOAuth() is a no-op");
+    return;
+  }
+
+  await client.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: `${window.location.origin}/callback`,
+    },
+  });
 }
 
 export async function signOut(): Promise<void> {
-  // TODO: Implement Cognito sign out
+  const client = getSupabase();
+  if (client) {
+    await client.auth.signOut();
+  }
   if (typeof window !== "undefined") {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    localStorage.removeItem("org_id");
   }
-  console.warn("Auth not configured: signOut() is a stub");
-}
-
-export async function getCurrentUser(): Promise<null> {
-  // TODO: Implement Cognito getCurrentUser
-  console.warn("Auth not configured: getCurrentUser() is a stub");
-  return null;
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  // TODO: Implement Cognito token retrieval
+  const client = getSupabase();
+  if (client) {
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    return session?.access_token ?? null;
+  }
+  // Fallback: read from localStorage (demo mode)
   if (typeof window !== "undefined") {
     return localStorage.getItem("access_token");
   }
   return null;
+}
+
+export async function signUp(
+  email: string,
+  password: string,
+  fullName: string
+): Promise<{ error: string | null }> {
+  const client = getSupabase();
+  if (!client) {
+    return { error: "Auth not configured" };
+  }
+
+  const { error } = await client.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: fullName },
+    },
+  });
+  return { error: error?.message ?? null };
 }
