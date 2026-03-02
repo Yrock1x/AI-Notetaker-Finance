@@ -30,8 +30,5 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
 
 export const DEAL_STATUS_LABELS: Record<DealStatus, string> = {
   [DealStatus.ACTIVE]: "Active",
-  [DealStatus.ON_HOLD]: "On Hold",
-  [DealStatus.CLOSED_WON]: "Closed Won",
-  [DealStatus.CLOSED_LOST]: "Closed Lost",
   [DealStatus.ARCHIVED]: "Archived",
 };

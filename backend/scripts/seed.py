@@ -210,7 +210,7 @@ DEALS = [
         target_company="DataFlow Analytics",
         deal_type="vc",
         stage="closed",
-        status="closed_won",
+        status="archived",
         created_by=USER_SARAH_ID,
     ),
 ]

@@ -5,6 +5,7 @@ from app.api.v1 import (
     analysis,
     auth,
     deals,
+    deliverables,
     documents,
     health,
     integrations,
@@ -26,6 +27,7 @@ api_router.include_router(meetings.router, prefix="/deals/{deal_id}/meetings", t
 api_router.include_router(transcripts.router, prefix="/meetings/{meeting_id}/transcript", tags=["Transcripts"])
 api_router.include_router(analysis.router, prefix="/meetings/{meeting_id}/analyses", tags=["Analysis"])
 api_router.include_router(documents.router, prefix="/deals/{deal_id}/documents", tags=["Documents"])
+api_router.include_router(deliverables.router, prefix="/deals/{deal_id}/deliverables", tags=["Deliverables"])
 api_router.include_router(qa.router, prefix="/deals/{deal_id}/qa", tags=["Q&A"])
 api_router.include_router(meeting_qa_router, prefix="/meetings/{meeting_id}/qa", tags=["Q&A"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])

@@ -136,6 +136,7 @@ export default function CalendarPage() {
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
+  const [hiddenDeals, setHiddenDeals] = useState<Set<string>>(new Set());
 
   const allDealIds = useMemo(() => {
     const ids = new Set<string>();
@@ -143,9 +144,22 @@ export default function CalendarPage() {
     return Array.from(ids);
   }, [meetings]);
 
+  const toggleDeal = (dealId: string) => {
+    setHiddenDeals((prev) => {
+      const next = new Set(prev);
+      if (next.has(dealId)) {
+        next.delete(dealId);
+      } else {
+        next.add(dealId);
+      }
+      return next;
+    });
+  };
+
   const meetingsByDay = useMemo(() => {
     const map: Record<string, CalendarMeeting[]> = {};
     meetings.forEach((meeting) => {
+      if (hiddenDeals.has(meeting.deal_id)) return;
       const dateStr = meeting.meeting_date || meeting.created_at;
       const date = new Date(dateStr);
       if (date.getFullYear() === currentYear && date.getMonth() === currentMonth) {
@@ -155,7 +169,7 @@ export default function CalendarPage() {
       }
     });
     return map;
-  }, [meetings, currentYear, currentMonth]);
+  }, [meetings, currentYear, currentMonth, hiddenDeals]);
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -200,7 +214,7 @@ export default function CalendarPage() {
     <div className="space-y-10 antialiased">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary uppercase">
+        <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary">
           Meeting Calendar
         </h1>
         <p className="font-subheading text-[#1A1A1A]/60 text-lg font-medium leading-relaxed">
@@ -209,18 +223,28 @@ export default function CalendarPage() {
         </p>
       </div>
 
-      {/* Deal legend */}
-      <div className="flex flex-wrap items-center gap-4">
+      {/* Deal filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-subheading text-xs font-medium text-[#1A1A1A]/40 mr-1">Filter by deal:</span>
         {allDealIds.map((dealId, i) => {
           const colors = DEAL_COLORS[i % 3];
           const dealName = meetings.find((m) => m.deal_id === dealId)?.deal_name || dealId;
+          const isVisible = !hiddenDeals.has(dealId);
           return (
-            <div key={dealId} className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${colors.dot}`} />
-              <span className="font-subheading text-xs font-bold uppercase tracking-widest text-[#1A1A1A]/60">
+            <button
+              key={dealId}
+              onClick={() => toggleDeal(dealId)}
+              className={`flex items-center gap-2 rounded-full px-3 py-1.5 border transition-all duration-200 ${
+                isVisible
+                  ? `${colors.bg} border-transparent`
+                  : "bg-white border-[#1A1A1A]/10 opacity-50"
+              }`}
+            >
+              <span className={`h-2.5 w-2.5 rounded-full transition-colors ${isVisible ? colors.dot : "bg-[#1A1A1A]/20"}`} />
+              <span className="font-subheading text-xs font-bold text-[#1A1A1A]/60">
                 {dealName}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -253,7 +277,7 @@ export default function CalendarPage() {
             {DAYS_OF_WEEK.map((day) => (
               <div
                 key={day}
-                className="pb-3 text-center font-data text-[10px] font-bold uppercase tracking-widest text-[#1A1A1A]/40"
+                className="pb-3 text-center font-data text-xs font-bold text-[#1A1A1A]/40"
               >
                 {day}
               </div>

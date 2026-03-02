@@ -9,9 +9,6 @@ interface DealCardProps {
 
 const STATUS_COLORS: Record<string, { bg: string, text: string, dot: string }> = {
   active: { bg: "bg-emerald-50", text: "text-emerald-800", dot: "bg-emerald-500" },
-  on_hold: { bg: "bg-amber-50", text: "text-amber-800", dot: "bg-amber-500" },
-  closed_won: { bg: "bg-blue-50", text: "text-blue-800", dot: "bg-blue-500" },
-  closed_lost: { bg: "bg-rose-50", text: "text-rose-800", dot: "bg-rose-500" },
   archived: { bg: "bg-slate-50", text: "text-slate-800", dot: "bg-slate-500" },
 };
 

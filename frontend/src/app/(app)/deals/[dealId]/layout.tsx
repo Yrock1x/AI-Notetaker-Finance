@@ -8,6 +8,7 @@ const tabs = [
   { label: "Overview", href: "" },
   { label: "Meetings", href: "/meetings" },
   { label: "Documents", href: "/documents" },
+  { label: "Deliverables", href: "/deliverables" },
   { label: "Q&A", href: "/qa" },
   { label: "Team", href: "/team" },
   { label: "Settings", href: "/settings" },

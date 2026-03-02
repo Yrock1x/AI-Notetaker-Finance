@@ -16,9 +16,6 @@ export enum DealRole {
 
 export enum DealStatus {
   ACTIVE = "active",
-  ON_HOLD = "on_hold",
-  CLOSED_WON = "closed_won",
-  CLOSED_LOST = "closed_lost",
   ARCHIVED = "archived",
 }
 

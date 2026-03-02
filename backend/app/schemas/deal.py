@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -10,7 +11,7 @@ class DealCreate(BaseSchema):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     target_company: str | None = None
-    deal_type: str = "general"  # m_and_a, pe, vc, debt, general
+    deal_type: Literal["m_and_a", "pe", "vc", "debt", "general"] = "general"
     stage: str | None = None
 
 
@@ -20,7 +21,7 @@ class DealUpdate(BaseSchema):
     target_company: str | None = None
     deal_type: str | None = None
     stage: str | None = None
-    status: str | None = None  # active, closed, archived
+    status: Literal["active", "archived"] | None = None
 
 
 class DealResponse(BaseSchema):
@@ -39,7 +40,7 @@ class DealResponse(BaseSchema):
 
 class DealMemberCreate(BaseSchema):
     user_id: UUID
-    role: str = "analyst"  # lead, admin, analyst, viewer
+    role: Literal["lead", "admin", "analyst", "viewer"] = "analyst"
 
 
 class DealMemberResponse(BaseSchema):

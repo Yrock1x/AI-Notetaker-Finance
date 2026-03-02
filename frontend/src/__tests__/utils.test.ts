@@ -199,15 +199,12 @@ describe("Enums", () => {
   describe("DealStatus", () => {
     it("should have all expected values", () => {
       expect(DealStatus.ACTIVE).toBe("active");
-      expect(DealStatus.ON_HOLD).toBe("on_hold");
-      expect(DealStatus.CLOSED_WON).toBe("closed_won");
-      expect(DealStatus.CLOSED_LOST).toBe("closed_lost");
       expect(DealStatus.ARCHIVED).toBe("archived");
     });
 
-    it("should have exactly 5 members", () => {
+    it("should have exactly 2 members", () => {
       const values = Object.values(DealStatus);
-      expect(values).toHaveLength(5);
+      expect(values).toHaveLength(2);
     });
   });
 
@@ -319,7 +316,6 @@ describe("Constants", () => {
 
     it("should have specific expected labels", () => {
       expect(DEAL_STATUS_LABELS[DealStatus.ACTIVE]).toBe("Active");
-      expect(DEAL_STATUS_LABELS[DealStatus.CLOSED_WON]).toBe("Closed Won");
       expect(DEAL_STATUS_LABELS[DealStatus.ARCHIVED]).toBe("Archived");
     });
   });
