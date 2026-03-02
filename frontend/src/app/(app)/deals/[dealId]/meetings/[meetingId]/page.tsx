@@ -15,7 +15,7 @@ import { MEETING_STATUS_LABELS } from "@/lib/constants";
 import { formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Clock, Play } from "lucide-react";
-import { CallType } from "@/types";
+import { CallType, MeetingStatus } from "@/types";
 
 const STATUS_COLORS: Record<string, string> = {
   scheduled: "bg-blue-100 text-blue-800",
@@ -47,14 +47,14 @@ export default function MeetingDetailPage() {
   }
 
   const hasContent =
-    meeting.status === "transcribed" ||
-    meeting.status === "analyzed" ||
-    meeting.status === "ready";
+    meeting.status === MeetingStatus.TRANSCRIBED ||
+    meeting.status === MeetingStatus.ANALYZED ||
+    meeting.status === MeetingStatus.READY;
 
   const isProcessing =
-    meeting.status === "processing" ||
-    meeting.status === "transcribing" ||
-    meeting.status === "analyzing";
+    meeting.status === MeetingStatus.PROCESSING ||
+    meeting.status === MeetingStatus.TRANSCRIBING ||
+    meeting.status === MeetingStatus.ANALYZING;
 
   return (
     <div className="space-y-6">
