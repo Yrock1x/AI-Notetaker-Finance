@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # LLM Providers
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    google_api_key: str = ""
+
+    # Recall.ai
+    recall_api_key: str = ""
 
     # Deepgram
     deepgram_api_key: str = ""

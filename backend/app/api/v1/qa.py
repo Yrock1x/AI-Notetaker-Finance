@@ -7,9 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.dependencies import get_current_user, get_db_with_rls, get_org_id
-from app.llm.openai_provider import OpenAIEmbeddingProvider
 from app.llm.router import LLMRouter
-from app.llm.claude_provider import ClaudeProvider
+from app.llm.gemini_provider import GeminiProvider, GeminiEmbeddingProvider
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.qa import QAHistoryResponse, QARequest, QAResponse
@@ -220,14 +219,14 @@ async def ask_question(
 
     settings = get_settings()
 
-    if not settings.demo_mode:
-        # Set up the LLM router with Claude provider
+    if settings.google_api_key:
+        # Set up the LLM router with Gemini provider
         llm_router = LLMRouter()
-        claude_provider = ClaudeProvider(api_key=settings.anthropic_api_key)
-        llm_router.register_provider("claude", claude_provider)
+        gemini_provider = GeminiProvider(api_key=settings.google_api_key)
+        llm_router.register_provider("gemini", gemini_provider)
 
-        # Set up the embedding service with OpenAI provider
-        embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+        # Set up the embedding service with Gemini provider
+        embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
         embedding_service = EmbeddingService(db, embedding_provider)
 
         qa_service = QAService(db, llm_router, embedding_service)
@@ -237,20 +236,18 @@ async def ask_question(
             question=payload.question,
         )
 
-        # Map the service dataclass response to the API schema
-        # The QA service does not persist interactions yet, so generate a transient ID
         return QAResponse(
             id=uuid_mod.uuid4(),
             deal_id=deal_id,
             question=payload.question,
             answer=result.answer,
-            citations=[],  # Citation format differs between service and schema; map if needed
+            citations=[],
             grounding_score=result.grounding_score,
-            model_used="claude",
+            model_used="gemini-2.0-flash",
             created_at=datetime.now(timezone.utc),
         )
     else:
-        # Demo mode: return mock responses without calling AI providers
+        # No API key: return mock responses
         mock = _generate_mock_response(payload.question)
         return QAResponse(
             id=uuid_mod.uuid4(),
@@ -287,14 +284,14 @@ async def ask_meeting_question(
     deal_service = DealService(db)
     await deal_service.check_deal_access(deal_id, current_user.id)
 
-    if not settings.demo_mode:
-        # Set up the LLM router with Claude provider
+    if settings.google_api_key:
+        # Set up the LLM router with Gemini provider
         llm_router = LLMRouter()
-        claude_provider = ClaudeProvider(api_key=settings.anthropic_api_key)
-        llm_router.register_provider("claude", claude_provider)
+        gemini_provider = GeminiProvider(api_key=settings.google_api_key)
+        llm_router.register_provider("gemini", gemini_provider)
 
-        # Set up the embedding service with OpenAI provider
-        embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+        # Set up the embedding service with Gemini provider
+        embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
         embedding_service = EmbeddingService(db, embedding_provider)
 
         qa_service = QAService(db, llm_router, embedding_service)
@@ -312,11 +309,11 @@ async def ask_meeting_question(
             answer=result.answer,
             citations=[],
             grounding_score=result.grounding_score,
-            model_used="claude",
+            model_used="gemini-2.0-flash",
             created_at=datetime.now(timezone.utc),
         )
     else:
-        # Demo mode: return mock responses without calling AI providers
+        # No API key: return mock responses
         mock = _generate_mock_response(payload.question)
         return QAResponse(
             id=uuid_mod.uuid4(),

@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 from app.core.config import get_settings
 from app.core.database import async_session_factory
 from app.llm.chunking import DocumentChunker, TranscriptChunker
-from app.llm.openai_provider import OpenAIEmbeddingProvider
+from app.llm.gemini_provider import GeminiEmbeddingProvider
 from app.models.document import Document
 from app.models.embedding import Embedding
 from app.models.meeting import Meeting
@@ -91,7 +91,7 @@ def generate_embeddings(self, meeting_id: str) -> str:
                 meeting = result.scalar_one()
 
                 # Create embedding service and embed+store
-                embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+                embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
                 embedding_svc = EmbeddingService(db=session, embedding_provider=embedding_provider)
                 count = await embedding_svc.embed_and_store(
                     chunks=chunk_dicts,
@@ -166,7 +166,7 @@ def generate_document_embeddings(self, document_id: str, deal_id: str, org_id: s
                 ]
 
                 # Create embedding service and embed+store
-                embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+                embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
                 embedding_svc = EmbeddingService(db=session, embedding_provider=embedding_provider)
                 count = await embedding_svc.embed_and_store(
                     chunks=chunk_dicts,

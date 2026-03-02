@@ -5,20 +5,20 @@ class LLMRouter:
     """Routes LLM requests to the appropriate provider based on task type.
 
     Task routing:
-    - analysis -> Claude (deep financial analysis)
-    - qa -> Claude (deal-scoped Q&A)
-    - summarization -> Claude
-    - embeddings -> OpenAI
+    - analysis -> Gemini (deep financial analysis)
+    - qa -> Gemini (deal-scoped Q&A)
+    - summarization -> Gemini
+    - embeddings -> Gemini
     """
 
     def __init__(self) -> None:
         self._providers: dict[str, LLMProvider] = {}
         self._embedding_provider: EmbeddingProvider | None = None
         self._task_routing: dict[str, str] = {
-            "analysis": "claude",
-            "qa": "claude",
-            "summarization": "claude",
-            "general": "claude",
+            "analysis": "gemini",
+            "qa": "gemini",
+            "summarization": "gemini",
+            "general": "gemini",
         }
 
     def register_provider(self, name: str, provider: LLMProvider) -> None:
@@ -28,7 +28,7 @@ class LLMRouter:
         self._embedding_provider = provider
 
     async def complete(self, task_type: str, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
-        provider_name = self._task_routing.get(task_type, "claude")
+        provider_name = self._task_routing.get(task_type, "gemini")
         provider = self._providers.get(provider_name)
         if not provider:
             raise ValueError(f"No provider registered for '{provider_name}'")

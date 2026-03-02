@@ -2,12 +2,17 @@ import random
 import uuid
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.dependencies import get_current_user, get_db_with_rls
+from app.llm.gemini_provider import GeminiProvider
 from app.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -155,6 +160,18 @@ def _pick_mock_response(message: str) -> str:
     return random.choice(pool)
 
 
+_DELIVERABLE_SYSTEM_PROMPT = (
+    "You are an expert AI assistant for investment banking and private equity professionals. "
+    "You help create deal deliverables — investment memos, financial models, IC presentations, "
+    "and other deal documents. You have deep expertise in financial analysis, valuation, "
+    "market research, and professional document structuring.\n\n"
+    "When the user describes a deliverable they want, help them refine the scope, suggest "
+    "sections and structure, ask clarifying questions about audience and emphasis, and provide "
+    "substantive content guidance. Be concise, professional, and actionable.\n\n"
+    "Always respond in a helpful, structured way using markdown formatting where appropriate."
+)
+
+
 @router.post("/chat")
 async def deliverable_chat(
     deal_id: str,
@@ -162,10 +179,28 @@ async def deliverable_chat(
     db: AsyncSession = Depends(get_db_with_rls),
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    settings = get_settings()
+
+    if settings.google_api_key:
+        try:
+            provider = GeminiProvider(api_key=settings.google_api_key)
+            response = await provider.complete(
+                system_prompt=_DELIVERABLE_SYSTEM_PROMPT,
+                user_prompt=payload.message,
+                max_tokens=2048,
+                temperature=0.7,
+            )
+            content = response.content
+        except Exception:
+            logger.exception("deliverable_chat_gemini_error")
+            content = _pick_mock_response(payload.message)
+    else:
+        content = _pick_mock_response(payload.message)
+
     return {
         "id": str(uuid.uuid4()),
         "deal_id": str(deal_id),
         "role": "assistant",
-        "content": _pick_mock_response(payload.message),
+        "content": content,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }

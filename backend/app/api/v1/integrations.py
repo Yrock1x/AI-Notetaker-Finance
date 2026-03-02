@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,6 +18,21 @@ from app.services.integration_service import IntegrationService
 
 router = APIRouter()
 
+# In-memory demo connection state (resets on restart)
+_demo_connections: dict[str, bool] = {
+    "zoom": False,
+    "teams": False,
+    "slack": False,
+    "outlook": False,
+}
+
+PLATFORM_SCOPES = {
+    "zoom": "meeting:read recording:read user:read",
+    "teams": "OnlineMeetings.Read Calendars.Read User.Read",
+    "slack": "channels:read chat:write commands",
+    "outlook": "Calendars.Read Mail.Read",
+}
+
 
 # --- OAuth Connections ---
 
@@ -27,36 +43,67 @@ async def list_integrations(
     current_user: User = Depends(get_current_user),
     org_id: UUID = Depends(get_org_id),
 ) -> list[IntegrationResponse]:
-    """List connected integrations for the current user."""
+    """List all integrations with their connection status."""
     settings = get_settings()
+    now = datetime.now(timezone.utc)
+
+    if settings.demo_mode:
+        return [
+            IntegrationResponse(
+                platform=platform,
+                is_active=_demo_connections.get(platform, False),
+                scopes=PLATFORM_SCOPES.get(platform),
+                connected_at=now,
+            )
+            for platform in ("zoom", "teams", "slack", "outlook")
+        ]
+
     service = IntegrationService(db, settings)
     credentials = await service.list_integrations(
         user_id=current_user.id, org_id=org_id
     )
-    return [
-        IntegrationResponse(
-            platform=c.platform,
-            is_active=c.is_active,
-            scopes=c.scopes,
-            connected_at=c.created_at,
-        )
-        for c in credentials
-    ]
+    connected = {c.platform: c for c in credentials}
+
+    results = []
+    for platform in ("zoom", "teams", "slack", "outlook"):
+        if platform in connected:
+            c = connected[platform]
+            results.append(
+                IntegrationResponse(
+                    platform=c.platform,
+                    is_active=c.is_active,
+                    scopes=c.scopes,
+                    connected_at=c.created_at,
+                )
+            )
+        else:
+            results.append(
+                IntegrationResponse(
+                    platform=platform,
+                    is_active=False,
+                    scopes=None,
+                    connected_at=now,
+                )
+            )
+    return results
 
 
-@router.post("/{platform}/connect", response_model=OAuthInitResponse)
+@router.post("/{platform}/connect")
 async def initiate_oauth(
     platform: str,
     request: Request,
     db: AsyncSession = Depends(get_db_with_rls),
     current_user: User = Depends(get_current_user),
     org_id: UUID = Depends(get_org_id),
-) -> OAuthInitResponse:
-    """Start OAuth flow for a platform (zoom, teams, slack, outlook)."""
+) -> dict:
+    """Start OAuth flow for a platform. In demo mode, instantly connects."""
     settings = get_settings()
-    service = IntegrationService(db, settings)
 
-    # Build callback URL from the current request
+    if settings.demo_mode:
+        _demo_connections[platform] = True
+        return {"connected": True, "platform": platform}
+
+    service = IntegrationService(db, settings)
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/v1/integrations/{platform}/callback"
 
@@ -66,7 +113,7 @@ async def initiate_oauth(
         platform=platform,
         redirect_uri=redirect_uri,
     )
-    return OAuthInitResponse(authorization_url=authorization_url)
+    return {"authorization_url": authorization_url}
 
 
 @router.get("/{platform}/callback")
@@ -76,11 +123,7 @@ async def oauth_callback(
     state: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Handle OAuth callback from external platforms.
-
-    Authentication is via the state parameter (validated against stored state),
-    not via Bearer token (since this is a redirect from the external provider).
-    """
+    """Handle OAuth callback from external platforms."""
     settings = get_settings()
     service = IntegrationService(db, settings)
     await service.handle_oauth_callback(
@@ -100,6 +143,11 @@ async def disconnect_integration(
 ) -> None:
     """Disconnect an integration."""
     settings = get_settings()
+
+    if settings.demo_mode:
+        _demo_connections[platform] = False
+        return
+
     service = IntegrationService(db, settings)
     await service.disconnect(
         user_id=current_user.id, org_id=org_id, platform=platform

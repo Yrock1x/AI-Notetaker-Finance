@@ -78,7 +78,23 @@ async def run_analysis(
     await db.commit()
 
     # Trigger Celery task (must be after commit so the worker can find the record)
-    run_analysis_task.delay(str(meeting_id), payload.call_type, str(current_user.id))
+    try:
+        run_analysis_task.delay(str(meeting_id), payload.call_type, str(current_user.id))
+    except Exception:
+        # Redis/Celery unavailable — run synchronously
+        from app.llm.gemini_provider import GeminiProvider
+
+        settings_obj = get_settings()
+        if settings_obj.google_api_key:
+            llm = LLMRouter()
+            llm.register_provider("gemini", GeminiProvider(api_key=settings_obj.google_api_key))
+            svc = AnalysisService(db, llm)
+            analysis_record = await svc.run_analysis(
+                meeting_id=meeting_id,
+                org_id=meeting.org_id,
+                call_type=payload.call_type or "summarization",
+                requested_by=current_user.id,
+            )
 
     return AnalysisResponse.model_validate(analysis_record)
 
@@ -158,9 +174,12 @@ async def rerun_analysis(
     original = await service.get_analysis(analysis_id)
 
     # Trigger the reanalysis pipeline
-    create_reanalysis_pipeline(
-        str(meeting_id), original.call_type, str(current_user.id)
-    ).delay()
+    try:
+        create_reanalysis_pipeline(
+            str(meeting_id), original.call_type, str(current_user.id)
+        ).delay()
+    except Exception:
+        pass  # Fallback handled by placeholder record below
 
     # Create a placeholder record
     next_version = await service._next_version(meeting_id, original.call_type)
