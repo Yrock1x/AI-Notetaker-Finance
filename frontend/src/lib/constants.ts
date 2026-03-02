@@ -1,4 +1,4 @@
-import { CallType, DealRole, DealStatus } from "@/types";
+import { CallType, DealRole, DealStatus, MeetingStatus } from "@/types";
 
 export const CALL_TYPE_LABELS: Record<CallType, string> = {
   [CallType.MANAGEMENT_PRESENTATION]: "Management Presentation",
@@ -11,20 +11,21 @@ export const CALL_TYPE_LABELS: Record<CallType, string> = {
 
 export const DEAL_ROLE_LABELS: Record<DealRole, string> = {
   [DealRole.LEAD]: "Lead",
-  [DealRole.MEMBER]: "Member",
+  [DealRole.ADMIN]: "Admin",
+  [DealRole.ANALYST]: "Analyst",
   [DealRole.VIEWER]: "Viewer",
 };
 
-export const MEETING_STATUS_LABELS: Record<string, string> = {
-  scheduled: "Scheduled",
-  recording: "Recording",
-  processing: "Processing",
-  transcribing: "Transcribing",
-  transcribed: "Transcribed",
-  analyzing: "Analyzing",
-  analyzed: "Analyzed",
-  ready: "Ready",
-  failed: "Failed",
+export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
+  [MeetingStatus.SCHEDULED]: "Scheduled",
+  [MeetingStatus.RECORDING]: "Recording",
+  [MeetingStatus.PROCESSING]: "Processing",
+  [MeetingStatus.TRANSCRIBING]: "Transcribing",
+  [MeetingStatus.ANALYZING]: "Analyzing",
+  [MeetingStatus.TRANSCRIBED]: "Transcribed",
+  [MeetingStatus.ANALYZED]: "Analyzed",
+  [MeetingStatus.READY]: "Ready",
+  [MeetingStatus.FAILED]: "Failed",
 };
 
 export const DEAL_STATUS_LABELS: Record<DealStatus, string> = {

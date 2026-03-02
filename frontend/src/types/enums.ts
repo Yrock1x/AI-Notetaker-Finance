@@ -9,7 +9,8 @@ export enum CallType {
 
 export enum DealRole {
   LEAD = "lead",
-  MEMBER = "member",
+  ADMIN = "admin",
+  ANALYST = "analyst",
   VIEWER = "viewer",
 }
 
@@ -34,8 +35,11 @@ export enum MeetingStatus {
   SCHEDULED = "scheduled",
   RECORDING = "recording",
   PROCESSING = "processing",
+  TRANSCRIBING = "transcribing",
+  ANALYZING = "analyzing",
   TRANSCRIBED = "transcribed",
   ANALYZED = "analyzed",
+  READY = "ready",
   FAILED = "failed",
 }
 
