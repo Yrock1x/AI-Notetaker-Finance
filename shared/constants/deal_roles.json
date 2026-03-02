@@ -1,0 +1,22 @@
+{
+  "lead": {
+    "label": "Deal Lead",
+    "description": "Full control over the deal including deletion and settings",
+    "permissions": ["read", "write", "delete", "manage_members", "manage_settings", "run_analysis", "export"]
+  },
+  "admin": {
+    "label": "Deal Admin",
+    "description": "Can manage members and run analysis but cannot delete the deal",
+    "permissions": ["read", "write", "manage_members", "run_analysis", "export"]
+  },
+  "analyst": {
+    "label": "Analyst",
+    "description": "Can view, edit, and run analysis but cannot manage members",
+    "permissions": ["read", "write", "run_analysis"]
+  },
+  "viewer": {
+    "label": "Viewer",
+    "description": "Read-only access to deal data",
+    "permissions": ["read"]
+  }
+}

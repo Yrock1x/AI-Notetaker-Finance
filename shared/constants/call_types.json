@@ -1,0 +1,90 @@
+{
+  "diligence": {
+    "label": "Due Diligence Call",
+    "description": "Comprehensive due diligence discussion with target management",
+    "output_sections": [
+      "executive_summary",
+      "company_overview",
+      "key_findings",
+      "risk_flags",
+      "financial_metrics_discussed",
+      "management_quality_indicators",
+      "action_items",
+      "follow_up_questions"
+    ]
+  },
+  "management_presentation": {
+    "label": "Management Presentation",
+    "description": "Formal management team presentation to potential buyers/investors",
+    "output_sections": [
+      "executive_summary",
+      "company_narrative",
+      "investment_thesis_components",
+      "growth_strategy",
+      "competitive_positioning",
+      "management_credibility",
+      "narrative_red_flags",
+      "information_gaps"
+    ]
+  },
+  "buyer_call": {
+    "label": "Buyer/Internal Call",
+    "description": "Internal deal team discussion on valuation, strategy, and decisions",
+    "output_sections": [
+      "deal_status",
+      "valuation_discussion",
+      "investment_thesis_debate",
+      "risk_discussion",
+      "deal_structure",
+      "synergies",
+      "process_dynamics",
+      "key_decisions",
+      "open_debates"
+    ]
+  },
+  "financial_review": {
+    "label": "Financial Model Review",
+    "description": "Detailed financial model walkthrough and assumption review",
+    "output_sections": [
+      "historical_financials",
+      "projections",
+      "ebitda_adjustments",
+      "working_capital",
+      "debt_items",
+      "cash_flow",
+      "revenue_analysis",
+      "model_assumptions",
+      "sensitivity_analysis",
+      "lbo_returns",
+      "financial_red_flags"
+    ]
+  },
+  "qoe": {
+    "label": "Quality of Earnings",
+    "description": "Quality of earnings analysis discussion with accounting advisors",
+    "output_sections": [
+      "reported_vs_adjusted",
+      "revenue_quality",
+      "ebitda_adjustments",
+      "working_capital_findings",
+      "accounting_observations",
+      "balance_sheet_items",
+      "tax_observations",
+      "provider_conclusions",
+      "management_pushback",
+      "valuation_impact"
+    ]
+  },
+  "general": {
+    "label": "General Meeting",
+    "description": "General meeting summary without finance-specific analysis",
+    "output_sections": [
+      "executive_summary",
+      "key_topics",
+      "decisions_made",
+      "action_items",
+      "key_takeaways",
+      "next_steps"
+    ]
+  }
+}
