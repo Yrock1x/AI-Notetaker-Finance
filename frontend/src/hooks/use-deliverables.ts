@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api-client";
 
 export interface Deliverable {
@@ -41,6 +41,35 @@ export function useGenerateDeliverable() {
       queryClient.invalidateQueries({
         queryKey: [DELIVERABLES_KEY, variables.dealId],
       });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Deliverable AI Chat
+// ---------------------------------------------------------------------------
+
+export interface DeliverableChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export function useDeliverableChat() {
+  return useMutation({
+    mutationFn: async ({
+      dealId,
+      message,
+    }: {
+      dealId: string;
+      message: string;
+    }) => {
+      const { data } = await apiClient.post<DeliverableChatMessage>(
+        `/deals/${dealId}/deliverables/chat`,
+        { message }
+      );
+      return data;
     },
   });
 }

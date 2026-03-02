@@ -7,6 +7,7 @@ import {
   useGenerateDeliverable,
 } from "@/hooks/use-deliverables";
 import type { Deliverable } from "@/hooks/use-deliverables";
+import { DeliverableChat } from "@/components/deliverables/deliverable-chat";
 import { LoadingState } from "@/components/shared/loading-state";
 import {
   FileText,
@@ -167,6 +168,9 @@ export default function DeliverablesPage() {
           )}
         </div>
       </div>
+
+      {/* AI dialogue */}
+      <DeliverableChat dealId={params.dealId} />
 
       {/* Example doc upload */}
       <div className="rounded-2xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/30 p-6">
