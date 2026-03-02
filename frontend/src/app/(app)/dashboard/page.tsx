@@ -5,6 +5,7 @@ import { useMeetings } from "@/hooks/use-meetings";
 import { DealCard } from "@/components/deals/deal-card";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
+import { DealStatus } from "@/types";
 import { Briefcase, Calendar, FileText, TrendingUp, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
@@ -42,7 +43,7 @@ export default function DashboardPage() {
   const { data: dealsData, isLoading: dealsLoading } = useDeals();
 
   const deals = dealsData?.items ?? [];
-  const activeDeals = deals.filter((d) => d.status === "active");
+  const activeDeals = deals.filter((d) => d.status === DealStatus.ACTIVE);
 
   return (
     <div className="space-y-12 antialiased">
