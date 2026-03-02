@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useDeals } from "@/hooks/use-deals";
 import { DealCard } from "@/components/deals/deal-card";
@@ -12,10 +12,16 @@ import { Plus, Search } from "lucide-react";
 
 export default function DealsPage() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<DealStatus | "">("");
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const { data, isLoading } = useDeals({
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: statusFilter || undefined,
   });
 

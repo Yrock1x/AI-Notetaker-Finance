@@ -7,26 +7,36 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        background: "var(--background)",
+        foreground: "var(--foreground)",
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "var(--muted)",
+          foreground: "var(--muted-foreground)",
         },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "var(--primary)",
+          foreground: "var(--primary-foreground)",
+        },
+        accent: {
+          DEFAULT: "var(--accent)",
+          foreground: "var(--accent-foreground)",
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
         },
-        border: "hsl(var(--border))",
-        ring: "hsl(var(--ring))",
+        border: "var(--border)",
+        ring: "var(--ring)",
       },
       borderRadius: {
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        md: "calc(var(--radius) - 8px)",
+        sm: "calc(var(--radius) - 16px)",
+      },
+      fontFamily: {
+        heading: ['Plus Jakarta Sans', 'sans-serif'],
+        subheading: ['Outfit', 'sans-serif'],
+        drama: ['Cormorant Garamond', 'serif'],
+        data: ['IBM Plex Mono', 'monospace'],
       },
     },
   },

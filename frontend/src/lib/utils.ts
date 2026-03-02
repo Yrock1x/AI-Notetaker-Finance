@@ -6,12 +6,14 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatTimestamp(seconds: number): string {
+  seconds = Math.max(0, Math.floor(seconds));
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 export function formatDuration(seconds: number): string {
+  seconds = Math.max(0, Math.floor(seconds));
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
