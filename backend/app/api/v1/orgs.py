@@ -1,11 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.security import OrgRole, verify_org_membership
 from app.dependencies import get_current_user, get_db
+from app.models.org_membership import OrgMembership
 from app.models.user import User
 from app.schemas.organization import (
     OrgCreate,
@@ -21,7 +23,7 @@ from app.integrations.aws.cognito import get_cognito_client
 router = APIRouter()
 
 
-@router.get("/", response_model=list[OrgResponse])
+@router.get("", response_model=list[OrgResponse])
 async def list_organizations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -32,7 +34,7 @@ async def list_organizations(
     return [OrgResponse.model_validate(o) for o in orgs]
 
 
-@router.post("/", response_model=OrgResponse, status_code=201)
+@router.post("", response_model=OrgResponse, status_code=201)
 async def create_organization(
     payload: OrgCreate,
     db: AsyncSession = Depends(get_db),
@@ -175,5 +177,25 @@ async def remove_org_member(
 ) -> None:
     """Remove a member from the organization. Requires admin role."""
     await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+
+    # Check if this is the last owner
+    owner_count = await db.scalar(
+        select(func.count()).where(
+            OrgMembership.org_id == org_id,
+            OrgMembership.role == "owner",
+        )
+    )
+    member = await db.scalar(
+        select(OrgMembership).where(
+            OrgMembership.org_id == org_id,
+            OrgMembership.user_id == user_id,
+        )
+    )
+    if member and member.role == "owner" and owner_count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot remove the last owner of the organization",
+        )
+
     service = OrgService(db)
     await service.remove_member(org_id=org_id, user_id=user_id)

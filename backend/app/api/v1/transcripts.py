@@ -28,7 +28,7 @@ async def _check_meeting_deal_access(
     await deal_service.check_deal_access(meeting.deal_id, user_id)
 
 
-@router.get("/", response_model=TranscriptResponse)
+@router.get("", response_model=TranscriptResponse)
 async def get_transcript(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db_with_rls),

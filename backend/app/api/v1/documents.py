@@ -22,7 +22,7 @@ from app.tasks.pipelines import create_document_pipeline
 router = APIRouter()
 
 
-@router.get("/", response_model=PaginatedResponse[DocumentResponse])
+@router.get("", response_model=PaginatedResponse[DocumentResponse])
 async def list_documents(
     deal_id: UUID,
     document_type: str | None = Query(None),
@@ -105,11 +105,17 @@ async def confirm_document_upload(
     current_user: User = Depends(get_current_user),
 ) -> DocumentResponse:
     """Confirm document upload is complete. Triggers text extraction and embedding."""
+    deal_service = DealService(db)
+    await deal_service.check_deal_access(deal_id, current_user.id, min_role=DealRole.ANALYST)
+
     settings = get_settings()
     s3_client = get_s3_client()
     service = DocumentService(db, s3_client, settings)
 
     document = await service.get_document(document_id)
+    if document.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Document", str(document_id))
 
     # Trigger the document processing pipeline (text extraction + embeddings)
     create_document_pipeline(str(document_id), str(deal_id), str(org_id)).delay()
@@ -132,6 +138,9 @@ async def get_document(
     s3_client = get_s3_client()
     service = DocumentService(db, s3_client, settings)
     document = await service.get_document(document_id)
+    if document.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Document", str(document_id))
     return DocumentResponse.model_validate(document)
 
 
@@ -149,6 +158,10 @@ async def download_document(
     settings = get_settings()
     s3_client = get_s3_client()
     service = DocumentService(db, s3_client, settings)
+    document = await service.get_document(document_id)
+    if document.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Document", str(document_id))
     download_url = await service.generate_download_url(document_id)
     return DocumentDownloadResponse(download_url=download_url)
 
@@ -167,4 +180,8 @@ async def delete_document(
     settings = get_settings()
     s3_client = get_s3_client()
     service = DocumentService(db, s3_client, settings)
+    document = await service.get_document(document_id)
+    if document.deal_id != deal_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Document", str(document_id))
     await service.delete_document(document_id)

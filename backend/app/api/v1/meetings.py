@@ -22,7 +22,7 @@ from app.tasks.pipelines import create_meeting_pipeline
 router = APIRouter()
 
 
-@router.get("/", response_model=PaginatedResponse[MeetingResponse])
+@router.get("", response_model=PaginatedResponse[MeetingResponse])
 async def list_meetings(
     deal_id: UUID,
     status: str | None = Query(None),

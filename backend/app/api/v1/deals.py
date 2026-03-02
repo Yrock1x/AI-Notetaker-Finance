@@ -21,7 +21,7 @@ from app.services.deal_service import DealService
 router = APIRouter()
 
 
-@router.get("/", response_model=PaginatedResponse[DealResponse])
+@router.get("", response_model=PaginatedResponse[DealResponse])
 async def list_deals(
     status: str | None = Query(None, description="Filter by deal status"),
     deal_type: str | None = Query(None, description="Filter by deal type"),
@@ -45,7 +45,7 @@ async def list_deals(
     return PaginatedResponse(items=items, cursor=None, has_more=False)
 
 
-@router.post("/", response_model=DealResponse, status_code=201)
+@router.post("", response_model=DealResponse, status_code=201)
 async def create_deal(
     payload: DealCreate,
     db: AsyncSession = Depends(get_db_with_rls),

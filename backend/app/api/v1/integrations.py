@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.dependencies import get_current_user, get_db_with_rls, get_org_id
+from app.dependencies import get_current_user, get_db, get_db_with_rls, get_org_id
 from app.models.user import User
 from app.schemas.integration import (
     BotSessionCreate,
@@ -21,7 +21,7 @@ router = APIRouter()
 # --- OAuth Connections ---
 
 
-@router.get("/", response_model=list[IntegrationResponse])
+@router.get("", response_model=list[IntegrationResponse])
 async def list_integrations(
     db: AsyncSession = Depends(get_db_with_rls),
     current_user: User = Depends(get_current_user),
@@ -74,16 +74,16 @@ async def oauth_callback(
     platform: str,
     code: str = Query(...),
     state: str = Query(...),
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Handle OAuth callback from external platforms."""
+    """Handle OAuth callback from external platforms.
+
+    Authentication is via the state parameter (validated against stored state),
+    not via Bearer token (since this is a redirect from the external provider).
+    """
     settings = get_settings()
     service = IntegrationService(db, settings)
     await service.handle_oauth_callback(
-        user_id=current_user.id,
-        org_id=org_id,
         platform=platform,
         code=code,
         state=state,

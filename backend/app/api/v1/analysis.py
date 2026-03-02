@@ -18,7 +18,7 @@ from app.tasks.pipelines import create_reanalysis_pipeline
 router = APIRouter()
 
 
-@router.get("/", response_model=list[AnalysisResponse])
+@router.get("", response_model=list[AnalysisResponse])
 async def list_analyses(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db_with_rls),
@@ -40,7 +40,7 @@ async def list_analyses(
     return [AnalysisResponse.model_validate(a) for a in analyses]
 
 
-@router.post("/", response_model=AnalysisResponse, status_code=202)
+@router.post("", response_model=AnalysisResponse, status_code=202)
 async def run_analysis(
     meeting_id: UUID,
     payload: AnalysisRequest,
@@ -75,8 +75,9 @@ async def run_analysis(
     )
     db.add(analysis_record)
     await db.flush()
+    await db.commit()
 
-    # Trigger Celery task
+    # Trigger Celery task (must be after commit so the worker can find the record)
     run_analysis_task.delay(str(meeting_id), payload.call_type, str(current_user.id))
 
     return AnalysisResponse.model_validate(analysis_record)
@@ -128,6 +129,9 @@ async def get_analysis(
     llm_router = LLMRouter()
     service = AnalysisService(db, llm_router)
     analysis = await service.get_analysis(analysis_id)
+    if analysis.meeting_id != meeting_id:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Analysis", str(analysis_id))
     return AnalysisResponse.model_validate(analysis)
 
 
@@ -174,5 +178,6 @@ async def rerun_analysis(
     )
     db.add(analysis_record)
     await db.flush()
+    await db.commit()
 
     return AnalysisResponse.model_validate(analysis_record)

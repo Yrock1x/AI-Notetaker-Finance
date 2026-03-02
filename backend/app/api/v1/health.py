@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("")
 async def health_check() -> dict:
     """Basic health check endpoint."""
     return {"status": "healthy", "service": "deal-companion-api"}
@@ -41,3 +41,21 @@ async def readiness_check(
         "status": "ready" if all_ok else "degraded",
         "checks": checks,
     }
+
+
+@router.get("/debug-deals")
+async def debug_deals(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Temporary debug endpoint to test deals query directly."""
+    from app.core.config import settings
+    if not settings.demo_mode:
+        return {"error": "only available in demo mode"}
+    try:
+        result = await db.execute(
+            text("SELECT id, name, status FROM deals LIMIT 5")
+        )
+        rows = [{"id": str(r[0]), "name": r[1], "status": r[2]} for r in result.fetchall()]
+        return {"deals": rows, "code_version": "v2-debug"}
+    except Exception as e:
+        return {"error": str(e), "code_version": "v2-debug"}
