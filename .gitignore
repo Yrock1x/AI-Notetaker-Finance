@@ -21,6 +21,10 @@ node_modules/
 .next/
 out/
 .turbo/
+*.tsbuildinfo
+
+# Temp files
+.tmp/
 
 # Environment
 .env
