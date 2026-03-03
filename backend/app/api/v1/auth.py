@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from jose import jwt
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +57,7 @@ async def demo_login(
     """Demo login endpoint — bypasses Cognito for demo/dev deployments.
 
     Only available when DEMO_MODE=true.
+    Auto-creates user + org if the email doesn't exist yet.
     """
     if not settings.demo_mode:
         raise HTTPException(
@@ -68,11 +70,48 @@ async def demo_login(
         select(User).where(User.email == body.email)
     )
     user = result.scalar_one_or_none()
+
+    # Auto-create user if not found
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No user found with that email. Try one of the seed users.",
+        now = datetime.now(timezone.utc)
+        cognito_sub = f"demo-{uuid.uuid4().hex[:16]}"
+        full_name = body.email.split("@")[0].replace(".", " ").title()
+
+        user = User(
+            id=uuid.uuid4(),
+            cognito_sub=cognito_sub,
+            email=body.email,
+            full_name=full_name,
+            is_active=True,
         )
+        db.add(user)
+        await db.flush()
+
+        org_name = f"{full_name}'s Organization"
+        slug = re.sub(r"[^a-z0-9]+", "-", org_name.lower()).strip("-")
+        slug_check = await db.execute(
+            select(Organization).where(Organization.slug == slug)
+        )
+        if slug_check.scalar_one_or_none() is not None:
+            slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+
+        org = Organization(
+            id=uuid.uuid4(),
+            name=org_name,
+            slug=slug,
+            settings={},
+        )
+        db.add(org)
+        await db.flush()
+
+        membership = OrgMembership(
+            id=uuid.uuid4(),
+            org_id=org.id,
+            user_id=user.id,
+            role="owner",
+        )
+        db.add(membership)
+        await db.flush()
 
     # Look up user's first org membership
     mem_result = await db.execute(
@@ -208,6 +247,99 @@ async def demo_register(
             created_at=now.isoformat(),
             updated_at=now.isoformat(),
         ),
+    )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    token_type: str
+
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh_token(
+    body: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> RefreshResponse:
+    """Refresh an expired demo JWT token.
+
+    Decodes the expired token (without verifying expiration) to identify the
+    user, then issues a fresh 24-hour token.  Only available in demo mode.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+
+    if body.refresh_token != "demo-refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    # Try to identify the user from the expired Bearer token
+    token = credentials.credentials if credentials else None
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bearer token required for refresh",
+        )
+
+    try:
+        claims = jwt.decode(
+            token,
+            settings.demo_jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_exp": False},
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    cognito_sub = claims.get("sub")
+    if not cognito_sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims",
+        )
+
+    result = await db.execute(
+        select(User).where(User.cognito_sub == cognito_sub)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    now = datetime.now(timezone.utc)
+    new_claims = {
+        "sub": user.cognito_sub,
+        "email": user.email,
+        "name": user.full_name,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=24)).timestamp()),
+    }
+    new_access_token = jwt.encode(new_claims, settings.demo_jwt_secret, algorithm="HS256")
+
+    return RefreshResponse(
+        access_token=new_access_token,
+        refresh_token="demo-refresh",
+        expires_in=86400,
+        token_type="Bearer",
     )
 
 

@@ -11,7 +11,10 @@ class DealCreate(BaseSchema):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     target_company: str | None = None
-    deal_type: Literal["m_and_a", "pe", "vc", "debt", "general"] = "general"
+    deal_type: Literal[
+        "buyout", "growth_equity", "venture", "recapitalization", "add_on", "other",
+        "m_and_a", "pe", "vc", "debt", "general",
+    ] = "other"
     stage: str | None = None
 
 
@@ -21,7 +24,7 @@ class DealUpdate(BaseSchema):
     target_company: str | None = None
     deal_type: str | None = None
     stage: str | None = None
-    status: Literal["active", "archived"] | None = None
+    status: Literal["active", "closed", "archived"] | None = None
 
 
 class DealResponse(BaseSchema):
