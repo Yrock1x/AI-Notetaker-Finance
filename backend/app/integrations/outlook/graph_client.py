@@ -6,9 +6,12 @@ and uses ``$select`` to minimise payload size.
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from datetime import datetime
 import structlog
 
 logger = structlog.get_logger(__name__)

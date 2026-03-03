@@ -3,10 +3,25 @@ from app.llm.prompts.base import BasePromptTemplate
 QOE_ANALYSIS = BasePromptTemplate(
     name="qoe_analysis",
     version="v1",
-    system_prompt="""You are Deal Companion, an expert forensic accountant and financial diligence specialist, focused on Quality of Earnings (QoE) analysis during M&A transactions. Your role is to analyze transcripts from QoE discussion calls -- which may involve the deal team, third-party accounting advisors (e.g., Big Four or mid-market accounting firms), and company management -- and extract structured intelligence regarding earnings quality, adjustments, and financial integrity.
+    system_prompt="""\
+You are Deal Companion, an expert forensic accountant and \
+financial diligence specialist, focused on Quality of \
+Earnings (QoE) analysis during M&A transactions. Your role \
+is to analyze transcripts from QoE discussion calls -- \
+which may involve the deal team, third-party accounting \
+advisors (e.g., Big Four or mid-market accounting firms), \
+and company management -- and extract structured \
+intelligence regarding earnings quality, adjustments, and \
+financial integrity.
 
 ## Context
-Quality of Earnings (QoE) reports are the cornerstone of financial due diligence in M&A. These calls discuss the findings of the QoE provider, debate proposed adjustments, evaluate the sustainability and quality of reported earnings, and identify potential issues with the target's financial reporting. The QoE analysis directly impacts the purchase price, working capital peg, and deal terms.
+Quality of Earnings (QoE) reports are the cornerstone of \
+financial due diligence in M&A. These calls discuss the \
+findings of the QoE provider, debate proposed adjustments, \
+evaluate the sustainability and quality of reported \
+earnings, and identify potential issues with the target's \
+financial reporting. The QoE analysis directly impacts the \
+purchase price, working capital peg, and deal terms.
 
 ## Your Expertise
 - Quality of Earnings analysis and reporting standards
@@ -24,7 +39,8 @@ Quality of Earnings (QoE) reports are the cornerstone of financial due diligence
 - Accrual completeness testing and cut-off analysis
 
 ## Output Requirements
-You MUST return valid JSON matching the output schema exactly. Do not include any text outside the JSON object.
+You MUST return valid JSON matching the output schema \
+exactly. Do not include any text outside the JSON object.
 
 ## Citation Rules (CRITICAL)
 1. Every adjustment, financial figure, and analytical finding MUST include a citation.
@@ -38,18 +54,27 @@ You MUST return valid JSON matching the output schema exactly. Do not include an
 1. Only extract information that is EXPLICITLY stated in the transcript.
 2. Do not apply standard QoE adjustments unless speakers explicitly discuss them.
 3. If the transcript does not cover a topic, state "Not discussed in this call" for that field.
-4. Distinguish between adjustments proposed by the QoE provider, accepted by the deal team, and contested by management.
+4. Distinguish between adjustments proposed by the QoE \
+provider, accepted by the deal team, and contested by \
+management.
 5. Do not calculate net impacts or totals unless speakers explicitly state them.
 6. When the QoE provider expresses caveats or qualifications, include them.
 7. Do not import findings from typical QoE reports that are not mentioned in the transcript.
-8. Preserve the exact dollar amounts and percentages as stated -- do not round or convert.""",
-    user_prompt_template="""Analyze the following Quality of Earnings discussion transcript and produce a comprehensive structured analysis.
+8. Preserve the exact dollar amounts and percentages as \
+stated -- do not round or convert.""",
+    user_prompt_template="""\
+Analyze the following Quality of Earnings discussion \
+transcript and produce a comprehensive structured analysis.
 
 ## Transcript
 {transcript}
 
 ## Instructions
-Extract and organize the QoE-related findings from this call into the required JSON structure. Pay meticulous attention to adjustment amounts, their classification, and their acceptance status. Follow all citation and anti-hallucination rules strictly.
+Extract and organize the QoE-related findings from this \
+call into the required JSON structure. Pay meticulous \
+attention to adjustment amounts, their classification, and \
+their acceptance status. Follow all citation and \
+anti-hallucination rules strictly.
 
 Return your analysis as a JSON object matching the output schema.""",
     output_schema={
@@ -73,7 +98,13 @@ Return your analysis as a JSON object matching the output schema.""",
         "properties": {
             "executive_summary": {
                 "type": "string",
-                "description": "2-4 paragraph summary of the QoE discussion, highlighting the magnitude of proposed adjustments, key areas of concern, and impact on the deal. Must include citations.",
+                "description": (
+                    "2-4 paragraph summary of the QoE "
+                    "discussion, highlighting the magnitude of "
+                    "proposed adjustments, key areas of "
+                    "concern, and impact on the deal. Must "
+                    "include citations."
+                ),
             },
             "reported_vs_adjusted_earnings": {
                 "type": "object",
@@ -90,7 +121,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "High-level reported vs. adjusted earnings bridge. Only include figures explicitly stated.",
+                "description": (
+                    "High-level reported vs. adjusted earnings "
+                    "bridge. Only include figures explicitly "
+                    "stated."
+                ),
             },
             "revenue_quality": {
                 "type": "object",
@@ -136,11 +171,20 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                         "proposed_by": {
                             "type": "string",
-                            "description": "Who proposed the adjustment: qoe_provider, management, deal_team",
+                            "description": (
+                            "Who proposed the adjustment: "
+                            "qoe_provider, management, "
+                            "deal_team"
+                        ),
                         },
                         "status": {
                             "type": "string",
-                            "enum": ["accepted", "rejected", "under_review", "partially_accepted", "contested"],
+                            "enum": [
+                                "accepted", "rejected",
+                                "under_review",
+                                "partially_accepted",
+                                "contested",
+                            ],
                         },
                         "supporting_evidence": {"type": "string"},
                         "deal_team_view": {"type": "string"},
@@ -150,7 +194,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Individual EBITDA adjustments discussed, with amounts and acceptance status.",
+                "description": (
+                    "Individual EBITDA adjustments discussed, "
+                    "with amounts and acceptance status."
+                ),
             },
             "working_capital_findings": {
                 "type": "object",
@@ -200,7 +247,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Observations about accounting policies, aggressiveness, and compliance.",
+                "description": (
+                    "Observations about accounting policies, "
+                    "aggressiveness, and compliance."
+                ),
             },
             "balance_sheet_items": {
                 "type": "array",
@@ -274,7 +324,12 @@ Return your analysis as a JSON object matching the output schema.""",
                         "qoe_provider_position": {"type": "string"},
                         "resolution": {
                             "type": "string",
-                            "enum": ["resolved_for_management", "resolved_for_provider", "unresolved", "compromised"],
+                            "enum": [
+                                "resolved_for_management",
+                                "resolved_for_provider",
+                                "unresolved",
+                                "compromised",
+                            ],
                         },
                         "citations": {
                             "type": "array",
@@ -298,7 +353,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "Impact of QoE findings on valuation. Only include if explicitly discussed.",
+                "description": (
+                    "Impact of QoE findings on valuation. "
+                    "Only include if explicitly discussed."
+                ),
             },
             "outstanding_procedures": {
                 "type": "array",

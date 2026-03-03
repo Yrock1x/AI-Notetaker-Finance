@@ -1,14 +1,14 @@
 from celery import chain, chord, group
 
+from app.tasks.analysis import run_analysis
+from app.tasks.embedding import generate_embeddings
+from app.tasks.notifications import send_completion_notification
 from app.tasks.transcription import (
     extract_audio,
     process_diarization,
     transcribe_with_deepgram,
     validate_and_store,
 )
-from app.tasks.embedding import generate_embeddings
-from app.tasks.analysis import run_analysis
-from app.tasks.notifications import send_completion_notification
 
 
 def create_meeting_pipeline(meeting_id: str, org_id: str) -> chain:

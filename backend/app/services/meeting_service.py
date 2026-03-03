@@ -1,7 +1,6 @@
 import uuid as uuid_mod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
-from typing import Optional
 
 import structlog
 from sqlalchemy import func, select
@@ -35,15 +34,15 @@ class MeetingService:
         title: str,
         uploaded_by: UUID,
         s3_key: str,
-        duration_seconds: Optional[int] = None,
-        meeting_date: Optional[datetime] = None,
+        duration_seconds: int | None = None,
+        meeting_date: datetime | None = None,
     ) -> Meeting:
         """Create a meeting record after an audio/video file upload."""
         meeting = Meeting(
             deal_id=deal_id,
             org_id=org_id,
             title=title,
-            meeting_date=meeting_date or datetime.now(timezone.utc),
+            meeting_date=meeting_date or datetime.now(UTC),
             duration_seconds=duration_seconds,
             source="upload",
             file_key=s3_key,
@@ -101,9 +100,9 @@ class MeetingService:
     async def list_meetings(
         self,
         deal_id: UUID,
-        cursor: Optional[str] = None,
+        cursor: str | None = None,
         limit: int = 50,
-        status_filter: Optional[str] = None,
+        status_filter: str | None = None,
     ) -> dict:
         """List meetings for a deal with cursor-based pagination."""
         stmt = (
@@ -144,7 +143,7 @@ class MeetingService:
         self,
         meeting_id: UUID,
         status: str,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> Meeting:
         """Update the processing status of a meeting."""
         meeting = await self.get_meeting(meeting_id)
@@ -183,10 +182,10 @@ class MeetingService:
     async def update_meeting(
         self,
         meeting_id: UUID,
-        title: Optional[str] = None,
-        meeting_date: Optional[datetime] = None,
-        duration_seconds: Optional[int] = None,
-        bot_enabled: Optional[bool] = None,
+        title: str | None = None,
+        meeting_date: datetime | None = None,
+        duration_seconds: int | None = None,
+        bot_enabled: bool | None = None,
     ) -> Meeting:
         """Update editable meeting fields."""
         meeting = await self.get_meeting(meeting_id)

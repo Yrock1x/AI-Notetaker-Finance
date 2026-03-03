@@ -3,7 +3,11 @@ from app.llm.prompts.base import BasePromptTemplate
 DILIGENCE_CALL_ANALYSIS = BasePromptTemplate(
     name="diligence_call_analysis",
     version="v1",
-    system_prompt="""You are Deal Companion, an expert private equity due diligence analyst. Your role is to analyze transcripts from due diligence calls conducted during M&A transactions and produce structured, actionable intelligence for deal teams.
+    system_prompt="""\
+You are Deal Companion, an expert private equity due \
+diligence analyst. Your role is to analyze transcripts from \
+due diligence calls conducted during M&A transactions and \
+produce structured, actionable intelligence for deal teams.
 
 ## Your Expertise
 You have deep domain knowledge in:
@@ -19,15 +23,23 @@ You have deep domain knowledge in:
 - Integration planning considerations
 
 ## Output Requirements
-You MUST return valid JSON matching the output schema exactly. Do not include any text outside the JSON object.
+You MUST return valid JSON matching the output schema \
+exactly. Do not include any text outside the JSON object.
 
 ## Citation Rules (CRITICAL)
-1. Every factual claim, financial figure, and qualitative assessment MUST include a citation.
-2. Citations use the format [S:XX] where XX is the segment index number from the transcript.
-3. If a finding spans multiple segments, cite all relevant segments: [S:12][S:13][S:14].
-4. If you cannot find a source segment for a claim, DO NOT include that claim.
-5. Never fabricate or extrapolate financial figures. Only report numbers explicitly stated in the transcript.
-6. If a metric is discussed qualitatively but no specific number is given, describe it qualitatively and note that no specific figure was provided.
+1. Every factual claim, financial figure, and qualitative \
+assessment MUST include a citation.
+2. Citations use the format [S:XX] where XX is the segment \
+index number from the transcript.
+3. If a finding spans multiple segments, cite all relevant \
+segments: [S:12][S:13][S:14].
+4. If you cannot find a source segment for a claim, DO NOT \
+include that claim.
+5. Never fabricate or extrapolate financial figures. Only \
+report numbers explicitly stated in the transcript.
+6. If a metric is discussed qualitatively but no specific \
+number is given, describe it qualitatively and note that no \
+specific figure was provided.
 
 ## Anti-Hallucination Rules (CRITICAL)
 1. Only extract information that is EXPLICITLY stated in the transcript.
@@ -35,7 +47,8 @@ You MUST return valid JSON matching the output schema exactly. Do not include an
 3. If the transcript does not cover a topic, state "Not discussed in this call" for that field.
 4. Do not fill in industry benchmarks or typical ranges unless a speaker explicitly mentions them.
 5. When speakers express uncertainty, reflect that uncertainty in your output.
-6. Distinguish clearly between facts stated by management and opinions/assessments from the deal team.
+6. Distinguish clearly between facts stated by management \
+and opinions/assessments from the deal team.
 7. If financial figures are approximate (e.g., "roughly $10 million"), note the approximation.
 
 ## Quality Standards
@@ -44,13 +57,18 @@ You MUST return valid JSON matching the output schema exactly. Do not include an
 - Highlight information gaps that need follow-up
 - Prioritize risk flags by severity (high, medium, low)
 - Note the speaker identity when attributing statements""",
-    user_prompt_template="""Analyze the following due diligence call transcript and produce a comprehensive structured analysis.
+    user_prompt_template="""\
+Analyze the following due diligence call transcript and \
+produce a comprehensive structured analysis.
 
 ## Transcript
 {transcript}
 
 ## Instructions
-Extract and organize the information from this transcript into the required JSON structure. Follow all citation and anti-hallucination rules strictly. Every claim must be traceable to a specific transcript segment.
+Extract and organize the information from this transcript \
+into the required JSON structure. Follow all citation and \
+anti-hallucination rules strictly. Every claim must be \
+traceable to a specific transcript segment.
 
 Return your analysis as a JSON object matching the output schema.""",
     output_schema={
@@ -68,7 +86,11 @@ Return your analysis as a JSON object matching the output schema.""",
         "properties": {
             "executive_summary": {
                 "type": "string",
-                "description": "2-4 paragraph high-level summary of the call covering the most important takeaways for the deal team. Must include citations.",
+                "description": (
+                    "2-4 paragraph high-level summary of the "
+                    "call covering the most important takeaways "
+                    "for the deal team. Must include citations."
+                ),
             },
             "company_overview": {
                 "type": "object",
@@ -85,7 +107,11 @@ Return your analysis as a JSON object matching the output schema.""",
                     "employee_count": {"type": "string"},
                     "founding_year": {"type": "string"},
                 },
-                "description": "Basic company information extracted from the call. Use 'Not discussed' for fields not covered.",
+                "description": (
+                    "Basic company information extracted from "
+                    "the call. Use 'Not discussed' for fields "
+                    "not covered."
+                ),
             },
             "key_findings": {
                 "type": "array",
@@ -123,7 +149,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Structured list of key findings from the call, each with category, significance, and citations.",
+                "description": (
+                    "Structured list of key findings from the "
+                    "call, each with category, significance, "
+                    "and citations."
+                ),
             },
             "risk_flags": {
                 "type": "array",
@@ -183,7 +213,12 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Financial metrics explicitly mentioned in the call. Use 'Not discussed' for metrics not covered. Include citations with every figure.",
+                "description": (
+                    "Financial metrics explicitly mentioned in "
+                    "the call. Use 'Not discussed' for metrics "
+                    "not covered. Include citations with every "
+                    "figure."
+                ),
             },
             "management_quality_indicators": {
                 "type": "array",
@@ -202,7 +237,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Indicators of management team quality, depth, and credibility based on their responses during the call.",
+                "description": (
+                    "Indicators of management team quality, "
+                    "depth, and credibility based on their "
+                    "responses during the call."
+                ),
             },
             "action_items": {
                 "type": "array",
@@ -222,7 +261,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Action items explicitly mentioned or strongly implied by the discussion.",
+                "description": (
+                    "Action items explicitly mentioned or "
+                    "strongly implied by the discussion."
+                ),
             },
             "follow_up_questions": {
                 "type": "array",
@@ -238,7 +280,12 @@ Return your analysis as a JSON object matching the output schema.""",
                         "target_respondent": {"type": "string"},
                     },
                 },
-                "description": "Questions that should be asked in subsequent calls or data requests, based on gaps or ambiguities identified in the transcript.",
+                "description": (
+                    "Questions that should be asked in "
+                    "subsequent calls or data requests, based "
+                    "on gaps or ambiguities identified in the "
+                    "transcript."
+                ),
             },
         },
     },

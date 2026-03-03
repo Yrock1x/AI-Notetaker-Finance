@@ -6,7 +6,10 @@ from app.schemas.common import BaseSchema
 
 
 class AnalysisRequest(BaseSchema):
-    call_type: Literal["diligence", "management_presentation", "buyer_call", "financial_review", "qoe", "summarization", "general"] = "general"
+    call_type: Literal[
+        "diligence", "management_presentation", "buyer_call",
+        "financial_review", "qoe", "summarization", "general",
+    ] = "general"
 
 
 class AnalysisResponse(BaseSchema):

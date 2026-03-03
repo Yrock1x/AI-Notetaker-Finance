@@ -1,6 +1,6 @@
 """Unit tests for transcript and document chunking."""
 
-from app.llm.chunking import TranscriptChunker, DocumentChunker, Chunk, _estimate_tokens
+from app.llm.chunking import Chunk, DocumentChunker, TranscriptChunker, _estimate_tokens
 
 
 class TestEstimateTokens:

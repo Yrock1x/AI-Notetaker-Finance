@@ -1,8 +1,7 @@
 import base64
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -126,7 +125,7 @@ class IntegrationService:
         expires_in = token_data.get("expires_in")
         scopes = token_data.get("scope", OAUTH_CONFIGS[platform]["scopes"])
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         token_expires_at = (
             now + timedelta(seconds=int(expires_in)) if expires_in else None
         )
@@ -181,7 +180,7 @@ class IntegrationService:
 
     async def refresh_access_token(
         self, credential: IntegrationCredential
-    ) -> Optional[IntegrationCredential]:
+    ) -> IntegrationCredential | None:
         """Refresh an expired access token using the stored refresh token.
 
         Returns the updated credential, or ``None`` for platforms whose tokens
@@ -241,12 +240,12 @@ class IntegrationService:
             )
             raise ExternalServiceError(
                 platform, f"Token refresh failed ({exc.response.status_code})"
-            )
+            ) from exc
         except httpx.HTTPError as exc:
             logger.error("token_refresh_network_error", platform=platform, error=str(exc))
-            raise ExternalServiceError(platform, f"Token refresh network error: {exc}")
+            raise ExternalServiceError(platform, f"Token refresh network error: {exc}") from exc
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         credential.access_token_encrypted = self._encrypt_token(
             token_data["access_token"]
         )
@@ -277,7 +276,7 @@ class IntegrationService:
 
         # Check if token is expired or about to expire
         if credential.token_expires_at is not None:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if credential.token_expires_at < now + _TOKEN_EXPIRY_BUFFER:
                 logger.info(
                     "token_expired_refreshing",
@@ -313,7 +312,7 @@ class IntegrationService:
 
     async def get_credentials(
         self, user_id: UUID, org_id: UUID, platform: str
-    ) -> Optional[IntegrationCredential]:
+    ) -> IntegrationCredential | None:
         """Get stored credentials for a provider."""
         stmt = select(IntegrationCredential).where(
             and_(
@@ -374,7 +373,7 @@ class IntegrationService:
                 "org_id": UUID(data["org_id"]),
             }
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
-            raise DomainValidationError(f"Invalid OAuth state token: {exc}")
+            raise DomainValidationError(f"Invalid OAuth state token: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Private — token exchange
@@ -447,7 +446,7 @@ class IntegrationService:
             raise ExternalServiceError(
                 platform,
                 f"Token exchange failed ({exc.response.status_code})",
-            )
+            ) from exc
         except httpx.HTTPError as exc:
             logger.error(
                 "token_exchange_network_error",
@@ -456,7 +455,7 @@ class IntegrationService:
             )
             raise ExternalServiceError(
                 platform, f"Token exchange network error: {exc}"
-            )
+            ) from exc
 
         # Slack nests its tokens inside an `authed_user` or top-level object
         if platform == "slack":
@@ -504,7 +503,9 @@ class IntegrationService:
         if not key:
             raise ValueError(
                 "token_encryption_key must be set for integration credential storage. "
-                "Generate one with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+                "Generate one with: python -c "
+                "'from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())'"
             )
         return Fernet(key.encode())
 
@@ -516,6 +517,6 @@ class IntegrationService:
         """Decrypt a stored token."""
         try:
             return self._get_fernet().decrypt(encrypted_token.encode()).decode()
-        except InvalidToken:
+        except InvalidToken as exc:
             logger.error("Failed to decrypt integration token — key may have rotated")
-            raise ValueError("Failed to decrypt stored token")
+            raise ValueError("Failed to decrypt stored token") from exc

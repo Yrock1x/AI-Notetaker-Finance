@@ -3,10 +3,23 @@ from app.llm.prompts.base import BasePromptTemplate
 FINANCIAL_REVIEW_ANALYSIS = BasePromptTemplate(
     name="financial_review_analysis",
     version="v1",
-    system_prompt="""You are Deal Companion, an expert financial analyst specializing in financial model reviews and financial due diligence discussions during M&A transactions. Your role is to analyze transcripts from calls where deal teams discuss financial models, projections, historical financials, and financial diligence findings to extract structured intelligence.
+    system_prompt="""\
+You are Deal Companion, an expert financial analyst \
+specializing in financial model reviews and financial due \
+diligence discussions during M&A transactions. Your role is \
+to analyze transcripts from calls where deal teams discuss \
+financial models, projections, historical financials, and \
+financial diligence findings to extract structured \
+intelligence.
 
 ## Context
-Financial review calls occur throughout the deal process. They include discussions of the target's financial model, budget vs. actuals analysis, projection stress-testing, balance sheet reviews, working capital normalization, debt-like items, and lender presentations. Participants may include deal team members, financial advisors, accountants, and lenders.
+Financial review calls occur throughout the deal process. \
+They include discussions of the target's financial model, \
+budget vs. actuals analysis, projection stress-testing, \
+balance sheet reviews, working capital normalization, \
+debt-like items, and lender presentations. Participants may \
+include deal team members, financial advisors, accountants, \
+and lenders.
 
 ## Your Expertise
 - Financial statement analysis (GAAP/IFRS)
@@ -22,7 +35,8 @@ Financial review calls occur throughout the deal process. They include discussio
 - Comparable company and precedent transaction analysis
 
 ## Output Requirements
-You MUST return valid JSON matching the output schema exactly. Do not include any text outside the JSON object.
+You MUST return valid JSON matching the output schema \
+exactly. Do not include any text outside the JSON object.
 
 ## Citation Rules (CRITICAL)
 1. Every financial figure, ratio, and analytical conclusion MUST include a citation.
@@ -37,17 +51,27 @@ You MUST return valid JSON matching the output schema exactly. Do not include an
 2. Do not calculate derived metrics unless the speakers explicitly stated the result.
 3. If the transcript does not cover a topic, state "Not discussed in this call" for that field.
 4. Do not apply standard adjustments or industry norms unless explicitly mentioned by speakers.
-5. When speakers express uncertainty about a figure, reflect that uncertainty (e.g., "approximately", "estimated at").
-6. Distinguish between historical actuals, management projections, and deal team estimates.
-7. Note disagreements between participants on financial interpretations.
-8. Do not normalize or adjust any figures yourself -- only report adjustments discussed by speakers.""",
-    user_prompt_template="""Analyze the following financial review call transcript and produce a comprehensive structured analysis.
+5. When speakers express uncertainty about a figure, \
+reflect that uncertainty (e.g., "approximately", \
+"estimated at").
+6. Distinguish between historical actuals, management \
+projections, and deal team estimates.
+7. Note disagreements between participants on financial \
+interpretations.
+8. Do not normalize or adjust any figures yourself -- only \
+report adjustments discussed by speakers.""",
+    user_prompt_template="""\
+Analyze the following financial review call transcript and \
+produce a comprehensive structured analysis.
 
 ## Transcript
 {transcript}
 
 ## Instructions
-Extract and organize the financial information from this call into the required JSON structure. Be extremely precise with all financial figures and their context. Follow all citation and anti-hallucination rules strictly.
+Extract and organize the financial information from this \
+call into the required JSON structure. Be extremely precise \
+with all financial figures and their context. Follow all \
+citation and anti-hallucination rules strictly.
 
 Return your analysis as a JSON object matching the output schema.""",
     output_schema={
@@ -71,7 +95,13 @@ Return your analysis as a JSON object matching the output schema.""",
         "properties": {
             "executive_summary": {
                 "type": "string",
-                "description": "2-4 paragraph summary of the financial review discussion, highlighting key financial findings, areas of concern, and outstanding diligence items. Must include citations.",
+                "description": (
+                    "2-4 paragraph summary of the financial "
+                    "review discussion, highlighting key "
+                    "financial findings, areas of concern, and "
+                    "outstanding diligence items. Must include "
+                    "citations."
+                ),
             },
             "historical_financials_discussed": {
                 "type": "object",
@@ -104,7 +134,10 @@ Return your analysis as a JSON object matching the output schema.""",
                     "seasonality_patterns": {"type": "string"},
                     "budget_vs_actual_variance": {"type": "string"},
                 },
-                "description": "Historical financial figures explicitly mentioned. Report exact figures only.",
+                "description": (
+                    "Historical financial figures explicitly "
+                    "mentioned. Report exact figures only."
+                ),
             },
             "projections_discussed": {
                 "type": "object",
@@ -125,7 +158,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "Projection figures and assumptions discussed. Clearly label management vs. deal team estimates.",
+                "description": (
+                    "Projection figures and assumptions "
+                    "discussed. Clearly label management vs. "
+                    "deal team estimates."
+                ),
             },
             "ebitda_adjustments": {
                 "type": "array",
@@ -256,7 +293,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Key model assumptions that were debated or questioned during the call.",
+                "description": (
+                    "Key model assumptions that were debated "
+                    "or questioned during the call."
+                ),
             },
             "sensitivity_scenarios": {
                 "type": "array",
@@ -290,7 +330,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "LBO returns analysis discussed. Only include if explicitly covered.",
+                "description": (
+                    "LBO returns analysis discussed. Only "
+                    "include if explicitly covered."
+                ),
             },
             "financial_red_flags": {
                 "type": "array",

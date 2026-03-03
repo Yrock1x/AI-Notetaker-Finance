@@ -1,5 +1,4 @@
 from uuid import UUID
-from typing import Optional
 
 import structlog
 from sqlalchemy import select, update
@@ -21,9 +20,9 @@ class TranscriptService:
         meeting_id: UUID,
         org_id: UUID,
         full_text: str,
-        deepgram_response: Optional[dict] = None,
+        deepgram_response: dict | None = None,
         language: str = "en",
-        confidence_score: Optional[float] = None,
+        confidence_score: float | None = None,
     ) -> Transcript:
         """Create a transcript record for a meeting."""
         word_count = len(full_text.split()) if full_text else 0
@@ -104,9 +103,9 @@ class TranscriptService:
     async def get_segments(
         self,
         transcript_id: UUID,
-        speaker: Optional[str] = None,
-        start_time: Optional[float] = None,
-        end_time: Optional[float] = None,
+        speaker: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> list[TranscriptSegment]:
         """Get transcript segments with optional speaker and time range filters."""
         stmt = (

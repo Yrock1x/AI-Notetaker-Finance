@@ -1,10 +1,10 @@
 import asyncio
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from celery import Task
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
 from app.core.logging import get_logger
@@ -67,8 +67,9 @@ class BaseTask(Task):
             try:
                 async def _update_status():
                     async with get_task_session() as session:
-                        from app.models.meeting import Meeting
                         from sqlalchemy import select
+
+                        from app.models.meeting import Meeting
                         result = await session.execute(
                             select(Meeting).where(Meeting.id == meeting_id)
                         )

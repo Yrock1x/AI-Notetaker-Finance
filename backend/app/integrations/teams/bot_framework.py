@@ -8,11 +8,12 @@ plumbing for all supported platforms.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
-from app.integrations.recall.client import RecallClient
+if TYPE_CHECKING:
+    from app.integrations.recall.client import RecallClient
 
 logger = structlog.get_logger(__name__)
 
@@ -22,10 +23,10 @@ class TeamsMeetingBot:
 
     def __init__(self, recall_client: RecallClient) -> None:
         self._recall = recall_client
-        self._bot_id: Optional[str] = None
+        self._bot_id: str | None = None
 
     @property
-    def bot_id(self) -> Optional[str]:
+    def bot_id(self) -> str | None:
         """The Recall bot ID for the current session, if any."""
         return self._bot_id
 

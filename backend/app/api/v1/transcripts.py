@@ -118,7 +118,9 @@ async def update_speaker_name(
     meeting = await meeting_service.get_meeting(meeting_id)
 
     deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id, min_role=DealRole.ANALYST)
+    await deal_service.check_deal_access(
+        meeting.deal_id, current_user.id, min_role=DealRole.ANALYST,
+    )
 
     service = TranscriptService(db)
     transcript = await service.get_transcript(meeting_id)

@@ -1,4 +1,4 @@
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import anthropic
 import structlog
@@ -107,5 +107,9 @@ class ClaudeProvider(LLMProvider):
             log.error("claude_api_error", status_code=exc.status_code, error=str(exc))
             raise
         except Exception as exc:
-            log.error("claude_stream_unexpected_error", error=str(exc), error_type=type(exc).__name__)
+            log.error(
+                "claude_stream_unexpected_error",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             raise

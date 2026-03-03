@@ -27,7 +27,7 @@ def _validate_media_path(path: str, label: str) -> Path:
 async def extract_audio_from_video(
     input_path: str,
     output_path: str,
-    format: str = "wav",
+    audio_format: str = "wav",
     sample_rate: int = 16000,
     channels: int = 1,
 ) -> str:
@@ -36,7 +36,7 @@ async def extract_audio_from_video(
     Args:
         input_path: Path to the input video file.
         output_path: Path to write the extracted audio.
-        format: Output audio format (wav, mp3, etc.).
+        audio_format: Output audio format (wav, mp3, etc.).
         sample_rate: Audio sample rate in Hz.
         channels: Number of audio channels (1 = mono).
 
@@ -46,8 +46,11 @@ async def extract_audio_from_video(
     Raises:
         ValueError: If paths contain traversal or have disallowed extensions.
     """
-    if format not in ALLOWED_AUDIO_FORMATS:
-        raise ValueError(f"Unsupported audio format: {format}. Allowed: {ALLOWED_AUDIO_FORMATS}")
+    if audio_format not in ALLOWED_AUDIO_FORMATS:
+        raise ValueError(
+            f"Unsupported audio format: {audio_format}. "
+            f"Allowed: {ALLOWED_AUDIO_FORMATS}"
+        )
 
     safe_input = _validate_media_path(input_path, "input")
     safe_output = _validate_media_path(output_path, "output")
@@ -56,7 +59,7 @@ async def extract_audio_from_video(
         "ffmpeg",
         "-i", str(safe_input),
         "-vn",  # no video
-        "-acodec", "pcm_s16le" if format == "wav" else "libmp3lame",
+        "-acodec", "pcm_s16le" if audio_format == "wav" else "libmp3lame",
         "-ar", str(sample_rate),
         "-ac", str(channels),
         "-y",  # overwrite

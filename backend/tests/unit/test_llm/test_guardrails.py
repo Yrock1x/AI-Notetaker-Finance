@@ -9,8 +9,12 @@ class TestValidateCitations:
 
     def test_valid_citation_exact_match(self):
         """Citation text that is a substring of source chunk should be valid."""
-        citations = [{"text": "revenue grew by 25%", "source_id": "chunk_1"}]
-        sources = [{"text": "The company's revenue grew by 25% year over year", "source_id": "chunk_1"}]
+        citations = [
+            {"text": "revenue grew by 25%", "source_id": "chunk_1"},
+        ]
+        sources = [
+            {"text": "The company's revenue grew by 25% year over year", "source_id": "chunk_1"},
+        ]
         result = self.guardrails.validate_citations("answer", citations, sources)
         assert len(result) == 1
         assert result[0]["valid"] is True
@@ -26,15 +30,33 @@ class TestValidateCitations:
 
     def test_valid_citation_word_overlap(self):
         """Citation with >= 70% word overlap should be valid via partial match."""
-        citations = [{"text": "management increased operational efficiency across departments", "source_id": "chunk_1"}]
-        sources = [{"text": "management team increased operational efficiency across multiple departments last quarter", "source_id": "chunk_1"}]
+        citations = [
+            {
+                "text": "management increased operational efficiency across departments",
+                "source_id": "chunk_1",
+            },
+        ]
+        sources = [
+            {
+                "text": "management team increased operational efficiency"
+                " across multiple departments last quarter",
+                "source_id": "chunk_1",
+            },
+        ]
         result = self.guardrails.validate_citations("answer", citations, sources)
         assert result[0]["valid"] is True
 
     def test_invalid_citation_low_word_overlap(self):
         """Citation with low word overlap should be invalid."""
-        citations = [{"text": "company plans to expand internationally into new markets", "source_id": "chunk_1"}]
-        sources = [{"text": "revenue figures showed positive growth trends", "source_id": "chunk_1"}]
+        citations = [
+            {
+                "text": "company plans to expand internationally into new markets",
+                "source_id": "chunk_1",
+            },
+        ]
+        sources = [
+            {"text": "revenue figures showed positive growth trends", "source_id": "chunk_1"},
+        ]
         result = self.guardrails.validate_citations("answer", citations, sources)
         assert result[0]["valid"] is False
 

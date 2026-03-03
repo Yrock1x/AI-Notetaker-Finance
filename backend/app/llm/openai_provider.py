@@ -1,4 +1,4 @@
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import openai
 import structlog
@@ -114,7 +114,11 @@ class OpenAIProvider(LLMProvider):
             log.error("openai_api_error", error=str(exc))
             raise
         except Exception as exc:
-            log.error("openai_stream_unexpected_error", error=str(exc), error_type=type(exc).__name__)
+            log.error(
+                "openai_stream_unexpected_error",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             raise
 
 
@@ -152,7 +156,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             log.error("openai_embed_api_error", error=str(exc))
             raise
         except Exception as exc:
-            log.error("openai_embed_unexpected_error", error=str(exc), error_type=type(exc).__name__)
+            log.error(
+                "openai_embed_unexpected_error",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             raise
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -203,5 +211,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             log.error("openai_embed_batch_api_error", error=str(exc))
             raise
         except Exception as exc:
-            log.error("openai_embed_batch_unexpected_error", error=str(exc), error_type=type(exc).__name__)
+            log.error(
+                "openai_embed_batch_unexpected_error",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             raise

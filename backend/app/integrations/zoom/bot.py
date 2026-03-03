@@ -7,12 +7,13 @@ meeting lifecycle operations to Recall.ai.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import structlog
 
-from app.integrations.recall.client import RecallClient
+if TYPE_CHECKING:
+    from app.integrations.recall.client import RecallClient
 
 logger = structlog.get_logger(__name__)
 
@@ -22,15 +23,15 @@ class ZoomMeetingBot:
 
     def __init__(self, recall_client: RecallClient) -> None:
         self._recall = recall_client
-        self._bot_id: Optional[str] = None
+        self._bot_id: str | None = None
 
     @property
-    def bot_id(self) -> Optional[str]:
+    def bot_id(self) -> str | None:
         """The Recall bot ID for the current session, if any."""
         return self._bot_id
 
     @staticmethod
-    def _build_zoom_url(meeting_id: str, passcode: Optional[str] = None) -> str:
+    def _build_zoom_url(meeting_id: str, passcode: str | None = None) -> str:
         """Construct a ``zoommtg://`` or ``https://`` join URL from a meeting ID."""
         # Recall.ai accepts standard Zoom web join URLs
         base = f"https://zoom.us/j/{meeting_id}"
@@ -39,7 +40,7 @@ class ZoomMeetingBot:
         return base
 
     async def join_meeting(
-        self, meeting_id: str, passcode: Optional[str] = None
+        self, meeting_id: str, passcode: str | None = None
     ) -> None:
         """Join a Zoom meeting by meeting ID and optional passcode.
 

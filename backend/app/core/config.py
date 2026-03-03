@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # Demo mode (bypasses Cognito auth for local/demo deployments)
     demo_mode: bool = False
-    demo_jwt_secret: str = "demo-secret-change-in-production"
+    demo_jwt_secret: str = "demo-secret-change-in-production"  # noqa: S105 - default placeholder, validated at startup
 
     # OAuth Client Credentials
     zoom_client_id: str = ""
@@ -78,11 +78,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_demo_mode(self) -> "Settings":
-        if self.demo_mode:
-            if self.demo_jwt_secret == "demo-secret-change-in-production":
-                raise ValueError(
-                    "demo_jwt_secret must be changed from the default value when demo_mode is enabled"
-                )
+        default_secret = "demo-secret-change-in-production"  # noqa: S105 - default placeholder for validation check
+        if self.demo_mode and self.demo_jwt_secret == default_secret:
+            raise ValueError(
+                "demo_jwt_secret must be changed from the "
+                "default value when demo_mode is enabled"
+            )
         return self
 
     @property

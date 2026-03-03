@@ -1,9 +1,8 @@
-from uuid import UUID
 from datetime import datetime
-from typing import Optional
+from uuid import UUID
 
 import structlog
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import AuditLog
@@ -21,11 +20,11 @@ class AuditService:
         user_id: UUID,
         action: str,
         resource_type: str,
-        resource_id: Optional[UUID] = None,
-        deal_id: Optional[UUID] = None,
-        details: Optional[dict] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        resource_id: UUID | None = None,
+        deal_id: UUID | None = None,
+        details: dict | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> AuditLog:
         """Create an audit log entry."""
         entry = AuditLog(
@@ -54,13 +53,13 @@ class AuditService:
     async def query_logs(
         self,
         org_id: UUID,
-        user_id: Optional[UUID] = None,
-        action: Optional[str] = None,
-        resource_type: Optional[str] = None,
-        deal_id: Optional[UUID] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        cursor: Optional[str] = None,
+        user_id: UUID | None = None,
+        action: str | None = None,
+        resource_type: str | None = None,
+        deal_id: UUID | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        cursor: str | None = None,
         limit: int = 50,
     ) -> dict:
         """Query audit logs with filters and cursor-based pagination.
@@ -128,8 +127,8 @@ class AuditService:
     async def count_logs(
         self,
         org_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> int:
         """Count audit log entries for an org in a time range."""
         stmt = select(func.count(AuditLog.id)).where(AuditLog.org_id == org_id)

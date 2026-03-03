@@ -50,8 +50,9 @@ def send_completion_notification(
         async with async_session_factory() as session:
             try:
                 # Retrieve the meeting record to build the notification payload
-                from app.models.meeting import Meeting
                 from sqlalchemy import select
+
+                from app.models.meeting import Meeting
 
                 result = await session.execute(
                     select(Meeting).where(Meeting.id == UUID(meeting_id))
@@ -67,8 +68,9 @@ def send_completion_notification(
                 # Try to find a Slack integration for the meeting's org
                 integration_svc = IntegrationService(session, settings)
                 # Query for any active Slack credential in this org
-                from app.models.integration_credential import IntegrationCredential
                 from sqlalchemy import and_
+
+                from app.models.integration_credential import IntegrationCredential
 
                 cred_result = await session.execute(
                     select(IntegrationCredential).where(
@@ -156,8 +158,9 @@ def send_slack_notification(
                 integration_svc = IntegrationService(session, settings)
 
                 # Find an active Slack credential for this org
-                from app.models.integration_credential import IntegrationCredential
                 from sqlalchemy import and_, select
+
+                from app.models.integration_credential import IntegrationCredential
 
                 cred_result = await session.execute(
                     select(IntegrationCredential).where(

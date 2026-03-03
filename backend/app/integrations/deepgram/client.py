@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 from deepgram import AsyncDeepgramClient as DGClient
 
 from app.integrations.deepgram.config import DEEPGRAM_CONFIG

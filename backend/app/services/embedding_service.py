@@ -1,8 +1,7 @@
 from uuid import UUID
-from typing import Optional
 
 import structlog
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.provider import EmbeddingProvider
@@ -37,7 +36,7 @@ class EmbeddingService:
         and optional metadata.
         """
         embeddings = []
-        for chunk, vector in zip(chunks, vectors):
+        for chunk, vector in zip(chunks, vectors, strict=True):
             embedding = Embedding(
                 org_id=org_id,
                 deal_id=deal_id,
@@ -83,8 +82,8 @@ class EmbeddingService:
         deal_id: UUID,
         org_id: UUID,
         top_k: int = 10,
-        score_threshold: Optional[float] = None,
-        source_type: Optional[str] = None,
+        score_threshold: float | None = None,
+        source_type: str | None = None,
     ) -> list[dict]:
         """Perform vector similarity search filtered by deal and org.
 

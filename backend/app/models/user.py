@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, BaseMixin
@@ -15,7 +15,12 @@ class User(BaseMixin, Base):
 
     # Relationships
     org_memberships = relationship("OrgMembership", back_populates="user", lazy="noload")
-    deal_memberships = relationship("DealMembership", back_populates="user", foreign_keys="[DealMembership.user_id]", lazy="noload")
+    deal_memberships = relationship(
+        "DealMembership",
+        back_populates="user",
+        foreign_keys="[DealMembership.user_id]",
+        lazy="noload",
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"

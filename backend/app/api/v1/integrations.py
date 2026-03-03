@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -12,7 +12,6 @@ from app.schemas.integration import (
     BotSessionCreate,
     BotSessionResponse,
     IntegrationResponse,
-    OAuthInitResponse,
 )
 from app.services.bot_service import BotService
 from app.services.integration_service import IntegrationService
@@ -48,7 +47,7 @@ async def list_integrations(
 ) -> list[IntegrationResponse]:
     """List all integrations with their connection status."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if settings.demo_mode:
         return [
@@ -150,7 +149,7 @@ async def oauth_callback(
     redirect_uri = f"{base_url}/api/v1/integrations/{platform}/callback"
 
     service = IntegrationService(db, settings)
-    credential = await service.handle_oauth_callback(
+    await service.handle_oauth_callback(
         user_id=user_id,
         org_id=org_id,
         platform=platform,

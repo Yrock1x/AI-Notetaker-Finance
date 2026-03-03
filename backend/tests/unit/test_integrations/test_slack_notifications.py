@@ -9,7 +9,6 @@ Once SlackNotifier is implemented, these tests should be updated to call the
 real methods.
 """
 
-import pytest
 
 
 # ---------------------------------------------------------------------------

@@ -3,10 +3,22 @@ from app.llm.prompts.base import BasePromptTemplate
 MANAGEMENT_PRESENTATION_ANALYSIS = BasePromptTemplate(
     name="management_presentation_analysis",
     version="v1",
-    system_prompt="""You are Deal Companion, an expert private equity analyst specializing in the evaluation of management presentations during M&A processes. Your role is to analyze transcripts from management presentations (also known as management meetings or fireside chats) and extract structured intelligence for the deal team.
+    system_prompt="""\
+You are Deal Companion, an expert private equity analyst \
+specializing in the evaluation of management presentations \
+during M&A processes. Your role is to analyze transcripts \
+from management presentations (also known as management \
+meetings or fireside chats) and extract structured \
+intelligence for the deal team.
 
 ## Context
-Management presentations are formal meetings where the target company's leadership team presents their business to potential buyers or investors. These sessions typically cover the company's story, market opportunity, financial performance, growth strategy, and competitive advantages. Your analysis should help the deal team evaluate the investment thesis and management credibility.
+Management presentations are formal meetings where the \
+target company's leadership team presents their business to \
+potential buyers or investors. These sessions typically \
+cover the company's story, market opportunity, financial \
+performance, growth strategy, and competitive advantages. \
+Your analysis should help the deal team evaluate the \
+investment thesis and management credibility.
 
 ## Your Expertise
 - Evaluating management team credibility, preparedness, and depth of knowledge
@@ -18,30 +30,44 @@ Management presentations are formal meetings where the target company's leadersh
 - Assessing organizational depth and key-person dependency risks
 
 ## Output Requirements
-You MUST return valid JSON matching the output schema exactly. Do not include any text outside the JSON object.
+You MUST return valid JSON matching the output schema \
+exactly. Do not include any text outside the JSON object.
 
 ## Citation Rules (CRITICAL)
-1. Every factual claim, financial figure, and qualitative assessment MUST include a citation.
-2. Citations use the format [S:XX] where XX is the segment index number from the transcript.
-3. If a finding spans multiple segments, cite all relevant segments: [S:12][S:13][S:14].
-4. If you cannot find a source segment for a claim, DO NOT include that claim.
-5. Never fabricate or extrapolate financial figures. Only report numbers explicitly stated in the transcript.
+1. Every factual claim, financial figure, and qualitative \
+assessment MUST include a citation.
+2. Citations use the format [S:XX] where XX is the segment \
+index number from the transcript.
+3. If a finding spans multiple segments, cite all relevant \
+segments: [S:12][S:13][S:14].
+4. If you cannot find a source segment for a claim, DO NOT \
+include that claim.
+5. Never fabricate or extrapolate financial figures. Only \
+report numbers explicitly stated in the transcript.
 
 ## Anti-Hallucination Rules (CRITICAL)
 1. Only extract information that is EXPLICITLY stated in the transcript.
 2. Do not infer, assume, or extrapolate beyond what speakers directly say.
-3. If the transcript does not cover a topic, state "Not discussed in this presentation" for that field.
+3. If the transcript does not cover a topic, state \
+"Not discussed in this presentation" for that field.
 4. Do not fill in industry benchmarks or typical ranges unless a speaker explicitly mentions them.
 5. When management makes forward-looking statements, clearly label them as such.
 6. Distinguish between verified claims (backed by data shown) and unverified assertions.
-7. Note when management deflects, avoids, or gives vague answers to specific questions.""",
-    user_prompt_template="""Analyze the following management presentation transcript and produce a comprehensive structured analysis.
+7. Note when management deflects, avoids, or gives vague \
+answers to specific questions.""",
+    user_prompt_template="""\
+Analyze the following management presentation transcript \
+and produce a comprehensive structured analysis.
 
 ## Transcript
 {transcript}
 
 ## Instructions
-Extract and organize the information from this management presentation into the required JSON structure. Pay special attention to the quality and credibility of management's narrative. Follow all citation and anti-hallucination rules strictly.
+Extract and organize the information from this management \
+presentation into the required JSON structure. Pay special \
+attention to the quality and credibility of management's \
+narrative. Follow all citation and anti-hallucination \
+rules strictly.
 
 Return your analysis as a JSON object matching the output schema.""",
     output_schema={
@@ -62,7 +88,13 @@ Return your analysis as a JSON object matching the output schema.""",
         "properties": {
             "executive_summary": {
                 "type": "string",
-                "description": "2-4 paragraph summary of the management presentation, highlighting the key investment thesis, management credibility assessment, and critical areas for further diligence. Must include citations.",
+                "description": (
+                    "2-4 paragraph summary of the management "
+                    "presentation, highlighting the key "
+                    "investment thesis, management credibility "
+                    "assessment, and critical areas for further "
+                    "diligence. Must include citations."
+                ),
             },
             "company_narrative": {
                 "type": "object",
@@ -78,7 +110,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "The company story as presented by management. Note what is substantiated versus asserted.",
+                "description": (
+                    "The company story as presented by "
+                    "management. Note what is substantiated "
+                    "versus asserted."
+                ),
             },
             "management_team_assessment": {
                 "type": "array",
@@ -103,7 +139,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Assessment of each management team member who participated in the presentation.",
+                "description": (
+                    "Assessment of each management team member "
+                    "who participated in the presentation."
+                ),
             },
             "investment_thesis_components": {
                 "type": "array",
@@ -123,7 +162,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "The key components of the investment thesis as presented, with an assessment of how well each is supported.",
+                "description": (
+                    "The key components of the investment "
+                    "thesis as presented, with an assessment "
+                    "of how well each is supported."
+                ),
             },
             "growth_strategy": {
                 "type": "object",
@@ -139,7 +182,10 @@ Return your analysis as a JSON object matching the output schema.""",
                     "timeline_and_milestones": {"type": "string"},
                     "credibility_assessment": {
                         "type": "string",
-                        "description": "Assessment of how realistic and achievable the growth plans appear.",
+                        "description": (
+                            "Assessment of how realistic and "
+                            "achievable the growth plans appear."
+                        ),
                     },
                 },
                 "description": "Growth strategy as presented by management.",
@@ -158,7 +204,11 @@ Return your analysis as a JSON object matching the output schema.""",
                     "projections_presented": {"type": "string"},
                     "projection_credibility": {"type": "string"},
                 },
-                "description": "Financial metrics explicitly presented. Use 'Not discussed' for metrics not covered. Include citations.",
+                "description": (
+                    "Financial metrics explicitly presented. "
+                    "Use 'Not discussed' for metrics not "
+                    "covered. Include citations."
+                ),
             },
             "competitive_positioning": {
                 "type": "object",
@@ -197,7 +247,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Risks identified from the presentation, including both those acknowledged and those not addressed by management.",
+                "description": (
+                    "Risks identified from the presentation, "
+                    "including both those acknowledged and "
+                    "those not addressed by management."
+                ),
             },
             "narrative_red_flags": {
                 "type": "array",
@@ -216,12 +270,21 @@ Return your analysis as a JSON object matching the output schema.""",
                         },
                     },
                 },
-                "description": "Red flags in management's narrative: evasive answers, inconsistencies, overstatements, lack of depth, or deflections.",
+                "description": (
+                    "Red flags in management's narrative: "
+                    "evasive answers, inconsistencies, "
+                    "overstatements, lack of depth, or "
+                    "deflections."
+                ),
             },
             "information_gaps": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Important topics that were not addressed or insufficiently covered in the presentation.",
+                "description": (
+                    "Important topics that were not addressed "
+                    "or insufficiently covered in the "
+                    "presentation."
+                ),
             },
             "follow_up_questions": {
                 "type": "array",
@@ -237,7 +300,11 @@ Return your analysis as a JSON object matching the output schema.""",
                         "target_respondent": {"type": "string"},
                     },
                 },
-                "description": "Questions for follow-up sessions based on gaps, inconsistencies, or areas requiring deeper exploration.",
+                "description": (
+                    "Questions for follow-up sessions based "
+                    "on gaps, inconsistencies, or areas "
+                    "requiring deeper exploration."
+                ),
             },
         },
     },

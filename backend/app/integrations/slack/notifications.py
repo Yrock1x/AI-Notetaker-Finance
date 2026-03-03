@@ -6,7 +6,7 @@ Builds rich, structured Slack messages for meeting lifecycle events
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -159,7 +159,10 @@ class SlackNotifier:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Deal Companion | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+                        "text": (
+                            "Deal Companion | "
+                            f"{datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
+                        ),
                     },
                 ],
             },

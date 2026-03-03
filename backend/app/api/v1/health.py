@@ -21,9 +21,9 @@ async def health_check() -> dict:
 @router.get("/ready")
 async def readiness_check(
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict:  # type: ignore[return-value]
     """Readiness check — verifies database connectivity."""
-    checks = {}
+    checks: dict[str, str] = {}
 
     # Database check
     try:
@@ -31,7 +31,7 @@ async def readiness_check(
         checks["database"] = "ok"
     except Exception as e:
         logger.error("readiness_check_failed: database - %s", e)
-        return JSONResponse(
+        return JSONResponse(  # type: ignore[return-value]
             status_code=503,
             content={"status": "unhealthy"},
         )

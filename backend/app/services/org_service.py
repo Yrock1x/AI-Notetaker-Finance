@@ -2,17 +2,16 @@
 
 from uuid import UUID
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-import structlog
-
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.security import OrgRole
-from app.models.organization import Organization
 from app.models.org_membership import OrgMembership
+from app.models.organization import Organization
 
 logger = structlog.get_logger(__name__)
 
@@ -49,9 +48,9 @@ class OrgService:
         self.db.add(org)
         try:
             await self.db.flush()
-        except IntegrityError:
+        except IntegrityError as exc:
             await self.db.rollback()
-            raise ConflictError("Organization with this slug already exists")
+            raise ConflictError("Organization with this slug already exists") from exc
 
         logger.info("org_created", org_id=str(org.id), slug=slug)
 

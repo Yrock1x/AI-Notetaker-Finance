@@ -1,12 +1,13 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.security import OrgRole, verify_org_membership
 from app.dependencies import get_current_user, get_db
+from app.integrations.aws.cognito import get_cognito_client
 from app.models.org_membership import OrgMembership
 from app.models.user import User
 from app.schemas.organization import (
@@ -18,7 +19,6 @@ from app.schemas.organization import (
 )
 from app.services.auth_service import AuthService
 from app.services.org_service import OrgService
-from app.integrations.aws.cognito import get_cognito_client
 
 router = APIRouter()
 
@@ -191,7 +191,7 @@ async def remove_org_member(
             OrgMembership.user_id == user_id,
         )
     )
-    if member and member.role == "owner" and owner_count <= 1:
+    if member and member.role == "owner" and (owner_count or 0) <= 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot remove the last owner of the organization",

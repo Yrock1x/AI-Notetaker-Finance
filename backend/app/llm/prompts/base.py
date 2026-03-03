@@ -19,5 +19,10 @@ class BasePromptTemplate:
         if self.output_schema:
             import json
             schema_str = json.dumps(self.output_schema, indent=2)
-            system += f"\n\n## Output Schema\nReturn valid JSON matching this schema exactly:\n```json\n{schema_str}\n```"
+            system += (
+                "\n\n## Output Schema\n"
+                "Return valid JSON matching this schema "
+                "exactly:\n"
+                f"```json\n{schema_str}\n```"
+            )
         return system, self.user_prompt_template.format(**safe_kwargs)

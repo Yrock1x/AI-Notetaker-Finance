@@ -5,7 +5,7 @@ and token encryption/decryption. All database and HTTP interactions are mocked.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 from app.core.config import Settings
 from app.core.exceptions import DomainValidationError, NotFoundError
 from app.models.integration_credential import IntegrationCredential
-from app.services.integration_service import IntegrationService, SUPPORTED_PLATFORMS
+from app.services.integration_service import IntegrationService
 
 
 @pytest.fixture
@@ -68,7 +68,8 @@ class TestInitiateOAuth:
     async def test_initiate_oauth_generates_authorization_url_zoom(
         self, service: IntegrationService, user_id: uuid.UUID, org_id: uuid.UUID
     ):
-        """Initiating OAuth for Zoom should return an authorization URL containing the Zoom authorize endpoint."""
+        """Initiating OAuth for Zoom should return an authorization URL
+        containing the Zoom authorize endpoint."""
         url = await service.initiate_oauth(
             user_id=user_id,
             org_id=org_id,
@@ -147,7 +148,8 @@ class TestHandleOAuthCallback:
         user_id: uuid.UUID,
         org_id: uuid.UUID,
     ):
-        """OAuth callback with no existing credential should create a new IntegrationCredential."""
+        """OAuth callback with no existing credential should create a new
+        IntegrationCredential."""
         mock_exchange.return_value = {
             "access_token": "real-access-token",
             "refresh_token": "real-refresh-token",
@@ -188,7 +190,8 @@ class TestHandleOAuthCallback:
         user_id: uuid.UUID,
         org_id: uuid.UUID,
     ):
-        """OAuth callback with an existing credential should update it instead of creating a new one."""
+        """OAuth callback with an existing credential should update it
+        instead of creating a new one."""
         mock_exchange.return_value = {
             "access_token": "new-real-access-token",
             "refresh_token": "new-real-refresh-token",
@@ -201,13 +204,13 @@ class TestHandleOAuthCallback:
             org_id=org_id,
             user_id=user_id,
             platform="zoom",
-            access_token_encrypted="old-encrypted-token",
-            token_expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            access_token_encrypted="old-encrypted-token",  # noqa: S106
+            token_expires_at=datetime.now(UTC) - timedelta(hours=1),
             scopes="old:scopes",
             is_active=False,
         )
-        existing.created_at = datetime.now(timezone.utc)
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.created_at = datetime.now(UTC)
+        existing.updated_at = datetime.now(UTC)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing
@@ -224,7 +227,7 @@ class TestHandleOAuthCallback:
 
         assert credential is existing
         assert credential.is_active is True
-        assert credential.access_token_encrypted != "old-encrypted-token"
+        assert credential.access_token_encrypted != "old-encrypted-token"  # noqa: S105
         assert credential.scopes == "meeting:read recording:read user:read"
         # Should NOT add a new object since we are updating
         mock_db.add.assert_not_called()
@@ -247,11 +250,11 @@ class TestDisconnect:
             org_id=org_id,
             user_id=user_id,
             platform="slack",
-            access_token_encrypted="encrypted-token",
+            access_token_encrypted="encrypted-token",  # noqa: S106
             is_active=True,
         )
-        existing.created_at = datetime.now(timezone.utc)
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.created_at = datetime.now(UTC)
+        existing.updated_at = datetime.now(UTC)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing
@@ -288,17 +291,18 @@ class TestGetCredentials:
         user_id: uuid.UUID,
         org_id: uuid.UUID,
     ):
-        """get_credentials should return only active credentials (the query filters by is_active)."""
+        """get_credentials should return only active credentials
+        (the query filters by is_active)."""
         active_cred = IntegrationCredential(
             id=uuid.uuid4(),
             org_id=org_id,
             user_id=user_id,
             platform="zoom",
-            access_token_encrypted="enc-token",
+            access_token_encrypted="enc-token",  # noqa: S106
             is_active=True,
         )
-        active_cred.created_at = datetime.now(timezone.utc)
-        active_cred.updated_at = datetime.now(timezone.utc)
+        active_cred.created_at = datetime.now(UTC)
+        active_cred.updated_at = datetime.now(UTC)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = active_cred
@@ -329,7 +333,7 @@ class TestListIntegrations:
                 org_id=org_id,
                 user_id=user_id,
                 platform="zoom",
-                access_token_encrypted="enc-1",
+                access_token_encrypted="enc-1",  # noqa: S106
                 is_active=True,
             ),
             IntegrationCredential(
@@ -337,13 +341,13 @@ class TestListIntegrations:
                 org_id=org_id,
                 user_id=user_id,
                 platform="slack",
-                access_token_encrypted="enc-2",
+                access_token_encrypted="enc-2",  # noqa: S106
                 is_active=True,
             ),
         ]
         for c in creds:
-            c.created_at = datetime.now(timezone.utc)
-            c.updated_at = datetime.now(timezone.utc)
+            c.created_at = datetime.now(UTC)
+            c.updated_at = datetime.now(UTC)
 
         mock_scalars = MagicMock()
         mock_scalars.all.return_value = creds

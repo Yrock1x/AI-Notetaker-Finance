@@ -2,7 +2,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from uuid import UUID
-from typing import Optional
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +31,7 @@ class QAResponse:
     citations: list[Citation]
     confidence: str  # high, medium, low
     source_coverage: str
-    grounding_score: Optional[float] = None
+    grounding_score: float | None = None
     grounding_status: str = "pending"  # "checked", "skipped", "pending"
 
 

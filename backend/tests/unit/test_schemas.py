@@ -10,10 +10,16 @@ Tests cover:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
+
+# ─── analysis.py ─────────────────────────────────────────────────────────────
+from app.schemas.analysis import AnalysisRequest, AnalysisResponse
+
+# ─── audit.py ────────────────────────────────────────────────────────────────
+from app.schemas.audit import AuditLogQuery, AuditLogResponse
 
 # ─── common.py ───────────────────────────────────────────────────────────────
 from app.schemas.common import (
@@ -25,18 +31,6 @@ from app.schemas.common import (
     SuccessResponse,
 )
 
-# ─── user.py ─────────────────────────────────────────────────────────────────
-from app.schemas.user import UserResponse, UserUpdate
-
-# ─── organization.py ─────────────────────────────────────────────────────────
-from app.schemas.organization import (
-    OrgCreate,
-    OrgMemberCreate,
-    OrgMemberResponse,
-    OrgResponse,
-    OrgUpdate,
-)
-
 # ─── deal.py ─────────────────────────────────────────────────────────────────
 from app.schemas.deal import (
     DealCreate,
@@ -44,6 +38,23 @@ from app.schemas.deal import (
     DealMemberResponse,
     DealResponse,
     DealUpdate,
+)
+
+# ─── document.py ─────────────────────────────────────────────────────────────
+from app.schemas.document import (
+    DocumentCreate,
+    DocumentDownloadResponse,
+    DocumentResponse,
+    DocumentUploadResponse,
+)
+
+# ─── integration.py ──────────────────────────────────────────────────────────
+from app.schemas.integration import (
+    BotSessionCreate,
+    BotSessionResponse,
+    IntegrationResponse,
+    OAuthInitResponse,
+    WebhookResponse,
 )
 
 # ─── meeting.py ──────────────────────────────────────────────────────────────
@@ -56,41 +67,29 @@ from app.schemas.meeting import (
     UpdateSpeakerName,
 )
 
-# ─── transcript.py ───────────────────────────────────────────────────────────
-from app.schemas.transcript import TranscriptResponse, TranscriptSegmentResponse
-
-# ─── document.py ─────────────────────────────────────────────────────────────
-from app.schemas.document import (
-    DocumentCreate,
-    DocumentDownloadResponse,
-    DocumentResponse,
-    DocumentUploadResponse,
+# ─── organization.py ─────────────────────────────────────────────────────────
+from app.schemas.organization import (
+    OrgCreate,
+    OrgMemberCreate,
+    OrgMemberResponse,
+    OrgResponse,
+    OrgUpdate,
 )
-
-# ─── analysis.py ─────────────────────────────────────────────────────────────
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse
 
 # ─── qa.py ───────────────────────────────────────────────────────────────────
 from app.schemas.qa import Citation, QAHistoryResponse, QARequest, QAResponse
 
-# ─── integration.py ──────────────────────────────────────────────────────────
-from app.schemas.integration import (
-    BotSessionCreate,
-    BotSessionResponse,
-    IntegrationResponse,
-    OAuthInitResponse,
-    WebhookResponse,
-)
+# ─── transcript.py ───────────────────────────────────────────────────────────
+from app.schemas.transcript import TranscriptResponse, TranscriptSegmentResponse
 
-# ─── audit.py ────────────────────────────────────────────────────────────────
-from app.schemas.audit import AuditLogQuery, AuditLogResponse
-
+# ─── user.py ─────────────────────────────────────────────────────────────────
+from app.schemas.user import UserResponse, UserUpdate
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-NOW = datetime.now(timezone.utc)
+NOW = datetime.now(UTC)
 UUID1 = uuid.uuid4()
 UUID2 = uuid.uuid4()
 UUID3 = uuid.uuid4()
@@ -431,7 +430,7 @@ class TestDealCreate:
         assert deal.name == "Acquisition Target"
         assert deal.description is None
         assert deal.target_company is None
-        assert deal.deal_type == "general"
+        assert deal.deal_type == "other"
         assert deal.stage is None
 
     def test_all_fields(self):
@@ -462,7 +461,11 @@ class TestDealCreate:
             DealCreate(name="Test", deal_type="invalid_type")
 
     def test_all_valid_deal_types(self):
-        for dt in ["m_and_a", "pe", "vc", "debt", "general"]:
+        for dt in [
+            "buyout", "growth_equity", "venture",
+            "recapitalization", "add_on", "other",
+            "m_and_a", "pe", "vc", "debt", "general",
+        ]:
             deal = DealCreate(name="Test", deal_type=dt)
             assert deal.deal_type == dt
 
@@ -683,7 +686,9 @@ class TestMeetingResponse:
 class TestMeetingUploadResponse:
     def test_valid(self):
         resp = MeetingUploadResponse(
-            meeting_id=UUID1, upload_url="https://s3.amazonaws.com/bucket/key", file_key="meetings/abc.wav"
+            meeting_id=UUID1,
+            upload_url="https://s3.amazonaws.com/bucket/key",
+            file_key="meetings/abc.wav",
         )
         assert resp.meeting_id == UUID1
         assert resp.upload_url == "https://s3.amazonaws.com/bucket/key"
@@ -1159,8 +1164,8 @@ class TestBotSessionCreate:
     def test_invalid_platform_raises(self):
         with pytest.raises(ValidationError):
             BotSessionCreate(
-                meeting_url="https://meet.google.com/abc",
-                platform="google_meet",
+                meeting_url="https://meet.example.com/abc",
+                platform="webex",
                 scheduled_start=NOW,
                 deal_id=UUID1,
             )
@@ -1398,7 +1403,8 @@ class TestTypeCrossCutting:
             DocumentCreate, DocumentResponse, DocumentUploadResponse, DocumentDownloadResponse,
             AnalysisRequest, AnalysisResponse,
             Citation, QARequest, QAResponse, QAHistoryResponse,
-            IntegrationResponse, OAuthInitResponse, BotSessionCreate, BotSessionResponse, WebhookResponse,
+            IntegrationResponse, OAuthInitResponse,
+            BotSessionCreate, BotSessionResponse, WebhookResponse,
             AuditLogResponse, AuditLogQuery,
         ]
         for schema in schemas_to_check:

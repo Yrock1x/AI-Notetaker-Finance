@@ -5,15 +5,14 @@ All database interactions are mocked to isolate the service logic.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.core.exceptions import DomainValidationError, NotFoundError
+from app.core.exceptions import DomainValidationError
 from app.models.meeting_bot_session import MeetingBotSession
 from app.services.bot_service import BotService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -67,8 +66,8 @@ def _make_session(
         consent_obtained=False,
         created_by=overrides.get("created_by", uuid.uuid4()),
     )
-    session.created_at = datetime.now(timezone.utc)
-    session.updated_at = datetime.now(timezone.utc)
+    session.created_at = datetime.now(UTC)
+    session.updated_at = datetime.now(UTC)
     session.actual_start = overrides.get("actual_start")
     session.actual_end = overrides.get("actual_end")
     session.scheduled_start = overrides.get("scheduled_start")
@@ -98,7 +97,7 @@ class TestScheduleBot:
             deal_id=deal_id,
             platform="zoom",
             meeting_url="https://zoom.us/j/123456",
-            scheduled_start=datetime.now(timezone.utc),
+            scheduled_start=datetime.now(UTC),
             created_by=user_id,
         )
 
@@ -219,7 +218,7 @@ class TestUpdateBotStatus:
     ):
         """Transitioning to 'completed' should set actual_end."""
         session = _make_session(status="recording")
-        session.actual_start = datetime.now(timezone.utc)
+        session.actual_start = datetime.now(UTC)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = session

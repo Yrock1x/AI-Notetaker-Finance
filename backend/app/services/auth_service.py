@@ -1,17 +1,15 @@
 from uuid import UUID
 
+import structlog
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.integrations.aws.cognito import CognitoClient
 from app.integrations.supabase.auth import SupabaseAuthClient
 from app.models.user import User
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 

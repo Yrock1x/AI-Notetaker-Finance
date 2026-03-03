@@ -6,7 +6,7 @@ are overridden with mocks.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +16,6 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import Settings
 from app.dependencies import get_current_user, get_db, get_db_with_rls, get_org_id
 from app.models.user import User
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,8 +37,8 @@ def mock_user() -> User:
         full_name="API Tester",
         is_active=True,
     )
-    user.created_at = datetime.now(timezone.utc)
-    user.updated_at = datetime.now(timezone.utc)
+    user.created_at = datetime.now(UTC)
+    user.updated_at = datetime.now(UTC)
     return user
 
 
@@ -50,7 +49,7 @@ def demo_settings() -> Settings:
         database_url="postgresql+asyncpg://test:test@localhost/test",
         app_env="development",
         demo_mode=True,
-        demo_jwt_secret="test-secret-not-default-value",
+        demo_jwt_secret="test-secret-not-default-value",  # noqa: S106
     )
 
 
@@ -193,12 +192,12 @@ class TestBotSessionsApi:
         mock_get_settings.return_value = demo_settings
 
         # We need to mock the BotService to avoid real DB calls
-        from app.services.bot_service import BotService
         from app.models.meeting_bot_session import MeetingBotSession
+        from app.services.bot_service import BotService
 
         deal_id = uuid.uuid4()
         session_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         mock_session = MeetingBotSession(
             id=session_id,
@@ -244,10 +243,10 @@ class TestBotSessionsApi:
         """GET /bot/sessions should return a list of bot sessions."""
         mock_get_settings.return_value = demo_settings
 
-        from app.services.bot_service import BotService
         from app.models.meeting_bot_session import MeetingBotSession
+        from app.services.bot_service import BotService
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         sessions = []
         for i in range(2):
             s = MeetingBotSession(

@@ -12,16 +12,10 @@ If running on Python < 3.10 those tests are skipped automatically.
 
 from __future__ import annotations
 
-import importlib
 import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# time_utils  --  pure-python, works on any 3.9+
-# ---------------------------------------------------------------------------
-from app.utils.time_utils import format_duration, format_timestamp, parse_timestamp
 
 # ---------------------------------------------------------------------------
 # audio  --  pure-python + asyncio, works on 3.9+
@@ -32,6 +26,11 @@ from app.utils.audio import (
     _validate_media_path,
     extract_audio_from_video,
 )
+
+# ---------------------------------------------------------------------------
+# time_utils  --  pure-python, works on any 3.9+
+# ---------------------------------------------------------------------------
+from app.utils.time_utils import format_duration, format_timestamp, parse_timestamp
 
 # ---------------------------------------------------------------------------
 # file_processing  --  uses ``str | None`` union syntax (3.10+)
@@ -408,19 +407,24 @@ class TestValidateMediaPath:
 class TestExtractAudioFromVideo:
     """Tests for extract_audio_from_video()."""
 
-    async def test_unsupported_format_raises(self):
+    async def test_unsupported_format_raises(self, tmp_path):
+        input_f = str(tmp_path / "input.mp4")
+        output_f = str(tmp_path / "output.aac")
         with pytest.raises(ValueError, match="Unsupported audio format"):
-            await extract_audio_from_video("/tmp/input.mp4", "/tmp/output.aac", format="aac")
+            await extract_audio_from_video(input_f, output_f, audio_format="aac")
 
-    async def test_directory_traversal_in_input_raises(self):
+    async def test_directory_traversal_in_input_raises(self, tmp_path):
+        output_f = str(tmp_path / "output.wav")
         with pytest.raises(ValueError, match="directory traversal"):
             await extract_audio_from_video(
-                "/tmp/../etc/input.mp4", "/tmp/output.wav", format="wav"
+                "/a/../etc/input.mp4", output_f, audio_format="wav"
             )
 
-    async def test_disallowed_input_extension_raises(self):
+    async def test_disallowed_input_extension_raises(self, tmp_path):
+        input_f = str(tmp_path / "input.txt")
+        output_f = str(tmp_path / "output.wav")
         with pytest.raises(ValueError, match="Unsupported input file extension"):
-            await extract_audio_from_video("/tmp/input.txt", "/tmp/output.wav", format="wav")
+            await extract_audio_from_video(input_f, output_f, audio_format="wav")
 
     async def test_successful_extraction(self, tmp_path):
         """Mock subprocess to simulate successful ffmpeg execution."""
@@ -434,7 +438,7 @@ class TestExtractAudioFromVideo:
 
         with patch("app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process):
             result = await extract_audio_from_video(
-                str(input_file), str(output_file), format="wav", sample_rate=16000, channels=1
+                str(input_file), str(output_file), audio_format="wav", sample_rate=16000, channels=1
             )
             assert result == str(output_file)
 
@@ -448,11 +452,13 @@ class TestExtractAudioFromVideo:
         mock_process.communicate = AsyncMock(return_value=(b"", b"Error: something went wrong"))
         mock_process.returncode = 1
 
-        with patch("app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process):
-            with pytest.raises(RuntimeError, match="ffmpeg failed"):
-                await extract_audio_from_video(
-                    str(input_file), str(output_file), format="wav"
-                )
+        with (
+            patch("app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process),
+            pytest.raises(RuntimeError, match="ffmpeg failed"),
+        ):
+            await extract_audio_from_video(
+                str(input_file), str(output_file), audio_format="wav"
+            )
 
     async def test_mp3_codec_selection(self, tmp_path):
         """Verify that mp3 format uses libmp3lame codec."""
@@ -468,7 +474,7 @@ class TestExtractAudioFromVideo:
             "app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process
         ) as mock_exec:
             await extract_audio_from_video(
-                str(input_file), str(output_file), format="mp3"
+                str(input_file), str(output_file), audio_format="mp3"
             )
             # Check that libmp3lame was passed as codec
             call_args = mock_exec.call_args[0]
@@ -488,7 +494,7 @@ class TestExtractAudioFromVideo:
             "app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process
         ) as mock_exec:
             await extract_audio_from_video(
-                str(input_file), str(output_file), format="wav"
+                str(input_file), str(output_file), audio_format="wav"
             )
             call_args = mock_exec.call_args[0]
             assert "pcm_s16le" in call_args
@@ -507,7 +513,7 @@ class TestExtractAudioFromVideo:
             "app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process
         ) as mock_exec:
             await extract_audio_from_video(
-                str(input_file), str(output_file), format="wav",
+                str(input_file), str(output_file), audio_format="wav",
                 sample_rate=44100, channels=2
             )
             call_args = mock_exec.call_args[0]
@@ -529,7 +535,7 @@ class TestExtractAudioFromVideo:
                 "app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process
             ):
                 result = await extract_audio_from_video(
-                    str(input_file), str(output_file), format=fmt
+                    str(input_file), str(output_file), audio_format=fmt
                 )
                 assert result == str(output_file)
 
@@ -545,7 +551,9 @@ class TestExtractAudioFromVideo:
 
         original_path = str(output_file)
         with patch("app.utils.audio.asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await extract_audio_from_video(original_path, original_path, format="wav")
+            result = await extract_audio_from_video(
+                original_path, original_path, audio_format="wav"
+            )
             # Note: input_path validation would fail if .wav wasn't in ALLOWED_VIDEO_EXTENSIONS
             # but .wav IS allowed, so this works. The return value should be the same string.
             assert result is original_path

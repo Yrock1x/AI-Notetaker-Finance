@@ -1,12 +1,11 @@
 """Deal service — CRUD operations with deal-level RBAC enforcement."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-import structlog
 
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.security import DEAL_ROLE_HIERARCHY, DealRole
@@ -151,7 +150,7 @@ class DealService:
         if deal is None:
             raise NotFoundError("Deal", str(deal_id))
 
-        deal.deleted_at = datetime.now(timezone.utc)
+        deal.deleted_at = datetime.now(UTC)
         await self.db.flush()
 
         logger.info(

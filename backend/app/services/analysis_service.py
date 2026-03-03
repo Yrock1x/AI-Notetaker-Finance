@@ -1,14 +1,13 @@
 import json
 from uuid import UUID
-from typing import Optional
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
-from app.llm.router import LLMRouter
 from app.llm.prompts.base import BasePromptTemplate
+from app.llm.router import LLMRouter
 from app.models.analysis import Analysis
 from app.models.deal import Deal
 from app.models.meeting import Meeting
@@ -19,7 +18,10 @@ logger = structlog.get_logger(__name__)
 # Map call types to prompt template modules and attribute names
 CALL_TYPE_PROMPTS: dict[str, tuple[str, str]] = {
     "diligence": ("app.llm.prompts.diligence", "DILIGENCE_CALL_ANALYSIS"),
-    "management_presentation": ("app.llm.prompts.management_presentation", "MANAGEMENT_PRESENTATION_ANALYSIS"),
+    "management_presentation": (
+        "app.llm.prompts.management_presentation",
+        "MANAGEMENT_PRESENTATION_ANALYSIS",
+    ),
     "buyer_call": ("app.llm.prompts.buyer_call", "BUYER_CALL_ANALYSIS"),
     "financial_review": ("app.llm.prompts.financial_review", "FINANCIAL_REVIEW_ANALYSIS"),
     "qoe": ("app.llm.prompts.qoe", "QOE_ANALYSIS"),
@@ -45,7 +47,7 @@ class AnalysisService:
         self,
         db: AsyncSession,
         llm_router: LLMRouter,
-        transcript_service: Optional[TranscriptService] = None,
+        transcript_service: TranscriptService | None = None,
     ) -> None:
         self.db = db
         self.llm_router = llm_router
@@ -56,7 +58,7 @@ class AnalysisService:
         meeting_id: UUID,
         org_id: UUID,
         call_type: str,
-        requested_by: Optional[UUID] = None,
+        requested_by: UUID | None = None,
     ) -> Analysis:
         """Run an AI analysis on a meeting transcript.
 
@@ -175,7 +177,7 @@ class AnalysisService:
 
     async def get_latest_analysis(
         self, meeting_id: UUID, call_type: str
-    ) -> Optional[Analysis]:
+    ) -> Analysis | None:
         """Get the most recent completed analysis of a given type for a meeting."""
         stmt = (
             select(Analysis)
@@ -221,7 +223,7 @@ class AnalysisService:
         # Strip markdown code fences if present
         if text.startswith("```"):
             lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [line for line in lines if not line.strip().startswith("```")]
             text = "\n".join(lines).strip()
 
         try:

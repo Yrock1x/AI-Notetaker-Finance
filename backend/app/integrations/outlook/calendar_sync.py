@@ -8,7 +8,7 @@ so the system can automatically schedule recording bots.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -57,7 +57,7 @@ class CalendarSyncService:
             detected ``meeting_links``.  Events without meeting links are
             excluded from the result.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         time_max = now + timedelta(days=7)
 
         logger.info(

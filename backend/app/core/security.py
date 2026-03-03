@@ -28,7 +28,10 @@ DEAL_ROLE_HIERARCHY: dict[DealRole, int] = {
 }
 
 DEAL_ROLE_PERMISSIONS: dict[DealRole, set[str]] = {
-    DealRole.LEAD: {"read", "write", "delete", "manage_members", "manage_settings", "run_analysis", "export"},
+    DealRole.LEAD: {
+        "read", "write", "delete", "manage_members",
+        "manage_settings", "run_analysis", "export",
+    },
     DealRole.ADMIN: {"read", "write", "manage_members", "run_analysis", "export"},
     DealRole.ANALYST: {"read", "write", "run_analysis"},
     DealRole.VIEWER: {"read"},
@@ -62,7 +65,7 @@ async def verify_org_membership(
 
     if min_role is not None:
         org_role_hierarchy = {OrgRole.MEMBER: 0, OrgRole.ADMIN: 1, OrgRole.OWNER: 2}
-        if org_role_hierarchy.get(membership.role, -1) < org_role_hierarchy.get(min_role, 0):
+        if org_role_hierarchy.get(membership.role, -1) < org_role_hierarchy.get(min_role, 0):  # type: ignore[call-overload]
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires at least {min_role} role in this organization",
@@ -95,15 +98,17 @@ async def verify_deal_membership(
             detail="Resource not found",
         )
 
-    if min_role is not None:
-        if DEAL_ROLE_HIERARCHY.get(membership.role, -1) < DEAL_ROLE_HIERARCHY.get(min_role, 0):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires at least {min_role} role on this deal",
-            )
+    if (
+        min_role is not None
+        and DEAL_ROLE_HIERARCHY.get(membership.role, -1) < DEAL_ROLE_HIERARCHY.get(min_role, 0)  # type: ignore[call-overload]
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Requires at least {min_role} role on this deal",
+        )
 
     if required_permission is not None:
-        permissions = DEAL_ROLE_PERMISSIONS.get(membership.role, set())
+        permissions = DEAL_ROLE_PERMISSIONS.get(membership.role, set())  # type: ignore[call-overload]
         if required_permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

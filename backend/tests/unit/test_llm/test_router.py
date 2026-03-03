@@ -8,30 +8,29 @@ Tests cover:
 - Additional guardrails edge cases not covered by existing tests
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
-from app.llm.router import LLMRouter
-from app.llm.provider import (
-    LLMProvider,
-    EmbeddingProvider,
-    LLMResponse,
-    EmbeddingResponse,
-)
+import pytest
+
 from app.llm.chunking import (
-    TranscriptChunker,
-    DocumentChunker,
     Chunk,
+    DocumentChunker,
+    TranscriptChunker,
     _estimate_tokens,
 )
 from app.llm.guardrails import (
     FinancialGuardrails,
     GroundingResult,
-    _normalize_figure,
     _extract_financial_figures,
+    _normalize_figure,
 )
-
+from app.llm.provider import (
+    EmbeddingProvider,
+    EmbeddingResponse,
+    LLMProvider,
+    LLMResponse,
+)
+from app.llm.router import LLMRouter
 
 # ---------------------------------------------------------------------------
 # Helpers: concrete mock implementations of abstract providers
@@ -430,7 +429,10 @@ class TestEmbeddingResponseDataclass:
 class TestTranscriptChunkerEdgeCases:
     """Additional edge cases for TranscriptChunker not covered by existing tests."""
 
-    def _make_segment(self, text, speaker_name=None, speaker_label="Unknown", idx=0, start=0.0, end=5.0):
+    def _make_segment(
+        self, text, speaker_name=None, speaker_label="Unknown",
+        idx=0, start=0.0, end=5.0,
+    ):
         seg = {
             "text": text,
             "speaker_label": speaker_label,
@@ -590,7 +592,10 @@ class TestChunkDataclass:
     """Tests for the Chunk dataclass."""
 
     def test_token_count_property(self):
-        chunk = Chunk(text="hello world foo bar", index=0, source_type="test", source_id="s1", metadata={})
+        chunk = Chunk(
+            text="hello world foo bar", index=0,
+            source_type="test", source_id="s1", metadata={},
+        )
         expected = _estimate_tokens("hello world foo bar")
         assert chunk.token_count == expected
 

@@ -1,6 +1,6 @@
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Depends
@@ -86,7 +86,7 @@ async def generate_deliverable(
         "file_format": fmt,
         "status": "ready",
         "download_url": "#",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -96,13 +96,17 @@ async def generate_deliverable(
 
 _CHAT_RESPONSES: dict[str, list[str]] = {
     "memo": [
-        "I can draft an investment memo for this deal. Based on the meeting transcripts, I'll include:\n\n"
+        "I can draft an investment memo for this deal. "
+        "Based on the meeting transcripts, I'll include:\n\n"
         "• **Executive Summary** – key thesis and recommendation\n"
-        "• **Company Overview** – business model, market position, competitive moats\n"
-        "• **Financial Analysis** – revenue trends, margins, and projections\n"
+        "• **Company Overview** – business model, market position, "
+        "competitive moats\n"
+        "• **Financial Analysis** – revenue trends, margins, "
+        "and projections\n"
         "• **Risk Factors** – regulatory, market, and execution risks\n"
         "• **Valuation** – comparable analysis and DCF summary\n\n"
-        "Would you like me to emphasize any particular section or adjust the tone (e.g., more conservative, growth-oriented)?",
+        "Would you like me to emphasize any particular section or "
+        "adjust the tone (e.g., more conservative, growth-oriented)?",
     ],
     "model": [
         "I'll build a financial model in Excel with the following tabs:\n\n"
@@ -111,10 +115,13 @@ _CHAT_RESPONSES: dict[str, list[str]] = {
         "• **Balance Sheet** – working capital and debt schedule\n"
         "• **Cash Flow** – FCF and returns analysis\n"
         "• **Sensitivity Tables** – on revenue growth and margins\n\n"
-        "From the transcripts, management guided 15-20% revenue growth. Should I use the midpoint or build bear/base/bull scenarios?",
+        "From the transcripts, management guided 15-20% revenue "
+        "growth. Should I use the midpoint or build "
+        "bear/base/bull scenarios?",
     ],
     "presentation": [
-        "I can create an IC presentation deck. Based on the deal materials, here's the proposed outline:\n\n"
+        "I can create an IC presentation deck. Based on the "
+        "deal materials, here's the proposed outline:\n\n"
         "1. **Deal Overview** (1 slide)\n"
         "2. **Investment Thesis** (2 slides)\n"
         "3. **Market & Competitive Landscape** (2 slides)\n"
@@ -124,7 +131,8 @@ _CHAT_RESPONSES: dict[str, list[str]] = {
         "Should I match the style of your uploaded template, or use a clean default layout?",
     ],
     "default": [
-        "I understand. I can help you refine the deliverable. Here are a few things I can adjust:\n\n"
+        "I understand. I can help you refine the deliverable. "
+        "Here are a few things I can adjust:\n\n"
         "• **Scope** – which sections to include or exclude\n"
         "• **Depth** – high-level summary vs. detailed analysis\n"
         "• **Tone** – formal IC presentation vs. working draft\n"
@@ -133,13 +141,17 @@ _CHAT_RESPONSES: dict[str, list[str]] = {
         "Got it. I'll incorporate that into the deliverable. A few clarifying questions:\n\n"
         "1. What's the target audience — IC members, co-investors, or internal team?\n"
         "2. Do you want me to include sensitivity analysis?\n"
-        "3. Any specific metrics or KPIs management highlighted that should be front and center?\n\n"
-        "Feel free to share any additional context and I'll make sure the final output reflects your requirements.",
-        "Absolutely. I'll factor that in. Based on the 3 meetings recorded so far, I have solid data on:\n\n"
+        "3. Any specific metrics or KPIs management highlighted "
+        "that should be front and center?\n\n"
+        "Feel free to share any additional context and I'll make "
+        "sure the final output reflects your requirements.",
+        "Absolutely. I'll factor that in. Based on the 3 meetings "
+        "recorded so far, I have solid data on:\n\n"
         "• Management's growth guidance and margin expectations\n"
         "• Competitive positioning discussed in the industry overview session\n"
         "• Key risks flagged by the due diligence team\n\n"
-        "I can weave all of this into the deliverable. Would you like a draft outline before I generate the full document?",
+        "I can weave all of this into the deliverable. Would you "
+        "like a draft outline before I generate the full document?",
     ],
 }
 
@@ -157,7 +169,7 @@ def _pick_mock_response(message: str) -> str:
         pool = _CHAT_RESPONSES["presentation"]
     else:
         pool = _CHAT_RESPONSES["default"]
-    return random.choice(pool)
+    return random.choice(pool)  # noqa: S311 - not used for security/cryptographic purposes
 
 
 _DELIVERABLE_SYSTEM_PROMPT = (
@@ -202,5 +214,5 @@ async def deliverable_chat(
         "deal_id": str(deal_id),
         "role": "assistant",
         "content": content,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }

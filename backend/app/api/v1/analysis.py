@@ -1,3 +1,4 @@
+import contextlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -174,12 +175,10 @@ async def rerun_analysis(
     original = await service.get_analysis(analysis_id)
 
     # Trigger the reanalysis pipeline
-    try:
+    with contextlib.suppress(Exception):  # Fallback handled by placeholder record below
         create_reanalysis_pipeline(
             str(meeting_id), original.call_type, str(current_user.id)
         ).delay()
-    except Exception:
-        pass  # Fallback handled by placeholder record below
 
     # Create a placeholder record
     next_version = await service._next_version(meeting_id, original.call_type)

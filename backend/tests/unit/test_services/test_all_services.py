@@ -12,36 +12,35 @@ All database sessions and external clients are mocked.
 
 import json
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
-from app.core.security import DealRole, OrgRole, DEAL_ROLE_HIERARCHY
-
-# ── Service imports ──────────────────────────────────────────────────────────
-from app.services.deal_service import DealService
-from app.services.auth_service import AuthService
-from app.services.org_service import OrgService
-from app.services.meeting_service import MeetingService
-from app.services.document_service import DocumentService
-from app.services.analysis_service import AnalysisService
-from app.services.qa_service import QAService, QAResponse, Citation
-from app.services.audit_service import AuditService
+from app.core.security import DEAL_ROLE_HIERARCHY, DealRole, OrgRole
+from app.models.analysis import Analysis
+from app.models.audit_log import AuditLog
 
 # ── Model imports (used for MagicMock specs) ─────────────────────────────────
 from app.models.deal import Deal
 from app.models.deal_membership import DealMembership
+from app.models.document import Document
+from app.models.meeting import Meeting
+from app.models.meeting_participant import MeetingParticipant
 from app.models.org_membership import OrgMembership
 from app.models.organization import Organization
 from app.models.user import User
-from app.models.meeting import Meeting
-from app.models.meeting_participant import MeetingParticipant
-from app.models.document import Document
-from app.models.analysis import Analysis
-from app.models.audit_log import AuditLog
+from app.services.analysis_service import AnalysisService
+from app.services.audit_service import AuditService
+from app.services.auth_service import AuthService
 
+# ── Service imports ──────────────────────────────────────────────────────────
+from app.services.deal_service import DealService
+from app.services.document_service import DocumentService
+from app.services.meeting_service import MeetingService
+from app.services.org_service import OrgService
+from app.services.qa_service import Citation, QAResponse, QAService
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test helpers
@@ -90,8 +89,8 @@ def _make_deal(**kw):
     m.status = kw.get("status", "active")
     m.deal_type = kw.get("deal_type", "m_and_a")
     m.created_by = kw.get("created_by", uuid.uuid4())
-    m.deleted_at = kw.get("deleted_at", None)
-    m.created_at = datetime.now(timezone.utc)
+    m.deleted_at = kw.get("deleted_at")
+    m.created_at = datetime.now(UTC)
     return m
 
 
@@ -117,7 +116,7 @@ def _make_org(**kw):
     m.id = kw.get("id", uuid.uuid4())
     m.name = kw.get("name", "Test Org")
     m.slug = kw.get("slug", "test-org")
-    m.domain = kw.get("domain", None)
+    m.domain = kw.get("domain")
     return m
 
 
@@ -139,7 +138,7 @@ def _make_meeting(**kw):
     m.title = kw.get("title", "Test Meeting")
     m.status = kw.get("status", "uploading")
     m.file_key = kw.get("file_key", "orgs/x/deals/y/meetings/z/audio.mp3")
-    m.created_at = datetime.now(timezone.utc)
+    m.created_at = datetime.now(UTC)
     m.created_by = kw.get("created_by", uuid.uuid4())
     return m
 
@@ -153,8 +152,8 @@ def _make_document(**kw):
     m.document_type = kw.get("document_type", "pdf")
     m.file_key = kw.get("file_key", "orgs/x/deals/y/documents/z/report.pdf")
     m.file_size = kw.get("file_size", 1024)
-    m.extracted_text = kw.get("extracted_text", None)
-    m.created_at = datetime.now(timezone.utc)
+    m.extracted_text = kw.get("extracted_text")
+    m.created_at = datetime.now(UTC)
     return m
 
 
@@ -170,8 +169,8 @@ def _make_analysis(**kw):
     m.prompt_version = kw.get("prompt_version", "v1")
     m.structured_output = kw.get("structured_output", {"key": "value"})
     m.requested_by = kw.get("requested_by", uuid.uuid4())
-    m.error_message = kw.get("error_message", None)
-    m.created_at = datetime.now(timezone.utc)
+    m.error_message = kw.get("error_message")
+    m.created_at = datetime.now(UTC)
     return m
 
 
@@ -183,7 +182,7 @@ def _make_audit_log(**kw):
     m.action = kw.get("action", "create")
     m.resource_type = kw.get("resource_type", "deal")
     m.resource_id = kw.get("resource_id", uuid.uuid4())
-    m.created_at = kw.get("created_at", datetime.now(timezone.utc))
+    m.created_at = kw.get("created_at", datetime.now(UTC))
     return m
 
 
@@ -1714,8 +1713,8 @@ class TestAuditServiceCountLogs:
 
         result = await svc.count_logs(
             uuid.uuid4(),
-            start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
-            end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
+            start_date=datetime(2025, 1, 1, tzinfo=UTC),
+            end_date=datetime(2025, 12, 31, tzinfo=UTC),
         )
         assert result == 10
 

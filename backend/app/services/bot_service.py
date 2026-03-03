@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, DomainValidationError
+from app.core.exceptions import DomainValidationError, NotFoundError
 from app.models.meeting_bot_session import MeetingBotSession
 
 VALID_PLATFORMS = {"zoom", "teams", "google_meet"}
@@ -72,7 +71,7 @@ class BotService:
         session = await self.get_session(session_id)
         session.status = status
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if status == "recording" and session.actual_start is None:
             session.actual_start = now
         elif status in ("completed", "failed"):
@@ -89,9 +88,9 @@ class BotService:
     async def list_sessions(
         self,
         org_id: UUID,
-        deal_id: Optional[UUID] = None,
-        status: Optional[str] = None,
-        cursor: Optional[str] = None,
+        deal_id: UUID | None = None,
+        status: str | None = None,
+        cursor: str | None = None,
         limit: int = 50,
     ) -> dict:
         """List bot sessions with optional filters and cursor pagination."""

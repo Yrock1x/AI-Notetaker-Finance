@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import json
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -17,14 +17,13 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.config import Settings
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-ZOOM_WEBHOOK_SECRET = "test-zoom-webhook-secret"
-SLACK_SIGNING_SECRET = "test-slack-signing-secret"
-TEAMS_WEBHOOK_SECRET = "test-teams-webhook-secret"
+ZOOM_WEBHOOK_SECRET = "test-zoom-webhook-secret"  # noqa: S105
+SLACK_SIGNING_SECRET = "test-slack-signing-secret"  # noqa: S105
+TEAMS_WEBHOOK_SECRET = "test-teams-webhook-secret"  # noqa: S105
 
 
 @pytest.fixture
@@ -42,8 +41,8 @@ def webhook_settings() -> Settings:
 @pytest.fixture
 def webhook_app(webhook_settings: Settings) -> FastAPI:
     """FastAPI app wired with webhook routes and mocked dependencies."""
+    from app.dependencies import get_db
     from app.main import create_app
-    from app.dependencies import get_db, get_current_user
 
     app = create_app()
 
@@ -120,7 +119,7 @@ class TestZoomWebhook:
         assert data["plainToken"] == "abc123"
         # The encryptedToken should be the HMAC of the plainToken
         expected_encrypted = hmac.new(
-            ZOOM_WEBHOOK_SECRET.encode(), "abc123".encode(), hashlib.sha256
+            ZOOM_WEBHOOK_SECRET.encode(), b"abc123", hashlib.sha256
         ).hexdigest()
         assert data["encryptedToken"] == expected_encrypted
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -173,10 +173,10 @@ class GraphAPIClient:
 
         ``expiration_minutes`` defaults to ~2.9 days (the max for callRecords).
         """
-        from datetime import timedelta, timezone as tz
+        from datetime import timedelta
 
         expiration = (
-            datetime.now(tz.utc) + timedelta(minutes=expiration_minutes)
+            datetime.now(UTC) + timedelta(minutes=expiration_minutes)
         ).isoformat()
 
         payload = {

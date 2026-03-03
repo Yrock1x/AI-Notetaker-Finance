@@ -12,15 +12,18 @@ logger = get_logger(__name__)
 
 
 @celery_app.task(base=BaseTask, bind=True, queue="analysis")
-def run_analysis(self, meeting_id: str, call_type: str | None = None, requested_by: str | None = None) -> str:
+def run_analysis(
+    self, meeting_id: str, call_type: str | None = None,
+    requested_by: str | None = None,
+) -> str:
     """Run LLM analysis on meeting transcript with specified call type."""
 
     async def _analyze():
         settings = get_settings()
 
         # First, look up the meeting's org_id
-        from app.services.meeting_service import MeetingService
         from app.integrations.aws.s3 import get_s3_client
+        from app.services.meeting_service import MeetingService
 
         async with get_task_session() as session:
             s3_client = get_s3_client()

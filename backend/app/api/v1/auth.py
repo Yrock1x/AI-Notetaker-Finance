@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -73,7 +73,7 @@ async def demo_login(
 
     # Auto-create user if not found
     if user is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cognito_sub = f"demo-{uuid.uuid4().hex[:16]}"
         full_name = body.email.split("@")[0].replace(".", " ").title()
 
@@ -117,12 +117,12 @@ async def demo_login(
     mem_result = await db.execute(
         select(OrgMembership).where(OrgMembership.user_id == user.id)
     )
-    membership = mem_result.scalars().first()
-    org_id = str(membership.org_id) if membership else ""
-    org_role = membership.role if membership else "member"
+    mem_row = mem_result.scalars().first()
+    org_id = str(mem_row.org_id) if mem_row else ""
+    org_role = mem_row.role if mem_row else "member"
 
     # Issue a demo JWT
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     claims = {
         "sub": user.cognito_sub,
         "email": user.email,
@@ -134,9 +134,9 @@ async def demo_login(
 
     return DemoLoginResponse(
         access_token=access_token,
-        refresh_token="demo-refresh",
+        refresh_token="demo-refresh",  # noqa: S106 - intentional demo value
         expires_in=86400,
-        token_type="Bearer",
+        token_type="Bearer",  # noqa: S106 - standard OAuth token type
         user=DemoLoginUserResponse(
             id=str(user.id),
             email=user.email,
@@ -177,7 +177,7 @@ async def demo_register(
             detail="A user with this email already exists. Try logging in.",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cognito_sub = f"demo-{uuid.uuid4().hex[:16]}"
 
     # Create the user
@@ -233,9 +233,9 @@ async def demo_register(
 
     return DemoLoginResponse(
         access_token=access_token,
-        refresh_token="demo-refresh",
+        refresh_token="demo-refresh",  # noqa: S106 - intentional demo value
         expires_in=86400,
-        token_type="Bearer",
+        token_type="Bearer",  # noqa: S106 - standard OAuth token type
         user=DemoLoginUserResponse(
             id=str(user.id),
             email=user.email,
@@ -281,7 +281,7 @@ async def refresh_token(
             detail="Not found",
         )
 
-    if body.refresh_token != "demo-refresh":
+    if body.refresh_token != "demo-refresh":  # noqa: S105 - intentional demo value
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -306,7 +306,7 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from None
 
     cognito_sub = claims.get("sub")
     if not cognito_sub:
@@ -325,7 +325,7 @@ async def refresh_token(
             detail="User not found",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     new_claims = {
         "sub": user.cognito_sub,
         "email": user.email,
@@ -337,9 +337,9 @@ async def refresh_token(
 
     return RefreshResponse(
         access_token=new_access_token,
-        refresh_token="demo-refresh",
+        refresh_token="demo-refresh",  # noqa: S106 - intentional demo value
         expires_in=86400,
-        token_type="Bearer",
+        token_type="Bearer",  # noqa: S106 - standard OAuth token type
     )
 
 

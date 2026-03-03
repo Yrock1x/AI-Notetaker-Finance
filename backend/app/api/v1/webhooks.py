@@ -29,7 +29,7 @@ def _verify_zoom_signature(request: Request, raw_body: bytes, settings) -> None:
         if abs(time.time() - int(timestamp)) > WEBHOOK_TIMESTAMP_TOLERANCE:
             raise HTTPException(status_code=401, detail="Webhook timestamp expired")
     except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid timestamp")
+        raise HTTPException(status_code=401, detail="Invalid timestamp") from None
 
     message = f"v0:{timestamp}:{raw_body.decode()}"
     expected = "v0=" + hmac.new(
@@ -54,7 +54,7 @@ def _verify_slack_signature(request: Request, raw_body: bytes, settings) -> None
         if abs(time.time() - int(timestamp)) > WEBHOOK_TIMESTAMP_TOLERANCE:
             raise HTTPException(status_code=401, detail="Webhook timestamp expired")
     except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid timestamp")
+        raise HTTPException(status_code=401, detail="Invalid timestamp") from None
 
     sig_basestring = f"v0:{timestamp}:{raw_body.decode()}"
     expected = "v0=" + hmac.new(

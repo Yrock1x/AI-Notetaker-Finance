@@ -12,10 +12,9 @@ Covers:
 
 from __future__ import annotations
 
-import os
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -31,7 +30,6 @@ from app.core.security import (
     verify_deal_membership,
     verify_org_membership,
 )
-
 
 # --- Enum membership & values ---
 
@@ -96,8 +94,8 @@ class TestDealRoleHierarchy:
         v = DEAL_ROLE_HIERARCHY[DealRole.VIEWER]
         a = DEAL_ROLE_HIERARCHY[DealRole.ANALYST]
         ad = DEAL_ROLE_HIERARCHY[DealRole.ADMIN]
-        l = DEAL_ROLE_HIERARCHY[DealRole.LEAD]
-        assert v < a < ad < l
+        lead = DEAL_ROLE_HIERARCHY[DealRole.LEAD]
+        assert v < a < ad < lead
 
 
 # --- Permissions ---
@@ -289,7 +287,7 @@ class TestVerifyDealMembership:
 # ---------------------------------------------------------------------------
 # exceptions.py
 # ---------------------------------------------------------------------------
-from app.core.exceptions import (
+from app.core.exceptions import (  # noqa: E402
     ConflictError,
     DealWiseError,
     DomainValidationError,
@@ -399,7 +397,7 @@ class TestExceptionHandlerRegistration:
 # ---------------------------------------------------------------------------
 # config.py
 # ---------------------------------------------------------------------------
-from app.core.config import Settings
+from app.core.config import Settings  # noqa: E402
 
 
 class TestSettingsDefaults:
@@ -495,7 +493,7 @@ class TestSettingsProperties:
 
 class TestSettingsValidation:
     def test_invalid_app_env(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             Settings(app_env="invalid_env")
 
     def test_demo_mode_in_production_raises(self):
@@ -503,7 +501,7 @@ class TestSettingsValidation:
             Settings(
                 app_env="production",
                 demo_mode=True,
-                demo_jwt_secret="some-changed-secret",
+                demo_jwt_secret="some-changed-secret",  # noqa: S106
             )
 
     def test_demo_mode_with_default_secret_raises(self):
@@ -518,7 +516,7 @@ class TestSettingsValidation:
         s = Settings(
             app_env="development",
             demo_mode=True,
-            demo_jwt_secret="a-real-secret",
+            demo_jwt_secret="a-real-secret",  # noqa: S106
         )
         assert s.demo_mode is True
 
@@ -526,7 +524,7 @@ class TestSettingsValidation:
         s = Settings(
             app_env="staging",
             demo_mode=True,
-            demo_jwt_secret="a-real-secret",
+            demo_jwt_secret="a-real-secret",  # noqa: S106
         )
         assert s.demo_mode is True
 
@@ -562,12 +560,9 @@ class TestSettingsFromEnv:
 # ---------------------------------------------------------------------------
 # middleware.py
 # ---------------------------------------------------------------------------
-from app.core.middleware import (
+from app.core.middleware import (  # noqa: E402
     SKIP_AUDIT_PATHS,
     AuditLogMiddleware,
-    OrgContextMiddleware,
-    RequestIDMiddleware,
-    RequestLoggingMiddleware,
     _is_uuid,
 )
 
@@ -711,7 +706,7 @@ class TestAuditLogGetClientIp:
 
 class TestAuditLogMutatingMethods:
     def test_mutating_methods_set(self):
-        assert AuditLogMiddleware.MUTATING_METHODS == {"POST", "PUT", "PATCH", "DELETE"}
+        assert {"POST", "PUT", "PATCH", "DELETE"} == AuditLogMiddleware.MUTATING_METHODS
 
     def test_get_not_mutating(self):
         assert "GET" not in AuditLogMiddleware.MUTATING_METHODS

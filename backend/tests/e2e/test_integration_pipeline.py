@@ -9,7 +9,7 @@ import hmac
 import json
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,17 +19,15 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import Settings
 from app.integrations.deepgram.processor import DiarizationProcessor
 from app.integrations.recall.client import RecallClient
-from app.models.meeting_bot_session import MeetingBotSession
 from app.services.bot_service import BotService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-ZOOM_SECRET = "e2e-zoom-secret"
-SLACK_SECRET = "e2e-slack-secret"
-TEAMS_SECRET = "e2e-teams-secret"
+ZOOM_SECRET = "e2e-zoom-secret"  # noqa: S105
+SLACK_SECRET = "e2e-slack-secret"  # noqa: S105
+TEAMS_SECRET = "e2e-teams-secret"  # noqa: S105
 
 
 @pytest.fixture
@@ -47,8 +45,8 @@ def e2e_settings() -> Settings:
 @pytest.fixture
 def e2e_app(e2e_settings: Settings) -> FastAPI:
     """FastAPI app for E2E integration tests."""
+    from app.dependencies import get_current_user, get_db
     from app.main import create_app
-    from app.dependencies import get_db, get_current_user
     from app.models.user import User
 
     app = create_app()
@@ -60,8 +58,8 @@ def e2e_app(e2e_settings: Settings) -> FastAPI:
         full_name="E2E User",
         is_active=True,
     )
-    mock_user.created_at = datetime.now(timezone.utc)
-    mock_user.updated_at = datetime.now(timezone.utc)
+    mock_user.created_at = datetime.now(UTC)
+    mock_user.updated_at = datetime.now(UTC)
 
     async def override_get_db():
         yield AsyncMock()
@@ -92,7 +90,8 @@ class TestFullPipelineDemoMode:
     """Test the end-to-end pipeline using Recall.ai in demo mode."""
 
     async def test_full_pipeline_demo_mode(self):
-        """In demo mode, RecallClient + DiarizationProcessor should produce valid output without network calls."""
+        """In demo mode, RecallClient + DiarizationProcessor should produce
+        valid output without network calls."""
         # Step 1: Create bot in demo mode (no API key)
         recall_client = RecallClient(api_key=None)
         assert recall_client.is_demo is True
@@ -171,7 +170,7 @@ class TestBotScheduleToCompletionFlow:
             deal_id=deal_id,
             platform="zoom",
             meeting_url="https://zoom.us/j/lifecycle-test",
-            scheduled_start=datetime.now(timezone.utc),
+            scheduled_start=datetime.now(UTC),
             created_by=user_id,
         )
         assert session.status == "scheduled"

@@ -1,5 +1,5 @@
-from app.tasks.celery_app import celery_app
 from app.tasks.base import BaseTask
+from app.tasks.celery_app import celery_app
 
 
 @celery_app.task(base=BaseTask, bind=True, queue="integrations")

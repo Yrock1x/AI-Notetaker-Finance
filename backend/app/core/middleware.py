@@ -1,10 +1,9 @@
 import time
 import uuid
 
+import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -114,7 +113,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                     org_id=org_id,
                     user_id=user_id,
                     action=action,
-                    resource_type=resource_type,
+                    resource_type=resource_type or "",
                     resource_id=uuid.UUID(resource_id) if resource_id else None,
                     deal_id=uuid.UUID(deal_id) if deal_id else None,
                     ip_address=self._get_client_ip(request),

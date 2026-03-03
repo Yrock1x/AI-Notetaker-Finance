@@ -12,9 +12,6 @@ real method.
 
 import re
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Meeting-link detection regexes (matching the patterns the service should use)
 # ---------------------------------------------------------------------------

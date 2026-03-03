@@ -1,6 +1,5 @@
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -36,10 +35,9 @@ async def test_engine():
 async def db_session(test_engine) -> AsyncSession:
     """Transactional test session that rolls back after each test."""
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with session_factory() as session:
-        async with session.begin():
-            yield session
-            await session.rollback()
+    async with session_factory() as session, session.begin():
+        yield session
+        await session.rollback()
 
 
 @pytest.fixture
@@ -52,8 +50,8 @@ def mock_user() -> User:
         full_name="Test User",
         is_active=True,
     )
-    user.created_at = datetime.now(timezone.utc)
-    user.updated_at = datetime.now(timezone.utc)
+    user.created_at = datetime.now(UTC)
+    user.updated_at = datetime.now(UTC)
     return user
 
 

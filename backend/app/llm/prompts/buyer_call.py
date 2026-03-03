@@ -3,10 +3,23 @@ from app.llm.prompts.base import BasePromptTemplate
 BUYER_CALL_ANALYSIS = BasePromptTemplate(
     name="buyer_call_analysis",
     version="v1",
-    system_prompt="""You are Deal Companion, an expert private equity analyst specializing in the analysis of buyer-side internal calls during M&A transactions. Your role is to analyze transcripts from internal deal team discussions, IC (Investment Committee) prep calls, buyer syndicates, and co-investor conversations to extract structured intelligence that tracks deal progression and decision-making.
+    system_prompt="""\
+You are Deal Companion, an expert private equity analyst \
+specializing in the analysis of buyer-side internal calls \
+during M&A transactions. Your role is to analyze transcripts \
+from internal deal team discussions, IC (Investment Committee) \
+prep calls, buyer syndicates, and co-investor conversations \
+to extract structured intelligence that tracks deal \
+progression and decision-making.
 
 ## Context
-Buyer calls are internal discussions among the acquiring team (partners, associates, operating partners, portfolio company executives, co-investors, and advisors). These calls focus on evaluating the target, debating valuation, identifying risks, discussing deal structure, and planning next steps. The content is highly confidential and decision-oriented.
+Buyer calls are internal discussions among the acquiring \
+team (partners, associates, operating partners, portfolio \
+company executives, co-investors, and advisors). These calls \
+focus on evaluating the target, debating valuation, \
+identifying risks, discussing deal structure, and planning \
+next steps. The content is highly confidential and \
+decision-oriented.
 
 ## Your Expertise
 - Private equity investment decision processes and IC frameworks
@@ -19,14 +32,20 @@ Buyer calls are internal discussions among the acquiring team (partners, associa
 - Competitive bidding strategy and process dynamics
 
 ## Output Requirements
-You MUST return valid JSON matching the output schema exactly. Do not include any text outside the JSON object.
+You MUST return valid JSON matching the output schema \
+exactly. Do not include any text outside the JSON object.
 
 ## Citation Rules (CRITICAL)
-1. Every factual claim, financial figure, and strategic recommendation MUST include a citation.
-2. Citations use the format [S:XX] where XX is the segment index number from the transcript.
-3. If a discussion point spans multiple segments, cite all relevant segments: [S:12][S:13][S:14].
-4. If you cannot find a source segment for a claim, DO NOT include that claim.
-5. Never fabricate or extrapolate financial figures. Only report numbers explicitly stated in the transcript.
+1. Every factual claim, financial figure, and strategic \
+recommendation MUST include a citation.
+2. Citations use the format [S:XX] where XX is the segment \
+index number from the transcript.
+3. If a discussion point spans multiple segments, cite all \
+relevant segments: [S:12][S:13][S:14].
+4. If you cannot find a source segment for a claim, DO NOT \
+include that claim.
+5. Never fabricate or extrapolate financial figures. Only \
+report numbers explicitly stated in the transcript.
 
 ## Anti-Hallucination Rules (CRITICAL)
 1. Only extract information that is EXPLICITLY stated in the transcript.
@@ -35,14 +54,21 @@ You MUST return valid JSON matching the output schema exactly. Do not include an
 4. Attribute opinions and recommendations to specific speakers where identifiable.
 5. Distinguish between agreed-upon positions and individual opinions under debate.
 6. When speakers disagree, capture both sides of the argument.
-7. Do not add standard deal considerations that were not actually discussed.""",
-    user_prompt_template="""Analyze the following buyer-side call transcript and produce a comprehensive structured analysis.
+7. Do not add standard deal considerations that were not \
+actually discussed.""",
+    user_prompt_template="""\
+Analyze the following buyer-side call transcript and \
+produce a comprehensive structured analysis.
 
 ## Transcript
 {transcript}
 
 ## Instructions
-Extract and organize the information from this internal buyer call into the required JSON structure. Pay special attention to the decision-making dynamics, valuation discussion, and risk debate. Follow all citation and anti-hallucination rules strictly.
+Extract and organize the information from this internal \
+buyer call into the required JSON structure. Pay special \
+attention to the decision-making dynamics, valuation \
+discussion, and risk debate. Follow all citation and \
+anti-hallucination rules strictly.
 
 Return your analysis as a JSON object matching the output schema.""",
     output_schema={
@@ -64,18 +90,30 @@ Return your analysis as a JSON object matching the output schema.""",
         "properties": {
             "executive_summary": {
                 "type": "string",
-                "description": "2-4 paragraph summary of the buyer call, highlighting key decisions, unresolved debates, and overall deal sentiment. Must include citations.",
+                "description": (
+                    "2-4 paragraph summary of the buyer call, "
+                    "highlighting key decisions, unresolved "
+                    "debates, and overall deal sentiment. "
+                    "Must include citations."
+                ),
             },
             "deal_status": {
                 "type": "object",
                 "properties": {
                     "current_phase": {
                         "type": "string",
-                        "description": "e.g., initial screening, LOI stage, confirmatory diligence, IC approval, signing/closing",
+                        "description": (
+                            "e.g., initial screening, LOI stage, "
+                            "confirmatory diligence, IC approval, "
+                            "signing/closing"
+                        ),
                     },
                     "deal_sentiment": {
                         "type": "string",
-                        "enum": ["highly_positive", "positive", "cautious", "skeptical", "negative"],
+                        "enum": [
+                            "highly_positive", "positive",
+                            "cautious", "skeptical", "negative",
+                        ],
                     },
                     "key_milestones_discussed": {
                         "type": "array",
@@ -113,7 +151,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "Valuation analysis and pricing discussion. Only include figures explicitly discussed.",
+                "description": (
+                    "Valuation analysis and pricing discussion. "
+                    "Only include figures explicitly discussed."
+                ),
             },
             "investment_thesis_debate": {
                 "type": "array",
@@ -175,7 +216,10 @@ Return your analysis as a JSON object matching the output schema.""",
                         "items": {"type": "string"},
                     },
                 },
-                "description": "Deal structure and terms discussed. Only include what was explicitly mentioned.",
+                "description": (
+                    "Deal structure and terms discussed. "
+                    "Only include what was explicitly mentioned."
+                ),
             },
             "synergy_and_value_creation": {
                 "type": "object",

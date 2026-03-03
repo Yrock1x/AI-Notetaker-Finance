@@ -16,7 +16,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 ZOOM_AUTHORIZE_URL = "https://zoom.us/oauth/authorize"
-ZOOM_TOKEN_URL = "https://zoom.us/oauth/token"
+ZOOM_TOKEN_URL = "https://zoom.us/oauth/token"  # noqa: S105 - not a password, this is a public OAuth endpoint URL
 
 
 class ZoomOAuth:

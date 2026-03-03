@@ -127,7 +127,10 @@ class FinancialGuardrails:
 
                     if best_overlap >= 0.7:
                         result["valid"] = True
-                        result["reason"] = f"Partial match ({best_overlap:.0%} word overlap) with source chunk"
+                        result["reason"] = (
+                            f"Partial match ({best_overlap:.0%} "
+                            f"word overlap) with source chunk"
+                        )
                     else:
                         result["reason"] = (
                             f"Citation text not found in source chunks "

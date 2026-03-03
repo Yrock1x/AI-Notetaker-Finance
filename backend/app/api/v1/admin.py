@@ -82,7 +82,10 @@ async def deactivate_user(
     """Deactivate a user in the organization. Requires admin role."""
     await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
     if user_id == current_user.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate yourself")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot deactivate yourself",
+        )
 
     from app.integrations.aws.cognito import get_cognito_client
 

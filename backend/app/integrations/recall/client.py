@@ -7,7 +7,7 @@ application can run in demo mode without a real Recall.ai account.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -124,7 +124,7 @@ class RecallClient:
             "meeting_url": meeting_url,
             "bot_name": bot_name,
             "status": {"code": "ready", "message": "Bot created (demo mode)"},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
     @staticmethod
@@ -140,19 +140,33 @@ class RecallClient:
             {
                 "speaker": "Speaker 1",
                 "words": [
-                    {"text": "Thank you for joining today's call.", "start_time": 0.0, "end_time": 2.5}
+                    {
+                        "text": "Thank you for joining today's call.",
+                        "start_time": 0.0,
+                        "end_time": 2.5,
+                    }
                 ],
             },
             {
                 "speaker": "Speaker 2",
                 "words": [
-                    {"text": "Thanks for having us. Let's walk through the financials.", "start_time": 3.0, "end_time": 6.0}
+                    {
+                        "text": "Thanks for having us. "
+                        "Let's walk through the financials.",
+                        "start_time": 3.0,
+                        "end_time": 6.0,
+                    }
                 ],
             },
             {
                 "speaker": "Speaker 1",
                 "words": [
-                    {"text": "Starting with revenue, we saw 35 percent year-over-year growth.", "start_time": 7.0, "end_time": 11.0}
+                    {
+                        "text": "Starting with revenue, we saw "
+                        "35 percent year-over-year growth.",
+                        "start_time": 7.0,
+                        "end_time": 11.0,
+                    }
                 ],
             },
         ]

@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,7 +14,7 @@ class Event:
     """Base event that flows through the internal event bus."""
 
     event_type: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     org_id: UUID | None = None
     user_id: UUID | None = None
     deal_id: UUID | None = None

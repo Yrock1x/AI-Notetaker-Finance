@@ -11,8 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.integrations.recall.client import RecallClient, DEFAULT_BASE_URL
-
+from app.integrations.recall.client import DEFAULT_BASE_URL, RecallClient
 
 # ---------------------------------------------------------------------------
 # Fixtures

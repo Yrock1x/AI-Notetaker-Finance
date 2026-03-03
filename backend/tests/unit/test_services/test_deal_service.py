@@ -1,7 +1,7 @@
 """Unit tests for DealService."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,8 +22,8 @@ def _make_deal(org_id=None, created_by=None, **kwargs):
     deal.status = kwargs.get("status", "active")
     deal.deal_type = kwargs.get("deal_type", "m_and_a")
     deal.created_by = created_by or uuid.uuid4()
-    deal.deleted_at = kwargs.get("deleted_at", None)
-    deal.created_at = datetime.now(timezone.utc)
+    deal.deleted_at = kwargs.get("deleted_at")
+    deal.created_at = datetime.now(UTC)
     return deal
 
 

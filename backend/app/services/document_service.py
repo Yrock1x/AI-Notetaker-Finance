@@ -1,9 +1,8 @@
 import uuid as uuid_mod
 from uuid import UUID
-from typing import Optional
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -108,9 +107,9 @@ class DocumentService:
     async def list_documents(
         self,
         deal_id: UUID,
-        cursor: Optional[str] = None,
+        cursor: str | None = None,
         limit: int = 50,
-        document_type: Optional[str] = None,
+        document_type: str | None = None,
     ) -> dict:
         """List documents for a deal with cursor-based pagination."""
         from datetime import datetime

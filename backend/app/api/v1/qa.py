@@ -1,5 +1,5 @@
 import uuid as uuid_mod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,12 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.dependencies import get_current_user, get_db_with_rls, get_org_id
+from app.integrations.aws.s3 import get_s3_client
+from app.llm.gemini_provider import GeminiEmbeddingProvider, GeminiProvider
 from app.llm.router import LLMRouter
-from app.llm.gemini_provider import GeminiProvider, GeminiEmbeddingProvider
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.qa import QAHistoryResponse, QARequest, QAResponse
-from app.integrations.aws.s3 import get_s3_client
 from app.services.deal_service import DealService
 from app.services.embedding_service import EmbeddingService
 from app.services.meeting_service import MeetingService
@@ -43,13 +43,21 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000001",
                 "source_title": "Management Presentation - Financial Overview",
-                "text_excerpt": "We closed the trailing twelve months at $45 million ARR with gross margins holding steady at 78 percent.",
+                "text_excerpt": (
+                    "We closed the trailing twelve months at "
+                    "$45 million ARR with gross margins holding "
+                    "steady at 78 percent."
+                ),
             },
             {
                 "source_type": "document_chunk",
                 "source_id": "e5000000-0000-0000-0000-000000000002",
                 "source_title": "Confidential Information Memorandum",
-                "text_excerpt": "Net revenue retention of 125% demonstrates the company's strong land-and-expand strategy across enterprise accounts.",
+                "text_excerpt": (
+                    "Net revenue retention of 125% demonstrates "
+                    "the company's strong land-and-expand strategy "
+                    "across enterprise accounts."
+                ),
             },
         ]
         grounding_score = 0.94
@@ -70,13 +78,21 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000001",
                 "source_title": "Financial Due Diligence - Day 1",
-                "text_excerpt": "Our top three customers account for roughly 40 percent of our recurring revenue, which we acknowledge is a concentration risk.",
+                "text_excerpt": (
+                    "Our top three customers account for roughly "
+                    "40 percent of our recurring revenue, which "
+                    "we acknowledge is a concentration risk."
+                ),
             },
             {
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000003",
                 "source_title": "Deal Team Sync - Valuation Review",
-                "text_excerpt": "The new VP of Sales started just four months ago, so we need to assess whether the pipeline forecast is reliable.",
+                "text_excerpt": (
+                    "The new VP of Sales started just four months "
+                    "ago, so we need to assess whether the pipeline "
+                    "forecast is reliable."
+                ),
             },
         ]
         grounding_score = 0.91
@@ -97,13 +113,22 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000001",
                 "source_title": "Management Presentation",
-                "text_excerpt": "I founded the company 8 years ago after spending 15 years building enterprise SaaS products, including scaling my previous company past $100M ARR.",
+                "text_excerpt": (
+                    "I founded the company 8 years ago after "
+                    "spending 15 years building enterprise SaaS "
+                    "products, including scaling my previous "
+                    "company past $100M ARR."
+                ),
             },
             {
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000003",
                 "source_title": "CTO Technical Deep-Dive",
-                "text_excerpt": "Our engineering team is 45 people strong, organized into 6 squads, each owning a specific product domain.",
+                "text_excerpt": (
+                    "Our engineering team is 45 people strong, "
+                    "organized into 6 squads, each owning a "
+                    "specific product domain."
+                ),
             },
         ]
         grounding_score = 0.89
@@ -124,13 +149,22 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000001",
                 "source_title": "Management Presentation - Growth Strategy",
-                "text_excerpt": "Our EMEA expansion is already underway. We have LOIs from three existing US customers for their European operations, representing $8 million in potential ARR.",
+                "text_excerpt": (
+                    "Our EMEA expansion is already underway. "
+                    "We have LOIs from three existing US customers "
+                    "for their European operations, representing "
+                    "$8 million in potential ARR."
+                ),
             },
             {
                 "source_type": "document_chunk",
                 "source_id": "e5000000-0000-0000-0000-000000000002",
                 "source_title": "Investment Committee Deck",
-                "text_excerpt": "Self-serve product tier (Q3 launch) is projected to reduce customer acquisition cost by 40% in the SMB segment.",
+                "text_excerpt": (
+                    "Self-serve product tier (Q3 launch) is "
+                    "projected to reduce customer acquisition "
+                    "cost by 40% in the SMB segment."
+                ),
             },
         ]
         grounding_score = 0.92
@@ -153,13 +187,22 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "document_chunk",
                 "source_id": "e5000000-0000-0000-0000-000000000002",
                 "source_title": "Market Analysis Discussion Notes",
-                "text_excerpt": "Independent benchmarks show our processing engine is 3x faster than CompetitorX and 5x faster than the legacy incumbent.",
+                "text_excerpt": (
+                    "Independent benchmarks show our processing "
+                    "engine is 3x faster than CompetitorX and "
+                    "5x faster than the legacy incumbent."
+                ),
             },
             {
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000003",
                 "source_title": "GreenEnergy Co - Market Analysis Discussion",
-                "text_excerpt": "We see the Series C competitor as our biggest threat. They just raised $80 million and are hiring aggressively in enterprise sales.",
+                "text_excerpt": (
+                    "We see the Series C competitor as our "
+                    "biggest threat. They just raised $80 million "
+                    "and are hiring aggressively in enterprise "
+                    "sales."
+                ),
             },
         ]
         grounding_score = 0.88
@@ -183,13 +226,21 @@ def _generate_mock_response(question: str) -> dict:
                 "source_type": "transcript_segment",
                 "source_id": "e5000000-0000-0000-0000-000000000001",
                 "source_title": "Management Presentation",
-                "text_excerpt": "We believe the business is well-positioned for continued growth, with $45M ARR and strong underlying metrics.",
+                "text_excerpt": (
+                    "We believe the business is well-positioned "
+                    "for continued growth, with $45M ARR and "
+                    "strong underlying metrics."
+                ),
             },
             {
                 "source_type": "document_chunk",
                 "source_id": "e5000000-0000-0000-0000-000000000002",
                 "source_title": "Confidential Information Memorandum",
-                "text_excerpt": "Comparable transaction analysis supports a valuation range of 15-18x trailing ARR for businesses with similar growth profiles.",
+                "text_excerpt": (
+                    "Comparable transaction analysis supports a "
+                    "valuation range of 15-18x trailing ARR for "
+                    "businesses with similar growth profiles."
+                ),
             },
         ]
         grounding_score = 0.85
@@ -245,10 +296,9 @@ async def ask_question(
                 citations=[],
                 grounding_score=result.grounding_score,
                 model_used="gemini-2.0-flash",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
-        except Exception:
-            # Fall back to mock responses on API errors (rate limits, etc.)
+        except Exception:  # noqa: S110 - fall back to mock responses on API errors
             pass
 
     # No API key or API error: return mock responses
@@ -261,7 +311,7 @@ async def ask_question(
         citations=mock["citations"],
         grounding_score=mock["grounding_score"],
         model_used="demo-mock",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -315,9 +365,9 @@ async def ask_meeting_question(
                 citations=[],
                 grounding_score=result.grounding_score,
                 model_used="gemini-2.0-flash",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
-        except Exception:
+        except Exception:  # noqa: S110 - fall back to mock responses on API errors
             pass
 
     # No API key or API error: return mock responses
@@ -330,7 +380,7 @@ async def ask_meeting_question(
         citations=mock["citations"],
         grounding_score=mock["grounding_score"],
         model_used="demo-mock",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 

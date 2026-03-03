@@ -61,7 +61,7 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from None
 
         cognito_sub = claims.get("sub", "")
         result = await db.execute(
@@ -85,7 +85,7 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from None
 
     else:
         # Cognito: verify Cognito RS256 JWT
@@ -97,7 +97,7 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from None
 
     if not user.is_active:
         raise HTTPException(
@@ -128,7 +128,7 @@ async def get_org_id(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid organization ID format",
-        )
+        ) from None
 
 
 async def get_db_with_rls(

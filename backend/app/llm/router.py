@@ -1,4 +1,4 @@
-from app.llm.provider import LLMProvider, EmbeddingProvider, LLMResponse
+from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 
 
 class LLMRouter:
@@ -27,7 +27,10 @@ class LLMRouter:
     def register_embedding_provider(self, provider: EmbeddingProvider) -> None:
         self._embedding_provider = provider
 
-    async def complete(self, task_type: str, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
+    async def complete(
+        self, task_type: str, system_prompt: str,
+        user_prompt: str, **kwargs,
+    ) -> LLMResponse:
         provider_name = self._task_routing.get(task_type, "gemini")
         provider = self._providers.get(provider_name)
         if not provider:
