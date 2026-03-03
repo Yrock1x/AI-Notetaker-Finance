@@ -31,13 +31,13 @@ def start_bot_session(self, session_id: str) -> str:
 
         async with async_session_factory() as db:
             bot_svc = BotService(db)
-            await bot_svc.get_session(UUID(session_id))
+            session = await bot_svc.get_session(UUID(session_id))
 
             await bot_svc.update_bot_status(UUID(session_id), "joining")
             await db.commit()
 
             bot_data = await recall.create_bot(
-                meeting_url="https://meet.example.com/demo",
+                meeting_url=session.meeting_url,
                 bot_name="Deal Companion Notetaker",
             )
 

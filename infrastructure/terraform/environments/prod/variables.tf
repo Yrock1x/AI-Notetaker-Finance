@@ -68,6 +68,20 @@ variable "ecs_desired_count" {
   default     = 3
 }
 
+# --- ECS / ALB --------------------------------------------------------------
+
+variable "certificate_arn" {
+  description = "ACM certificate ARN for HTTPS"
+  type        = string
+  default     = ""
+}
+
+variable "redis_auth_token" {
+  description = "Auth token for ElastiCache Redis"
+  type        = string
+  sensitive   = true
+}
+
 # --- Cognito ----------------------------------------------------------------
 
 variable "cognito_callback_urls" {

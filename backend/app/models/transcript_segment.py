@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,6 +9,9 @@ from app.models.base import Base, BaseMixin
 
 class TranscriptSegment(BaseMixin, Base):
     __tablename__ = "transcript_segments"
+    __table_args__ = (
+        Index("ix_segment_order", "transcript_id", "segment_index"),
+    )
 
     transcript_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

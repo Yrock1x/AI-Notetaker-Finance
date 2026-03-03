@@ -10,6 +10,8 @@ from app.core.exceptions import NotFoundError
 from app.llm.router import LLMRouter
 from app.llm.prompts.base import BasePromptTemplate
 from app.models.analysis import Analysis
+from app.models.deal import Deal
+from app.models.meeting import Meeting
 from app.services.transcript_service import TranscriptService
 
 logger = structlog.get_logger(__name__)
@@ -21,7 +23,7 @@ CALL_TYPE_PROMPTS: dict[str, tuple[str, str]] = {
     "buyer_call": ("app.llm.prompts.buyer_call", "BUYER_CALL_ANALYSIS"),
     "financial_review": ("app.llm.prompts.financial_review", "FINANCIAL_REVIEW_ANALYSIS"),
     "qoe": ("app.llm.prompts.qoe", "QOE_ANALYSIS"),
-    "summarization": ("app.llm.prompts.summarization", "SUMMARIZATION"),
+    "summarization": ("app.llm.prompts.summarization", "MEETING_SUMMARIZATION"),
 }
 
 
@@ -88,9 +90,23 @@ class AnalysisService:
 
             # Load and render the prompt template
             prompt_template = _load_prompt(call_type)
-            system_prompt, user_prompt = prompt_template.render(
-                transcript=transcript_text
-            )
+            render_kwargs: dict[str, str] = {"transcript": transcript_text}
+
+            if call_type == "summarization":
+                # Summarization prompt requires meeting_type and deal_name
+                meeting_stmt = select(Meeting).where(Meeting.id == meeting_id)
+                meeting_result = await self.db.execute(meeting_stmt)
+                meeting = meeting_result.scalar_one_or_none()
+                if meeting and meeting.deal_id:
+                    deal_stmt = select(Deal).where(Deal.id == meeting.deal_id)
+                    deal_result = await self.db.execute(deal_stmt)
+                    deal = deal_result.scalar_one_or_none()
+                    render_kwargs["deal_name"] = deal.name if deal else "Unknown"
+                else:
+                    render_kwargs["deal_name"] = "Unknown"
+                render_kwargs["meeting_type"] = call_type
+
+            system_prompt, user_prompt = prompt_template.render(**render_kwargs)
 
             # Call the LLM
             response = await self.llm_router.complete(
@@ -108,7 +124,10 @@ class AnalysisService:
             analysis.structured_output = structured_output
             analysis.model_used = response.model
             analysis.prompt_version = prompt_template.version
-            analysis.status = "completed"
+            if isinstance(structured_output, dict) and structured_output.get("parse_error"):
+                analysis.status = "partial"
+            else:
+                analysis.status = "completed"
             await self.db.flush()
 
             logger.info(

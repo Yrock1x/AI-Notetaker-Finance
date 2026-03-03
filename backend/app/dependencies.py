@@ -139,9 +139,8 @@ async def get_db_with_rls(
     """Provide a database session with Row-Level Security context set."""
     from app.core.security import verify_org_membership
     await verify_org_membership(db, current_user.id, org_id)
-    if not settings.demo_mode:
-        await db.execute(
-            text("SET LOCAL app.current_org_id = :org_id"),
-            {"org_id": str(org_id)},
-        )
+    # Use string formatting for SET LOCAL — asyncpg doesn't support
+    # parameterized SET commands. The org_id is a validated UUID from
+    # get_org_id(), so this is safe from injection.
+    await db.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
     return db

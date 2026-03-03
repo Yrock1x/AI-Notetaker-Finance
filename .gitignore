@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .venv/
 venv/
+.test_venv/
 *.egg-info/
 dist/
 build/
@@ -35,6 +36,7 @@ out/
 
 # OS
 .DS_Store
+._*
 Thumbs.db
 desktop.ini
 
@@ -58,3 +60,4 @@ postgres_data/
 *.pem
 *.key
 credentials.json
+.vercel

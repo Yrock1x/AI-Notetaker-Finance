@@ -1,9 +1,12 @@
+import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,7 +49,15 @@ class EventBus:
 
     async def publish(self, event: Event) -> None:
         for handler in self._handlers.get(event.event_type, []):
-            await handler(event)
+            try:
+                await handler(event)
+            except Exception:
+                logger.warning(
+                    "event_handler_failed: event_type=%s handler=%s",
+                    event.event_type,
+                    handler.__name__,
+                    exc_info=True,
+                )
 
 
 # Global event bus instance

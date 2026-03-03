@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -46,7 +47,11 @@ class OrgService:
 
         org = Organization(name=name, slug=slug, domain=domain)
         self.db.add(org)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            await self.db.rollback()
+            raise ConflictError("Organization with this slug already exists")
 
         logger.info("org_created", org_id=str(org.id), slug=slug)
 

@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.security import OrgRole, verify_org_membership
 from app.dependencies import get_current_user, get_db_with_rls, get_org_id
 from app.models.org_membership import OrgMembership
 from app.models.user import User
@@ -31,6 +32,8 @@ async def list_users(
     org_id: UUID = Depends(get_org_id),
 ) -> PaginatedResponse[UserResponse]:
     """List all users in the organization. Requires admin role."""
+    await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+
     # Get all org members with user info
     stmt = (
         select(OrgMembership)
@@ -40,9 +43,18 @@ async def list_users(
     )
 
     if search:
+        safe_search = search.replace("%", r"\%").replace("_", r"\_")
         stmt = stmt.join(User, OrgMembership.user_id == User.id).where(
-            User.email.ilike(f"%{search}%") | User.full_name.ilike(f"%{search}%")
+            User.email.ilike(f"%{safe_search}%") | User.full_name.ilike(f"%{safe_search}%")
         )
+
+    if cursor:
+        from datetime import datetime
+        try:
+            cursor_dt = datetime.fromisoformat(cursor)
+            stmt = stmt.where(OrgMembership.joined_at < cursor_dt)
+        except ValueError:
+            pass
 
     stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)
@@ -68,6 +80,10 @@ async def deactivate_user(
     org_id: UUID = Depends(get_org_id),
 ) -> UserResponse:
     """Deactivate a user in the organization. Requires admin role."""
+    await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+    if user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate yourself")
+
     from app.integrations.aws.cognito import get_cognito_client
 
     auth_service = AuthService(db=db, cognito=get_cognito_client())
@@ -91,6 +107,8 @@ async def query_audit_logs(
     org_id: UUID = Depends(get_org_id),
 ) -> PaginatedResponse[AuditLogResponse]:
     """Query audit logs. Requires admin role."""
+    await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+
     audit_service = AuditService(db)
     result = await audit_service.query_logs(
         org_id=org_id,
@@ -119,6 +137,8 @@ async def get_org_settings(
     org_id: UUID = Depends(get_org_id),
 ) -> dict:
     """Get organization settings. Requires admin role."""
+    await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+
     service = OrgService(db)
     org = await service.get_org(org_id)
     return org.settings or {}
@@ -132,6 +152,8 @@ async def update_org_settings(
     org_id: UUID = Depends(get_org_id),
 ) -> dict:
     """Update organization settings. Requires admin role."""
+    await verify_org_membership(db, current_user.id, org_id, min_role=OrgRole.ADMIN)
+
     service = OrgService(db)
     org = await service.update_org(org_id, settings=settings)
     return org.settings or {}

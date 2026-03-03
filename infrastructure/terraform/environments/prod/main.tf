@@ -88,6 +88,7 @@ module "elasticache" {
   vpc_id             = module.networking.vpc_id
   subnet_ids         = module.networking.private_subnet_ids
   security_group_ids = [module.networking.security_group_ids["cache"]]
+  auth_token         = var.redis_auth_token
   environment        = "prod"
 }
 
@@ -106,7 +107,9 @@ module "ecs" {
   subnet_ids        = module.networking.private_subnet_ids
   public_subnet_ids = module.networking.public_subnet_ids
   security_group_ids = module.networking.security_group_ids
-  environment       = "prod"
+  certificate_arn    = var.certificate_arn
+  s3_bucket_arn      = module.s3.bucket_arn
+  environment        = "prod"
 }
 
 # --- SQS (Task Queues) ----------------------------------------------------

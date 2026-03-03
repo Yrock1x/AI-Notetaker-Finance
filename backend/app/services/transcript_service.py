@@ -72,9 +72,9 @@ class TranscriptService:
                 confidence=seg.get("confidence"),
                 segment_index=seg["segment_index"],
             )
-            self.db.add(segment)
             created.append(segment)
 
+        self.db.add_all(created)
         await self.db.flush()
         logger.info(
             "segments_stored",
@@ -132,11 +132,12 @@ class TranscriptService:
         self, transcript_id: UUID, query: str
     ) -> list[TranscriptSegment]:
         """Search transcript segments by text content (case-insensitive)."""
+        safe_query = query.replace("%", r"\%").replace("_", r"\_")
         stmt = (
             select(TranscriptSegment)
             .where(
                 TranscriptSegment.transcript_id == transcript_id,
-                TranscriptSegment.text.ilike(f"%{query}%"),
+                TranscriptSegment.text.ilike(f"%{safe_query}%"),
             )
             .order_by(TranscriptSegment.segment_index)
         )

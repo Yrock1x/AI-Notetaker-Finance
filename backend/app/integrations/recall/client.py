@@ -14,14 +14,15 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-BASE_URL = "https://api.recall.ai/api/v1"
+DEFAULT_BASE_URL = "https://us-west-2.recall.ai/api/v1"
 
 
 class RecallClient:
     """Thin async wrapper around the Recall.ai REST API."""
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
         self._api_key = api_key
+        self._base_url = base_url or DEFAULT_BASE_URL
         self._headers = (
             {"Authorization": f"Token {api_key}", "Content-Type": "application/json"}
             if api_key
@@ -57,7 +58,7 @@ class RecallClient:
                 },
             }
             resp = await client.post(
-                f"{BASE_URL}/bot", json=payload, headers=self._headers
+                f"{self._base_url}/bot", json=payload, headers=self._headers
             )
             resp.raise_for_status()
             data = resp.json()
@@ -71,7 +72,7 @@ class RecallClient:
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"{BASE_URL}/bot/{bot_id}", headers=self._headers
+                f"{self._base_url}/bot/{bot_id}", headers=self._headers
             )
             resp.raise_for_status()
             return resp.json()
@@ -82,7 +83,7 @@ class RecallClient:
             return []
 
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{BASE_URL}/bot", headers=self._headers)
+            resp = await client.get(f"{self._base_url}/bot", headers=self._headers)
             resp.raise_for_status()
             return resp.json().get("results", [])
 
@@ -93,7 +94,7 @@ class RecallClient:
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"{BASE_URL}/bot/{bot_id}/transcript", headers=self._headers
+                f"{self._base_url}/bot/{bot_id}/transcript", headers=self._headers
             )
             resp.raise_for_status()
             return resp.json()
@@ -105,7 +106,7 @@ class RecallClient:
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"{BASE_URL}/bot/{bot_id}/recording", headers=self._headers
+                f"{self._base_url}/bot/{bot_id}/recording", headers=self._headers
             )
             if resp.status_code == 404:
                 return None

@@ -56,8 +56,8 @@ async def verify_org_membership(
 
     if membership is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this organization",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Resource not found",
         )
 
     if min_role is not None:
@@ -91,8 +91,8 @@ async def verify_deal_membership(
 
     if membership is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this deal",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Resource not found",
         )
 
     if min_role is not None:

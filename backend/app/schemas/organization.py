@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -37,4 +38,4 @@ class OrgMemberResponse(BaseSchema):
 
 class OrgMemberCreate(BaseSchema):
     email: str
-    role: str = "member"
+    role: Literal["owner", "admin", "member"] = "member"

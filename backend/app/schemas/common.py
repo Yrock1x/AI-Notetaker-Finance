@@ -1,7 +1,7 @@
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -16,7 +16,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 class CursorParams(BaseModel):
     cursor: str | None = None
-    limit: int = 25
+    limit: int = Field(default=25, ge=1, le=100)
 
 
 class ErrorResponse(BaseModel):

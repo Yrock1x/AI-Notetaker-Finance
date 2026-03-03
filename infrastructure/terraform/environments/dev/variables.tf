@@ -38,18 +38,6 @@ variable "redis_node_type" {
 
 # --- ECS --------------------------------------------------------------------
 
-variable "api_image" {
-  description = "Docker image for the API service"
-  type        = string
-  default     = "dealwise/api:latest"
-}
-
-variable "worker_image" {
-  description = "Docker image for the Celery worker service"
-  type        = string
-  default     = "dealwise/worker:latest"
-}
-
 variable "ecs_cpu" {
   description = "CPU units for ECS tasks"
   type        = number
@@ -68,6 +56,21 @@ variable "ecs_desired_count" {
   default     = 1
 }
 
+# --- ECS / ALB --------------------------------------------------------------
+
+variable "certificate_arn" {
+  description = "ACM certificate ARN for HTTPS (leave empty for HTTP-only)"
+  type        = string
+  default     = ""
+}
+
+variable "redis_auth_token" {
+  description = "Auth token for ElastiCache Redis"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # --- Cognito ----------------------------------------------------------------
 
 variable "cognito_callback_urls" {
@@ -80,4 +83,16 @@ variable "cognito_logout_urls" {
   description = "Cognito logout URLs"
   type        = list(string)
   default     = ["http://localhost:3000/logout"]
+}
+
+# --- GitHub -----------------------------------------------------------------
+
+variable "github_org" {
+  description = "GitHub organization or username"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repository name"
+  type        = string
 }

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import AuditLog
@@ -70,7 +70,7 @@ class AuditService:
         stmt = (
             select(AuditLog)
             .where(AuditLog.org_id == org_id)
-            .order_by(AuditLog.created_at.desc())
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         )
 
         if user_id:
@@ -88,9 +88,22 @@ class AuditService:
 
         if cursor:
             try:
-                cursor_dt = datetime.fromisoformat(cursor)
-                stmt = stmt.where(AuditLog.created_at < cursor_dt)
-            except ValueError:
+                parts = cursor.split("|", 1)
+                cursor_dt = datetime.fromisoformat(parts[0])
+                cursor_id = UUID(parts[1]) if len(parts) > 1 else None
+                if cursor_id is not None:
+                    stmt = stmt.where(
+                        or_(
+                            AuditLog.created_at < cursor_dt,
+                            and_(
+                                AuditLog.created_at == cursor_dt,
+                                AuditLog.id < cursor_id,
+                            ),
+                        )
+                    )
+                else:
+                    stmt = stmt.where(AuditLog.created_at < cursor_dt)
+            except (ValueError, IndexError):
                 pass
 
         stmt = stmt.limit(limit + 1)
@@ -103,7 +116,8 @@ class AuditService:
 
         next_cursor = None
         if has_more and logs:
-            next_cursor = logs[-1].created_at.isoformat()
+            last = logs[-1]
+            next_cursor = f"{last.created_at.isoformat()}|{last.id}"
 
         return {
             "items": logs,

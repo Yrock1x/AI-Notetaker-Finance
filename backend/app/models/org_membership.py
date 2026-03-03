@@ -29,6 +29,7 @@ class OrgMembership(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     role: Mapped[str] = mapped_column(
         String(50),

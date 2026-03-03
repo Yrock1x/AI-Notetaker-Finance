@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum Generative Matrix</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;600&family=JetBrains+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #EAE8E3;
+    --line: rgba(28, 27, 26, 0.12);
+    --text-primary: #1C1B1A;
+    --text-mono: #6A6763;
+    --neon-cyan: #00FFFF;
+    --hud-bg: rgba(20, 20, 25, 0.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .blueprint-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: 
+      linear-gradient(30deg, var(--line) 1px, transparent 1px),
+      linear-gradient(150deg, var(--line) 1px, transparent 1px);
+    background-size: 60px 104px;
+    opacity: 0.6;
+  }
+
+  .pane { position: relative; width: 50vw; height: 100vh; z-index: 1; }
+  .pane-left {
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 0 4vw;
+  }
+  .pane-right {
+    overflow: hidden; position: relative;
+    background: radial-gradient(circle at center, #18191C 0%, #070708 100%);
+  }
+
+  header {
+    position: absolute; top: 0; left: 0; right: 0; height: 80px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4vw; z-index: 10; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-mono);
+  }
+  .nav-center { display: flex; gap: 4rem; position: absolute; left: 50%; transform: translateX(-50%); }
+  .nav-center span { transition: color 0.3s; cursor: pointer; }
+  .nav-center span:hover { color: var(--text-primary); }
+  .nav-center span:nth-child(n+3) { color: rgba(255,255,255,0.5); }
+  .nav-center span:nth-child(n+3):hover { color: #fff; }
+
+  .logo { display: flex; align-items: center; gap: 12px; font-weight: 700; color: var(--text-primary); font-size: 14px; }
+  .logo-mark { width: 20px; height: 20px; border: 1px solid var(--text-primary); display: flex; justify-content: center; align-items: center; }
+  .logo-mark::after { content: ''; width: 8px; height: 8px; background: var(--text-primary); }
+  .nav-right { display: flex; align-items: center; gap: 2rem; color: rgba(255,255,255,0.6); }
+  
+  .btn-init { background: #fff; color: #000; padding: 10px 24px; font-family: 'JetBrains Mono', monospace; font-weight: 700; cursor: pointer; transition: transform 0.2s; }
+  .btn-init:hover { transform: translateY(-2px); }
+
+  .overline { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 3px; color: var(--text-mono); margin-bottom: 2rem; }
+  h1 { font-size: clamp(3rem, 4.5vw, 5rem); line-height: 1.05; margin-bottom: 2.5rem; letter-spacing: -2px; color: var(--text-primary); }
+  h1 .bold { font-weight: 600; display: block;}
+  h1 .thin { font-weight: 200; display: block; }
+  p.description { font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; color: var(--text-mono); max-width: 480px; margin-bottom: 3.5rem; }
+
+  .actions { display: flex; gap: 1.5rem; margin-bottom: 10rem; align-items: center; }
+
+  .tech-bracket {
+    position: relative; padding: 16px 32px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 1px; background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid transparent; 
+    cursor: pointer; color: var(--text-primary); font-weight: 700; transition: background 0.3s;
+  }
+  .tech-bracket::before, .tech-bracket::after { content: ''; position: absolute; width: 8px; height: 8px; border: 1px solid var(--text-primary); transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1); }
+  .tech-bracket::before { top: 0; left: 0; border-right: none; border-bottom: none; }
+  .tech-bracket::after { bottom: 0; right: 0; border-left: none; border-top: none; }
+  .tech-bracket:hover::before, .tech-bracket:hover::after { width: 100%; height: 100%; }
+  .tech-bracket:hover { background: rgba(255, 255, 255, 0.8); }
+
+  .btn-solid {
+    background: var(--text-primary); color: var(--bg); padding: 16px 32px; font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--text-primary); transition: all 0.3s;
+  }
+  .btn-solid:hover { background: transparent; color: var(--text-primary); }
+
+  .stats-row { position: absolute; bottom: 0; left: 0; right: 0; display: flex; border-top: 1px solid var(--line); height: 120px; }
+  .stat-box { flex: 1; border-right: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .stat-box:last-child { border-right: none; }
+  .stat-box::before, .stat-box::after { content: ''; position: absolute; width: 6px; height: 6px; border: 1px solid rgba(28, 27, 26, 0.4); }
+  .stat-box::before { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+  .stat-box::after { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+  .stat-num { font-size: 28px; font-weight: 600; letter-spacing: -1px; color: var(--text-primary); }
+  .stat-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-mono); letter-spacing: 1px; margin-top: 6px; text-transform: uppercase; }
+
+  #left-canvas { position: absolute; bottom: 120px; left: 0; width: 100%; height: 40vh; z-index: -1; opacity: 0.12; pointer-events: none; }
+  
+  #gl-canvas { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 1; }
+  .radial-glow { position: absolute; top: 50%; left: 50%; width: 80vh; height: 80vh; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(0, 150, 255, 0.15) 0%, transparent 70%); z-index: 0; pointer-events: none; }
+
+  .hud-container { position: absolute; inset: 0; top: 80px; z-index: 10; pointer-events: none; }
+  .hud-item { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  .hud-label {
+    position: absolute; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.9);
+    background: var(--hud-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 8px 14px;
+    letter-spacing: 1px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: inline-block; white-space: nowrap;
+  }
+  .hud-label::before, .hud-label::after { content: ''; position: absolute; width: 5px; height: 5px; border: 1px solid var(--neon-cyan); }
+  .hud-label::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .hud-label::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+  
+  .hud-line { position: absolute; background: rgba(0, 255, 255, 0.4); transform-origin: 0 0; z-index: -1; }
+  .hud-dot { position: absolute; width: 5px; height: 5px; background: transparent; border: 1px solid var(--neon-cyan); border-radius: 50%; transform: translate(-50%, -50%); }
+
+</style>
+</head>
+<body>
+
+<div class="blueprint-grid"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark"></div>
+    DEALWISE AI
+  </div>
+  <div class="nav-center">
+    <span>// Core</span>
+    <span>// Synapse</span>
+    <span>// Topology</span>
+    <span>// Matrix</span>
+  </div>
+  <div class="nav-right">
+    <span>v EN</span>
+    <div class="btn-init">Initialize</div>
+  </div>
+</header>
+
+<div class="pane pane-left">
+  <canvas id="left-canvas"></canvas>
+  <div class="overline">// GENERATE ONCE, PUBLISH EVERYWHERE</div>
+  <h1>
+    <span class="bold">One piece of content.</span>
+    <span class="thin">Every platform. Instantly.</span>
+  </h1>
+  <p class="description">
+    Zero-latency neural bridging for financial intelligence. Real-time AI transcription, quantitative entity extraction, and thematic deal routing deployed securely in a mathematically isolated environment.
+  </p>
+  <div class="actions">
+    <div class="tech-bracket">Sign in</div>
+    <div class="btn-solid">Learn more</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="stat-num">128Q</div>
+      <div class="stat-label">Model Breadth</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">0.01ms</div>
+      <div class="stat-label">Neural Latency</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">256b</div>
+      <div class="stat-label">E2E Encryption</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">10B+</div>
+      <div class="stat-label">Params</div>
+    </div>
+  </div>
+</div>
+
+<div class="pane pane-right">
+  <div class="radial-glow"></div>
+  <canvas id="gl-canvas"></canvas>
+  <div class="hud-container" id="hud">
+    <!-- Populated by JS -->
+  </div>
+</div>
+
+<script>
+// --- LEFT CANVAS: Blueprint Isometric ---
+const lCanvas = document.getElementById('left-canvas');
+const lCtx = lCanvas.getContext('2d');
+
+function initBlueprint() {
+  lCanvas.width = lCanvas.clientWidth * window.devicePixelRatio;
+  lCanvas.height = lCanvas.clientHeight * window.devicePixelRatio;
+  lCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  lCtx.clearRect(0,0, lCanvas.clientWidth, lCanvas.clientHeight);
+  lCtx.strokeStyle = 'rgba(28, 27, 26, 0.5)';
+  lCtx.lineWidth = 1;
+
+  lCtx.beginPath();
+  for(let i=0; i<80; i++) {
+    let x = (Math.random() * lCanvas.clientWidth * 1.5) - lCanvas.clientWidth*0.2;
+    let y = Math.random() * lCanvas.clientHeight;
+    lCtx.moveTo(x, y);
+    
+    for(let j=0; j<4; j++) {
+      let dirX = Math.random() > 0.5 ? 1 : -1;
+      let dirY = Math.random() > 0.5 ? 0.577 : -0.577; 
+      let len = 20 + Math.random() * 80;
+      x += len * dirX; y += len * dirY;
+      lCtx.lineTo(x, y);
+      if (Math.random() > 0.8) lCtx.rect(x-2, y-2, 4, 4);
+    }
+  }
+  lCtx.stroke();
+}
+window.addEventListener('resize', initBlueprint);
+initBlueprint();
+
+// --- RIGHT CANVAS: WebGL Generative Neural Matrix ---
+const glCanvas = document.getElementById('gl-canvas');
+const gl = glCanvas.getContext('webgl', { antialias: true, alpha: true, preserveDrawingBuffer: false });
+
+// Using 80,000 particles as requested
+const NUM_PARTICLES = 80000;
+
+const vsSource = `
+  attribute float aIndex;
+  uniform float uTime;
+  uniform vec2 uResolution;
+  varying vec3 vColor;
+
+  vec3 hash3(float n) { return fract(sin(vec3(n, n+1.0, n+2.0)) * vec3(43758.5453123)); }
+
+  // Simple 3d noise approximation
+  float noise(vec3 p) {
+    vec3 i = floor(p); vec3 f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float n = i.x + i.y*157.0 + 113.0*i.z;
+    return mix(
+      mix(mix(fract(sin(n)*43758.5453), fract(sin(n+1.0)*43758.5453), f.x),
+          mix(fract(sin(n+157.0)*43758.5453), fract(sin(n+158.0)*43758.5453), f.x), f.y),
+      mix(mix(fract(sin(n+113.0)*43758.5453), fract(sin(n+114.0)*43758.5453), f.x),
+          mix(fract(sin(n+270.0)*43758.5453), fract(sin(n+271.0)*43758.5453), f.x), f.y), f.z);
+  }
+
+  // Curl noise logic to create flowing fiber optic look
+  vec3 curl(vec3 p) {
+    float e = 0.1, a, b;
+    a = noise(vec3(p.x, p.y + e, p.z)); b = noise(vec3(p.x, p.y - e, p.z)); float n1 = (a - b) / (2.0 * e);
+    a = noise(vec3(p.x, p.y, p.z + e)); b = noise(vec3(p.x, p.y, p.z - e)); float n2 = (a - b) / (2.0 * e);
+    float cx = n1 - n2;
+    
+    a = noise(vec3(p.x, p.y, p.z + e) + 100.0); b = noise(vec3(p.x, p.y, p.z - e) + 100.0); n1 = (a - b) / (2.0 * e);
+    a = noise(vec3(p.x + e, p.y, p.z) + 100.0); b = noise(vec3(p.x - e, p.y, p.z) + 100.0); n2 = (a - b) / (2.0 * e);
+    float cy = n1 - n2;
+
+    a = noise(vec3(p.x + e, p.y, p.z) + 200.0); b = noise(vec3(p.x - e, p.y, p.z) + 200.0); n1 = (a - b) / (2.0 * e);
+    a = noise(vec3(p.x, p.y + e, p.z) + 200.0); b = noise(vec3(p.x, p.y - e, p.z) + 200.0); n2 = (a - b) / (2.0 * e);
+    float cz = n1 - n2;
+    return vec3(cx, cy, cz);
+  }
+
+  void main() {
+    float normIndex = aIndex / ${NUM_PARTICLES.0};
+    vec3 h = hash3(normIndex * 999.0);
+    
+    // Base position
+    vec3 p = (h - 0.5) * 4.0; 
+    
+    // Add curl noise flow over time
+    float t = uTime * 0.2 + h.z * 10.0;
+    vec3 vel = curl(p * 1.5 + vec3(0.0, t, -t*0.5));
+    
+    // Asymmetrical 3D neural drift
+    p += vel * 0.8;
+    
+    // Orbit effect
+    float angle = uTime * 0.1 * (h.x > 0.5 ? 1.0 : -1.0) * h.y;
+    float s = sin(angle), c = cos(angle);
+    p.xz = mat2(c, -s, s, c) * p.xz;
+    p.xy = mat2(c, -s, s, c) * p.xy;
+    
+    // Scale for aspect
+    float aspect = uResolution.x / uResolution.y;
+    p.x /= aspect;
+    
+    // Projection (simple FOV)
+    float z = p.z + 4.0;
+    gl_Position = vec4(p.x * 2.0 / z, p.y * 2.0 / z, p.z * 0.1, 1.0);
+    
+    // Advanced point size (motion blur proxy)
+    gl_PointSize = (1.5 + h.x * 2.5) / (z * 0.3);
+
+    // Color generation based on radius, simulating extreme heat core to deep ultra-violet edges
+    float r = length(p);
+    vec3 core = vec3(0.9, 1.0, 1.0); // Flinding hot cyan/white
+    vec3 mid = vec3(0.0, 0.8, 1.0);  // Electric blue
+    vec3 edge = vec3(0.8, 0.1, 0.6); // Magenta/Orange
+    
+    float mixVal = smoothstep(0.0, 1.5, r);
+    vec3 c3 = mix(core, mid, smoothstep(0.0, 0.5, mixVal));
+    c3 = mix(c3, edge, smoothstep(0.5, 1.0, mixVal));
+    
+    // Pulsing energy
+    float pulse = sin(uTime * 3.0 + normIndex * 100.0) * 0.5 + 0.5;
+    
+    // Opacity falloff at edges
+    float alpha = smoothstep(2.5, 1.0, r) * (0.3 + pulse * 0.7);
+    
+    vColor = c3 * alpha * 1.5; // Premultiplied-ish Additive boost
+  }
+`;
+
+const fsSource = `
+  precision mediump float;
+  varying vec3 vColor;
+  void main() {
+    // Soft circle particle
+    vec2 pc = gl_PointCoord * 2.0 - 1.0;
+    float dist = dot(pc, pc);
+    if(dist > 1.0) discard;
+    
+    // Inner glow
+    float glow = exp(-dist * 2.0);
+    gl_FragColor = vec4(vColor * glow, 1.0);
+  }
+`;
+
+function compileShader(src, type) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, src);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(shader));
+  }
+  return shader;
+}
+
+const vs = compileShader(vsSource, gl.VERTEX_SHADER);
+const fs = compileShader(fsSource, gl.FRAGMENT_SHADER);
+const prog = gl.createProgram();
+gl.attachShader(prog, vs);
+gl.attachShader(prog, fs);
+gl.linkProgram(prog);
+
+const aIndex = gl.getAttribLocation(prog, "aIndex");
+const uTime = gl.getUniformLocation(prog, "uTime");
+const uRes = gl.getUniformLocation(prog, "uResolution");
+
+const indices = new Float32Array(NUM_PARTICLES);
+for (let i = 0; i < NUM_PARTICLES; i++) indices[i] = i;
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+// Set Additive Blending for blinding light effect
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive
+gl.disable(gl.DEPTH_TEST);
+
+function resizeGL() {
+  const w = glCanvas.clientWidth;
+  const h = glCanvas.clientHeight;
+  if(glCanvas.width !== w || glCanvas.height !== h) {
+    glCanvas.width = w; glCanvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+}
+
+let startT = performance.now();
+function renderGL() {
+  resizeGL();
+  let t = (performance.now() - startT) * 0.001;
+  
+  gl.clearColor(0,0,0,0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.enableVertexAttribArray(aIndex);
+  gl.vertexAttribPointer(aIndex, 1, gl.FLOAT, false, 0, 0);
+  
+  gl.uniform1f(uTime, t);
+  gl.uniform2f(uRes, glCanvas.width, glCanvas.height);
+  
+  gl.drawArrays(gl.POINTS, 0, NUM_PARTICLES);
+  
+  updateHUD(t);
+  requestAnimationFrame(renderGL);
+}
+
+// --- Dynamic HUD Lines ---
+const hudData = [
+  { label: "Cryo-State: 15mK", tx: 0.65, ty: 0.2, rx: 0.5, ry: 0.35, lenX: -40, type: 1 },
+  { label: "Entanglement Ratio: 0.994", tx: 0.85, ty: 0.45, rx: 0.65, ry: 0.5, lenX: -50, type: 2 },
+  { label: "Q-Bit Decoherence: Low", tx: 0.2, ty: 0.75, rx: 0.4, ry: 0.55, lenX: 50, type: 3 },
+  { label: "Neural Topology: Stable", tx: 0.75, ty: 0.85, rx: 0.55, ry: 0.65, lenX: -30, type: 4 }
+];
+
+const hudContainer = document.getElementById("hud");
+const hudElems = [];
+
+hudData.forEach((d, i) => {
+  const wrap = document.createElement("div"); wrap.className = "hud-item";
+  const label = document.createElement("div"); label.className = "hud-label"; label.innerText = d.label;
+  const line1 = document.createElement("div"); line1.className = "hud-line"; line1.style.height = "1px";
+  const line2 = document.createElement("div"); line2.className = "hud-line"; line2.style.height = "1px";
+  const dot = document.createElement("div"); dot.className = "hud-dot";
+  
+  wrap.appendChild(label); wrap.appendChild(line1); wrap.appendChild(line2); wrap.appendChild(dot);
+  hudContainer.appendChild(wrap);
+  hudElems.push({wrap, label, line1, line2, dot, data: d});
+});
+
+function updateHUD(time) {
+  const w = glCanvas.clientWidth;
+  const h = glCanvas.clientHeight;
+  
+  hudElems.forEach(el => {
+    let d = el.data;
+    
+    // Target position (floating in matrix with slight sine drift)
+    let rx = w * d.rx + Math.sin(time + d.type) * 20;
+    let ry = h * d.ry + Math.cos(time * 0.8 + d.type) * 20;
+    
+    // Label position (pin to 10% outside target, then slide)
+    let px = w * d.tx;
+    let py = h * d.ty;
+    
+    el.label.style.left = px + "px";
+    el.label.style.top = py + "px";
+    
+    // L-shaped connection line parameters
+    let midX = px + d.lenX;
+    let paddingY = 12; // vertical center of box
+    
+    // Calculate length/rotation for line 1 (Label to Knee)
+    let w1 = Math.abs(px - midX);
+    el.line1.style.width = w1 + "px";
+    el.line1.style.left = (Math.min(px, midX)) + "px";
+    el.line1.style.top = (py + paddingY) + "px"; 
+    
+    // Calculate length/rotation for line 2 (Knee to Target)
+    let dx2 = rx - midX;
+    let dy2 = ry - (py + paddingY);
+    let len2 = Math.sqrt(dx2*dx2 + dy2*dy2);
+    let ang2 = Math.atan2(dy2, dx2) * 180 / Math.PI;
+    
+    el.line2.style.width = len2 + "px";
+    el.line2.style.left = midX + "px";
+    el.line2.style.top = (py + paddingY) + "px";
+    el.line2.style.transform = `rotate(${ang2}deg)`;
+    
+    el.dot.style.left = rx + "px";
+    el.dot.style.top = ry + "px";
+  });
+}
+
+// Start
+renderGL();
+
+</script>
+</body>
+</html>

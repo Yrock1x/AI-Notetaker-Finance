@@ -51,3 +51,13 @@ resource "aws_secretsmanager_secret" "app_secret_key" {
     Environment = var.environment
   }
 }
+
+resource "aws_secretsmanager_secret" "redis_url" {
+  name        = "dealwise/${var.environment}/redis-url"
+  description = "Redis connection URL for Celery broker and cache"
+
+  tags = {
+    Name        = "dealwise-${var.environment}-redis-url"
+    Environment = var.environment
+  }
+}

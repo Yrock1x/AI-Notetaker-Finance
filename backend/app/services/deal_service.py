@@ -120,7 +120,7 @@ class DealService:
 
         allowed_fields = {"name", "description", "target_company", "deal_type", "stage", "status"}
         for field, value in kwargs.items():
-            if field in allowed_fields and value is not None:
+            if field in allowed_fields:
                 setattr(deal, field, value)
 
         await self.db.flush()
@@ -190,7 +190,8 @@ class DealService:
             stmt = stmt.where(Deal.deal_type == deal_type_filter)
 
         if search is not None:
-            search_term = f"%{search}%"
+            safe_search = search.replace("%", r"\%").replace("_", r"\_")
+            search_term = f"%{safe_search}%"
             stmt = stmt.where(
                 Deal.name.ilike(search_term) | Deal.target_company.ilike(search_term)
             )

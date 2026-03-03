@@ -5,10 +5,10 @@ from uuid import UUID
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import NotFoundError, DomainValidationError
 from app.models.meeting_bot_session import MeetingBotSession
 
-VALID_PLATFORMS = {"zoom", "teams"}
+VALID_PLATFORMS = {"zoom", "teams", "google_meet"}
 VALID_STATUSES = {"scheduled", "joining", "recording", "completed", "failed", "cancelled"}
 
 
@@ -22,12 +22,12 @@ class BotService:
         deal_id: UUID,
         platform: str,
         meeting_url: str,
-        scheduled_start: datetime,
+        scheduled_start: datetime | None,
         created_by: UUID,
     ) -> MeetingBotSession:
         """Schedule a bot to join a meeting for live recording."""
         if platform not in VALID_PLATFORMS:
-            raise ValidationError(f"Unsupported bot platform: {platform}")
+            raise DomainValidationError(f"Unsupported bot platform: {platform}")
 
         session = MeetingBotSession(
             org_id=org_id,
@@ -56,7 +56,7 @@ class BotService:
         """Cancel a scheduled bot session."""
         session = await self.get_session(session_id)
         if session.status not in ("scheduled", "joining"):
-            raise ValidationError(
+            raise DomainValidationError(
                 f"Cannot cancel session in '{session.status}' status"
             )
         session.status = "cancelled"
@@ -67,7 +67,7 @@ class BotService:
     ) -> MeetingBotSession:
         """Update the status of a bot session."""
         if status not in VALID_STATUSES:
-            raise ValidationError(f"Invalid status: {status}")
+            raise DomainValidationError(f"Invalid status: {status}")
 
         session = await self.get_session(session_id)
         session.status = status

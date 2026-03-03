@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from app.schemas.common import BaseSchema
@@ -17,8 +18,8 @@ class OAuthInitResponse(BaseSchema):
 
 class BotSessionCreate(BaseSchema):
     meeting_url: str
-    platform: str  # zoom, teams
-    scheduled_start: datetime
+    platform: Literal["zoom", "teams", "google_meet"]
+    scheduled_start: datetime | None = None
     deal_id: UUID
 
 

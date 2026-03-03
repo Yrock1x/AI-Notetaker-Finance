@@ -12,7 +12,6 @@ class ClaudeProvider(LLMProvider):
     """LLM provider backed by Anthropic Claude models."""
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
-        self.api_key = api_key
         self.model = model
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
 

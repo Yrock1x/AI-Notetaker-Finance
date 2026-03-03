@@ -269,8 +269,8 @@ def reindex_deal(self, deal_id: str) -> str:
                             for chunk in chunks
                         ]
 
-                        embedding_provider = OpenAIEmbeddingProvider(
-                            api_key=settings.openai_api_key
+                        embedding_provider = GeminiEmbeddingProvider(
+                            api_key=settings.google_api_key
                         )
                         embedding_svc = EmbeddingService(
                             db=session, embedding_provider=embedding_provider
@@ -328,8 +328,8 @@ def reindex_deal(self, deal_id: str) -> str:
                             for chunk in chunks
                         ]
 
-                        embedding_provider = OpenAIEmbeddingProvider(
-                            api_key=settings.openai_api_key
+                        embedding_provider = GeminiEmbeddingProvider(
+                            api_key=settings.google_api_key
                         )
                         embedding_svc = EmbeddingService(
                             db=session, embedding_provider=embedding_provider

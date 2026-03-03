@@ -12,7 +12,6 @@ class OpenAIProvider(LLMProvider):
     """LLM provider backed by OpenAI models."""
 
     def __init__(self, api_key: str, model: str = "gpt-4o") -> None:
-        self.api_key = api_key
         self.model = model
         self._client = openai.AsyncOpenAI(api_key=api_key)
 
@@ -125,7 +124,6 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     MAX_BATCH_SIZE = 2048  # Maximum texts per API call
 
     def __init__(self, api_key: str, model: str = "text-embedding-3-small") -> None:
-        self.api_key = api_key
         self.model = model
         self._client = openai.AsyncOpenAI(api_key=api_key)
 

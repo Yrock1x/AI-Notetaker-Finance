@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +16,9 @@ EMBEDDING_DIMENSIONS = 1536
 
 class Embedding(OrgScopedMixin, Base):
     __tablename__ = "embeddings"
+    __table_args__ = (
+        Index("ix_embedding_source", "source_type", "source_id"),
+    )
 
     org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -36,6 +39,7 @@ class Embedding(OrgScopedMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
+        index=True,
     )
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

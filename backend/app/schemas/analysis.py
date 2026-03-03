@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from app.schemas.common import BaseSchema
 
 
 class AnalysisRequest(BaseSchema):
-    call_type: str = "general"  # diligence, management_presentation, buyer_call, financial_review, qoe, general
+    call_type: Literal["diligence", "management_presentation", "buyer_call", "financial_review", "qoe", "summarization", "general"] = "general"
 
 
 class AnalysisResponse(BaseSchema):

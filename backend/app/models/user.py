@@ -14,8 +14,8 @@ class User(BaseMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
-    org_memberships = relationship("OrgMembership", back_populates="user", lazy="selectin")
-    deal_memberships = relationship("DealMembership", back_populates="user", foreign_keys="[DealMembership.user_id]", lazy="selectin")
+    org_memberships = relationship("OrgMembership", back_populates="user", lazy="noload")
+    deal_memberships = relationship("DealMembership", back_populates="user", foreign_keys="[DealMembership.user_id]", lazy="noload")
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"

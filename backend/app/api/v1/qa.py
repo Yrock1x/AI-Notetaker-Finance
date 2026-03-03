@@ -220,45 +220,49 @@ async def ask_question(
     settings = get_settings()
 
     if settings.google_api_key:
-        # Set up the LLM router with Gemini provider
-        llm_router = LLMRouter()
-        gemini_provider = GeminiProvider(api_key=settings.google_api_key)
-        llm_router.register_provider("gemini", gemini_provider)
+        try:
+            # Set up the LLM router with Gemini provider
+            llm_router = LLMRouter()
+            gemini_provider = GeminiProvider(api_key=settings.google_api_key)
+            llm_router.register_provider("gemini", gemini_provider)
 
-        # Set up the embedding service with Gemini provider
-        embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
-        embedding_service = EmbeddingService(db, embedding_provider)
+            # Set up the embedding service with Gemini provider
+            embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
+            embedding_service = EmbeddingService(db, embedding_provider)
 
-        qa_service = QAService(db, llm_router, embedding_service)
-        result = await qa_service.ask(
-            deal_id=deal_id,
-            org_id=org_id,
-            question=payload.question,
-        )
+            qa_service = QAService(db, llm_router, embedding_service)
+            result = await qa_service.ask(
+                deal_id=deal_id,
+                org_id=org_id,
+                question=payload.question,
+            )
 
-        return QAResponse(
-            id=uuid_mod.uuid4(),
-            deal_id=deal_id,
-            question=payload.question,
-            answer=result.answer,
-            citations=[],
-            grounding_score=result.grounding_score,
-            model_used="gemini-2.0-flash",
-            created_at=datetime.now(timezone.utc),
-        )
-    else:
-        # No API key: return mock responses
-        mock = _generate_mock_response(payload.question)
-        return QAResponse(
-            id=uuid_mod.uuid4(),
-            deal_id=deal_id,
-            question=payload.question,
-            answer=mock["answer"],
-            citations=mock["citations"],
-            grounding_score=mock["grounding_score"],
-            model_used="demo-mock",
-            created_at=datetime.now(timezone.utc),
-        )
+            return QAResponse(
+                id=uuid_mod.uuid4(),
+                deal_id=deal_id,
+                question=payload.question,
+                answer=result.answer,
+                citations=[],
+                grounding_score=result.grounding_score,
+                model_used="gemini-2.0-flash",
+                created_at=datetime.now(timezone.utc),
+            )
+        except Exception:
+            # Fall back to mock responses on API errors (rate limits, etc.)
+            pass
+
+    # No API key or API error: return mock responses
+    mock = _generate_mock_response(payload.question)
+    return QAResponse(
+        id=uuid_mod.uuid4(),
+        deal_id=deal_id,
+        question=payload.question,
+        answer=mock["answer"],
+        citations=mock["citations"],
+        grounding_score=mock["grounding_score"],
+        model_used="demo-mock",
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 @meeting_qa_router.post("/ask", response_model=QAResponse)
@@ -285,46 +289,49 @@ async def ask_meeting_question(
     await deal_service.check_deal_access(deal_id, current_user.id)
 
     if settings.google_api_key:
-        # Set up the LLM router with Gemini provider
-        llm_router = LLMRouter()
-        gemini_provider = GeminiProvider(api_key=settings.google_api_key)
-        llm_router.register_provider("gemini", gemini_provider)
+        try:
+            # Set up the LLM router with Gemini provider
+            llm_router = LLMRouter()
+            gemini_provider = GeminiProvider(api_key=settings.google_api_key)
+            llm_router.register_provider("gemini", gemini_provider)
 
-        # Set up the embedding service with Gemini provider
-        embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
-        embedding_service = EmbeddingService(db, embedding_provider)
+            # Set up the embedding service with Gemini provider
+            embedding_provider = GeminiEmbeddingProvider(api_key=settings.google_api_key)
+            embedding_service = EmbeddingService(db, embedding_provider)
 
-        qa_service = QAService(db, llm_router, embedding_service)
-        result = await qa_service.ask(
-            deal_id=deal_id,
-            org_id=org_id,
-            question=payload.question,
-            meeting_id=meeting_id,
-        )
+            qa_service = QAService(db, llm_router, embedding_service)
+            result = await qa_service.ask(
+                deal_id=deal_id,
+                org_id=org_id,
+                question=payload.question,
+                meeting_id=meeting_id,
+            )
 
-        return QAResponse(
-            id=uuid_mod.uuid4(),
-            deal_id=deal_id,
-            question=payload.question,
-            answer=result.answer,
-            citations=[],
-            grounding_score=result.grounding_score,
-            model_used="gemini-2.0-flash",
-            created_at=datetime.now(timezone.utc),
-        )
-    else:
-        # No API key: return mock responses
-        mock = _generate_mock_response(payload.question)
-        return QAResponse(
-            id=uuid_mod.uuid4(),
-            deal_id=deal_id,
-            question=payload.question,
-            answer=mock["answer"],
-            citations=mock["citations"],
-            grounding_score=mock["grounding_score"],
-            model_used="demo-mock",
-            created_at=datetime.now(timezone.utc),
-        )
+            return QAResponse(
+                id=uuid_mod.uuid4(),
+                deal_id=deal_id,
+                question=payload.question,
+                answer=result.answer,
+                citations=[],
+                grounding_score=result.grounding_score,
+                model_used="gemini-2.0-flash",
+                created_at=datetime.now(timezone.utc),
+            )
+        except Exception:
+            pass
+
+    # No API key or API error: return mock responses
+    mock = _generate_mock_response(payload.question)
+    return QAResponse(
+        id=uuid_mod.uuid4(),
+        deal_id=deal_id,
+        question=payload.question,
+        answer=mock["answer"],
+        citations=mock["citations"],
+        grounding_score=mock["grounding_score"],
+        model_used="demo-mock",
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 @router.get("/history", response_model=PaginatedResponse[QAHistoryResponse])

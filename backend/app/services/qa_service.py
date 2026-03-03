@@ -33,6 +33,7 @@ class QAResponse:
     confidence: str  # high, medium, low
     source_coverage: str
     grounding_score: Optional[float] = None
+    grounding_status: str = "pending"  # "checked", "skipped", "pending"
 
 
 class QAService:
@@ -67,6 +68,7 @@ class QAService:
         org_id: UUID,
         question: str,
         top_k: int = DEFAULT_TOP_K,
+        meeting_id: UUID | None = None,
     ) -> QAResponse:
         """Answer a question about a deal with citations from relevant sources."""
 
@@ -117,6 +119,7 @@ class QAService:
 
         # Step 7: Validate grounding
         grounding_score = None
+        grounding_status = "pending"
         try:
             source_chunks = [
                 {
@@ -134,6 +137,7 @@ class QAService:
                 answer_text, citation_dicts, source_chunks
             )
             grounding_score = grounding_result.score
+            grounding_status = "checked"
 
             if not grounding_result.is_grounded:
                 logger.warning(
@@ -149,6 +153,8 @@ class QAService:
                 )
         except Exception:
             logger.warning("grounding_check_failed", deal_id=str(deal_id))
+            grounding_status = "skipped"
+            grounding_score = None
 
         logger.info(
             "qa_answered",
@@ -164,6 +170,7 @@ class QAService:
             confidence=confidence,
             source_coverage=source_coverage,
             grounding_score=grounding_score,
+            grounding_status=grounding_status,
         )
 
     def _format_context(self, search_results: list[dict]) -> str:

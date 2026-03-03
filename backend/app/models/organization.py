@@ -14,7 +14,7 @@ class Organization(BaseMixin, Base):
     settings: Mapped[dict | None] = mapped_column(JSONB, default=dict)
 
     # Relationships
-    memberships = relationship("OrgMembership", back_populates="organization", lazy="selectin")
+    memberships = relationship("OrgMembership", back_populates="organization", lazy="noload")
     deals = relationship("Deal", back_populates="organization", lazy="noload")
 
     def __repr__(self) -> str:

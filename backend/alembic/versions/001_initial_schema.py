@@ -1,4 +1,4 @@
-"""Initial schema for DealWise AI
+"""Initial schema for Deal Companion
 
 Revision ID: 001
 Revises: None

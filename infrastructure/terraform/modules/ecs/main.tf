@@ -64,6 +64,23 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Grant task execution role access to pull secrets at container startup
+resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
+  name = "${var.cluster_name}-${var.environment}-execution-secrets"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = values(var.secret_arns)
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "ecs_task" {
   name               = "${var.cluster_name}-${var.environment}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume_role.json
@@ -134,6 +151,31 @@ resource "aws_iam_role_policy" "ecs_task" {
   policy = data.aws_iam_policy_document.ecs_task.json
 }
 
+# --- Shared container config ------------------------------------------------
+
+locals {
+  common_environment = [
+    { name = "ENVIRONMENT", value = var.environment },
+    { name = "APP_ENV", value = var.environment == "prod" ? "production" : var.environment == "staging" ? "staging" : "development" },
+    { name = "LOG_LEVEL", value = var.environment == "prod" ? "WARNING" : "INFO" },
+    { name = "CORS_ORIGINS", value = var.cors_origins },
+    { name = "S3_BUCKET_NAME", value = var.s3_bucket_name },
+    { name = "AWS_REGION", value = data.aws_region.current.name },
+    { name = "COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
+    { name = "COGNITO_APP_CLIENT_ID", value = var.cognito_app_client_id },
+    { name = "COGNITO_DOMAIN", value = var.cognito_domain },
+  ]
+
+  common_secrets = [
+    { name = "DATABASE_URL", valueFrom = var.secret_arns.database_url },
+    { name = "REDIS_URL", valueFrom = var.secret_arns.redis_url },
+    { name = "ANTHROPIC_API_KEY", valueFrom = var.secret_arns.anthropic_api_key },
+    { name = "OPENAI_API_KEY", valueFrom = var.secret_arns.openai_api_key },
+    { name = "DEEPGRAM_API_KEY", valueFrom = var.secret_arns.assemblyai_api_key },
+    { name = "APP_SECRET_KEY", valueFrom = var.secret_arns.app_secret_key },
+  ]
+}
+
 # --- Task Definitions -------------------------------------------------------
 
 resource "aws_ecs_task_definition" "api" {
@@ -168,9 +210,8 @@ resource "aws_ecs_task_definition" "api" {
         }
       }
 
-      environment = [
-        { name = "ENVIRONMENT", value = var.environment }
-      ]
+      environment = local.common_environment
+      secrets     = local.common_secrets
     }
   ])
 
@@ -195,7 +236,7 @@ resource "aws_ecs_task_definition" "worker" {
       image     = var.worker_image
       essential = true
 
-      command = ["celery", "-A", "dealwise.celery", "worker", "--loglevel=info"]
+      command = ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -206,14 +247,55 @@ resource "aws_ecs_task_definition" "worker" {
         }
       }
 
-      environment = [
-        { name = "ENVIRONMENT", value = var.environment }
-      ]
+      environment = local.common_environment
+      secrets     = local.common_secrets
     }
   ])
 
   tags = {
     Name        = "${var.cluster_name}-${var.environment}-worker"
+    Environment = var.environment
+  }
+}
+
+resource "aws_ecs_task_definition" "migrate" {
+  family                   = "${var.cluster_name}-${var.environment}-migrate"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "migrate"
+      image     = var.api_image
+      essential = true
+
+      command = ["alembic", "upgrade", "head"]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.api.name
+          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-stream-prefix" = "migrate"
+        }
+      }
+
+      environment = [
+        { name = "ENVIRONMENT", value = var.environment },
+      ]
+
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.secret_arns.database_url },
+      ]
+    }
+  ])
+
+  tags = {
+    Name        = "${var.cluster_name}-${var.environment}-migrate"
     Environment = var.environment
   }
 }
@@ -260,22 +342,30 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
+# When no certificate is provided, forward HTTP directly to the target group.
+# When a certificate exists, redirect HTTP to HTTPS.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type             = var.certificate_arn != "" ? "redirect" : "forward"
+    target_group_arn = var.certificate_arn == "" ? aws_lb_target_group.api.arn : null
+
+    dynamic "redirect" {
+      for_each = var.certificate_arn != "" ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
     }
   }
 }
 
 resource "aws_lb_listener" "https" {
+  count             = var.certificate_arn != "" ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
@@ -309,7 +399,7 @@ resource "aws_ecs_service" "api" {
     container_port   = 8000
   }
 
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener.http]
 
   tags = {
     Name        = "${var.cluster_name}-${var.environment}-api"

@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     demo_mode: bool = False
     demo_jwt_secret: str = "demo-secret-change-in-production"
 
+    # OAuth Client Credentials
+    zoom_client_id: str = ""
+    zoom_client_secret: str = ""
+    teams_client_id: str = ""
+    teams_client_secret: str = ""
+    slack_client_id: str = ""
+    slack_client_secret: str = ""
+    outlook_client_id: str = ""
+    outlook_client_secret: str = ""
+
     # Webhook Secrets
     zoom_webhook_secret_token: str = ""
     slack_signing_secret: str = ""

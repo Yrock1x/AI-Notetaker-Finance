@@ -12,12 +12,14 @@ rds_allocated_storage = 20
 redis_node_type = "cache.t3.micro"
 
 # ECS – minimal Fargate resources
-api_image         = "dealwise/api:latest"
-worker_image      = "dealwise/worker:latest"
 ecs_cpu           = 256
 ecs_memory        = 512
 ecs_desired_count = 1
 
-# Cognito – local dev URLs
+# Cognito – include Vercel URL once deployed
 cognito_callback_urls = ["http://localhost:3000/callback"]
 cognito_logout_urls   = ["http://localhost:3000/logout"]
+
+# GitHub – CHANGE THESE to your org/repo
+github_org  = "CHANGE_ME"
+github_repo = "CHANGE_ME"

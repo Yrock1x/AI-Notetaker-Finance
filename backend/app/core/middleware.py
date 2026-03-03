@@ -20,11 +20,12 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(request_id=request_id)
         request.state.request_id = request_id
 
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-
-        structlog.contextvars.unbind_contextvars("request_id")
-        return response
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            structlog.contextvars.unbind_contextvars("request_id")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -59,7 +60,7 @@ class OrgContextMiddleware(BaseHTTPMiddleware):
             try:
                 request.state.org_id = uuid.UUID(org_id)
             except ValueError:
-                pass
+                request.state.org_id = None  # Let dependency handle the validation error
 
         return await call_next(request)
 
@@ -90,6 +91,10 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         org_id = getattr(request.state, "org_id", None)
 
         if not user_id or not org_id:
+            return response
+
+        # Only audit successful operations
+        if response.status_code >= 400:
             return response
 
         # Parse resource type and ID from the URL path

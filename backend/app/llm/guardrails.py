@@ -147,48 +147,37 @@ class FinancialGuardrails:
     ) -> list[dict]:
         """Cross-check any financial figures in the answer against source material.
 
-        Uses regex to find numbers, currencies, and percentages in the answer and
-        verifies each appears in at least one source chunk.
+        Extracts figures from both the answer and sources, then compares
+        figure-to-figure (normalized) instead of checking substrings against
+        the full source text, which avoids false positives.
 
         Returns a list of dicts with 'figure', 'found_in_source', and 'source_id' (if found).
         """
-        figures = _extract_financial_figures(answer)
+        answer_figures = _extract_financial_figures(answer)
 
-        if not figures:
+        if not answer_figures:
             return []
 
-        # Gather all source text with their ids
-        source_texts: list[tuple[str, str]] = []
+        # Extract figures from each source chunk and map normalized forms to source_ids
+        normalized_source_map: dict[str, str] = {}
         for chunk in source_chunks:
-            source_texts.append((
-                chunk.get("text", ""),
-                chunk.get("source_id", ""),
-            ))
+            source_text = chunk.get("text", "")
+            source_id = chunk.get("source_id", "")
+            for fig in _extract_financial_figures(source_text):
+                norm = _normalize_figure(fig)
+                if norm not in normalized_source_map:
+                    normalized_source_map[norm] = source_id
 
         results: list[dict] = []
 
-        for figure in figures:
+        for figure in answer_figures:
             normalized = _normalize_figure(figure)
-            found = False
-            found_source_id = ""
-
-            for source_text, source_id in source_texts:
-                source_normalized = _normalize_figure(source_text)
-                if normalized in source_normalized:
-                    found = True
-                    found_source_id = source_id
-                    break
-
-                # Also try matching the raw figure in the raw source text
-                if figure in source_text:
-                    found = True
-                    found_source_id = source_id
-                    break
+            source_id = normalized_source_map.get(normalized)
 
             results.append({
                 "figure": figure,
-                "found_in_source": found,
-                "source_id": found_source_id if found else None,
+                "found_in_source": source_id is not None,
+                "source_id": source_id,
             })
 
         return results

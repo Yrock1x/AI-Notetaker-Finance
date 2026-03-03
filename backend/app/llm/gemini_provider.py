@@ -108,7 +108,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
 
     MAX_BATCH_SIZE = 100
 
-    def __init__(self, api_key: str, model: str = "models/text-embedding-004") -> None:
+    def __init__(self, api_key: str, model: str = "models/gemini-embedding-001") -> None:
         self.model = model
         self._api_key = api_key
         genai.configure(api_key=api_key)

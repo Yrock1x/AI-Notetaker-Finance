@@ -40,7 +40,7 @@ class Deal(OrgScopedMixin, Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="deals")
-    memberships = relationship("DealMembership", back_populates="deal", lazy="selectin")
+    memberships = relationship("DealMembership", back_populates="deal", lazy="noload")
     meetings = relationship("Meeting", back_populates="deal", lazy="noload")
     documents = relationship("Document", back_populates="deal", lazy="noload")
 

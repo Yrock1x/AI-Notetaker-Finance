@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,8 @@ from app.schemas.integration import (
 )
 from app.services.bot_service import BotService
 from app.services.integration_service import IntegrationService
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -119,17 +122,48 @@ async def initiate_oauth(
 @router.get("/{platform}/callback")
 async def oauth_callback(
     platform: str,
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Handle OAuth callback from external platforms."""
+    """Handle OAuth callback from external platforms.
+
+    The provider redirects the user here after consent, so there is no Bearer
+    token on the request.  Instead, user_id and org_id are recovered from the
+    base64-encoded *state* parameter that ``initiate_oauth`` created.
+
+    TODO: Add HMAC signature or server-side nonce verification on the state
+    token to prevent CSRF / state-forgery attacks.  Currently the state is
+    only base64-encoded JSON, which is sufficient for development but must
+    be hardened before production deployment.
+    """
     settings = get_settings()
+
+    # Decode user context from the state token
+    state_data = IntegrationService.decode_state(state)
+    user_id: UUID = state_data["user_id"]
+    org_id: UUID = state_data["org_id"]
+
+    # Reconstruct the redirect_uri (must match what was sent in initiate_oauth)
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/v1/integrations/{platform}/callback"
+
     service = IntegrationService(db, settings)
-    await service.handle_oauth_callback(
+    credential = await service.handle_oauth_callback(
+        user_id=user_id,
+        org_id=org_id,
         platform=platform,
         code=code,
         state=state,
+        redirect_uri=redirect_uri,
+    )
+
+    logger.info(
+        "oauth_callback_success",
+        platform=platform,
+        user_id=str(user_id),
+        org_id=str(org_id),
     )
     return {"status": "connected", "platform": platform}
 

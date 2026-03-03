@@ -58,11 +58,46 @@ variable "environment" {
 }
 
 variable "certificate_arn" {
-  description = "ARN of the ACM certificate for HTTPS"
+  description = "ARN of the ACM certificate for HTTPS (leave empty for HTTP-only)"
   type        = string
+  default     = ""
 }
 
 variable "s3_bucket_arn" {
   description = "ARN of the S3 bucket for file storage"
   type        = string
+}
+
+variable "s3_bucket_name" {
+  description = "Name of the S3 bucket for file storage"
+  type        = string
+}
+
+variable "secret_arns" {
+  description = "Map of Secrets Manager ARNs for sensitive configuration"
+  type        = map(string)
+}
+
+variable "cors_origins" {
+  description = "Comma-separated CORS allowed origins"
+  type        = string
+  default     = "*"
+}
+
+variable "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  type        = string
+  default     = ""
+}
+
+variable "cognito_app_client_id" {
+  description = "Cognito App Client ID"
+  type        = string
+  default     = ""
+}
+
+variable "cognito_domain" {
+  description = "Cognito domain"
+  type        = string
+  default     = ""
 }

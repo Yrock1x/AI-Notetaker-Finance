@@ -36,7 +36,7 @@ class EmbeddingService:
         Each chunk dict should have: text, source_type, source_id, chunk_index,
         and optional metadata.
         """
-        count = 0
+        embeddings = []
         for chunk, vector in zip(chunks, vectors):
             embedding = Embedding(
                 org_id=org_id,
@@ -48,9 +48,10 @@ class EmbeddingService:
                 embedding=vector,
                 metadata_=chunk.get("metadata", {}),
             )
-            self.db.add(embedding)
-            count += 1
+            embeddings.append(embedding)
 
+        self.db.add_all(embeddings)
+        count = len(embeddings)
         await self.db.flush()
         logger.info(
             "embeddings_stored",
@@ -115,7 +116,7 @@ class EmbeddingService:
         results = []
         for embedding, distance in rows:
             score = 1.0 - distance  # Convert distance to similarity score
-            if score_threshold and score < score_threshold:
+            if score_threshold is not None and score < score_threshold:
                 continue
             results.append({
                 "text": embedding.chunk_text,
