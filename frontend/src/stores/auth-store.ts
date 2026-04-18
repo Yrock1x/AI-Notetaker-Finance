@@ -1,9 +1,15 @@
+"use client";
+
+// Thin compatibility shim over Supabase Auth. The source of truth is the
+// Supabase session cookie (managed by @supabase/ssr). This store mirrors
+// that state into a Zustand store so existing consumers (topbar, layouts,
+// settings page, etc.) keep working without a rewrite.
+
 import { create } from "zustand";
 import { QueryClient } from "@tanstack/react-query";
 import type { User, AuthTokens } from "@/types";
-import { getSupabase } from "@/lib/auth";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-// Shared query client reference for cache clearing on logout
 let queryClientRef: QueryClient | null = null;
 
 export function setQueryClientRef(qc: QueryClient) {
@@ -22,138 +28,103 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+let listenerWired = false;
+
+function mapSupabaseUser(
+  sbUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null,
+  orgId: string | null
+): User | null {
+  if (!sbUser) return null;
+  const meta = sbUser.user_metadata || {};
+  return {
+    id: sbUser.id,
+    email: sbUser.email ?? "",
+    full_name:
+      (meta.full_name as string) ||
+      (meta.name as string) ||
+      (sbUser.email ? sbUser.email.split("@")[0] : ""),
+    avatar_url: meta.avatar_url as string | undefined,
+    org_id: orgId ?? "",
+    role: "member",
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   tokens: null,
   isAuthenticated: false,
   isLoading: true,
 
   initialize: () => {
-    // If already authenticated (e.g., just logged in via demo), skip re-initialization
-    const current = get();
-    if (current.isAuthenticated && current.tokens) {
-      if (current.isLoading) set({ isLoading: false });
-      return;
-    }
+    if (listenerWired) return;
+    listenerWired = true;
 
-    const supabase = getSupabase();
+    const supabase = getBrowserSupabase();
+    const orgId =
+      typeof window !== "undefined" ? localStorage.getItem("org_id") : null;
 
-    if (supabase) {
-      // Supabase mode: listen for auth state changes and sync to localStorage
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          localStorage.setItem("access_token", session.access_token);
-          localStorage.setItem("refresh_token", session.refresh_token);
-          set({
-            tokens: {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      set({
+        user: mapSupabaseUser(session?.user ?? null, orgId),
+        tokens: session
+          ? {
               access_token: session.access_token,
-              refresh_token: session.refresh_token,
+              refresh_token: "",
               expires_in: session.expires_in ?? 3600,
               token_type: session.token_type ?? "Bearer",
-            },
-            isAuthenticated: true,
-            isLoading: false,
-          });
-        } else {
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-          localStorage.removeItem("org_id");
-          set({ tokens: null, user: null, isAuthenticated: false, isLoading: false });
-        }
+            }
+          : null,
+        isAuthenticated: !!session,
+        isLoading: false,
       });
+    });
 
-      // Keep localStorage in sync when Supabase refreshes tokens
-      supabase.auth.onAuthStateChange((_event, session) => {
-        if (session) {
-          localStorage.setItem("access_token", session.access_token);
-          localStorage.setItem("refresh_token", session.refresh_token);
-          set({
-            tokens: {
-              access_token: session.access_token,
-              refresh_token: session.refresh_token,
-              expires_in: session.expires_in ?? 3600,
-              token_type: session.token_type ?? "Bearer",
-            },
-            isAuthenticated: true,
-          });
-        } else {
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-          localStorage.removeItem("org_id");
-          if (queryClientRef) {
-            queryClientRef.clear();
-          }
-          set({ user: null, tokens: null, isAuthenticated: false });
-        }
-      });
-
-      return;
-    }
-
-    // Fallback: localStorage-only mode (demo mode / no Supabase)
-    const accessToken = localStorage.getItem("access_token");
-    const refreshToken = localStorage.getItem("refresh_token");
-    if (accessToken) {
-      // Check if token looks valid (not expired)
-      try {
-        const payload = JSON.parse(atob(accessToken.split(".")[1]));
-        if (payload.exp && payload.exp * 1000 > Date.now()) {
-          set({
-            tokens: {
-              access_token: accessToken,
-              refresh_token: refreshToken || "",
-              expires_in: payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 3600,
-              token_type: "Bearer",
-            },
-            isAuthenticated: true,
-            isLoading: false,
-          });
-          return;
-        }
-      } catch {
-        // Token is malformed, clear it
+    supabase.auth.onAuthStateChange((event, session) => {
+      const currentOrg =
+        typeof window !== "undefined" ? localStorage.getItem("org_id") : null;
+      if (event === "SIGNED_OUT") {
+        localStorage.removeItem("org_id");
+        if (queryClientRef) queryClientRef.clear();
+        set({ user: null, tokens: null, isAuthenticated: false });
+        return;
       }
-    }
-    // No valid token found
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("org_id");
-    set({ tokens: null, user: null, isAuthenticated: false, isLoading: false });
+      set({
+        user: mapSupabaseUser(session?.user ?? null, currentOrg),
+        tokens: session
+          ? {
+              access_token: session.access_token,
+              refresh_token: "",
+              expires_in: session.expires_in ?? 3600,
+              token_type: session.token_type ?? "Bearer",
+            }
+          : null,
+        isAuthenticated: !!session,
+      });
+    });
   },
 
-  login: (user: User, tokens: AuthTokens) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("access_token", tokens.access_token);
-      localStorage.setItem("refresh_token", tokens.refresh_token);
-      if (user.org_id) {
-        localStorage.setItem("org_id", user.org_id);
-      }
+  // `login` is kept for API shape compatibility, but Supabase owns the
+  // session — callers just update local profile bits.
+  login: (user, tokens) => {
+    if (typeof window !== "undefined" && user.org_id) {
+      localStorage.setItem("org_id", user.org_id);
     }
     set({ user, tokens, isAuthenticated: true, isLoading: false });
   },
 
   logout: () => {
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.auth.signOut();
-    }
+    const supabase = getBrowserSupabase();
+    supabase.auth.signOut().catch(() => {});
     if (typeof window !== "undefined") {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
       localStorage.removeItem("org_id");
     }
-    // Clear React Query cache on logout
-    if (queryClientRef) {
-      queryClientRef.clear();
-    }
+    if (queryClientRef) queryClientRef.clear();
     set({ user: null, tokens: null, isAuthenticated: false, isLoading: false });
   },
 
-  setUser: (user: User) => {
-    set({ user, isAuthenticated: true });
-  },
-
-  setLoading: (loading: boolean) => {
-    set({ isLoading: loading });
-  },
+  setUser: (user) => set({ user, isAuthenticated: true }),
+  setLoading: (loading) => set({ isLoading: loading }),
 }));

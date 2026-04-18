@@ -260,12 +260,19 @@ class TestTeamsWebhook:
         assert resp.status_code == 200
         assert resp.text == "test-validation-token-12345"
 
+    @patch("app.tasks.integrations.process_teams_webhook.delay")
     @patch("app.api.v1.webhooks.get_settings")
     async def test_teams_webhook_call_record_notification(
-        self, mock_get_settings, webhook_client: AsyncClient, webhook_settings: Settings
+        self,
+        mock_get_settings,
+        mock_process,
+        webhook_client: AsyncClient,
+        webhook_settings: Settings,
     ):
-        """Teams call record notification with valid clientState should be accepted."""
+        """Teams call record notification with valid clientState should be accepted
+        and the async processor should be dispatched (mocked here)."""
         mock_get_settings.return_value = webhook_settings
+        mock_process.return_value = None
 
         body = {
             "value": [
@@ -284,6 +291,7 @@ class TestTeamsWebhook:
 
         assert resp.status_code == 200
         assert resp.json()["received"] is True
+        mock_process.assert_called_once()
 
     @patch("app.api.v1.webhooks.get_settings")
     async def test_teams_webhook_invalid_client_state_rejected(

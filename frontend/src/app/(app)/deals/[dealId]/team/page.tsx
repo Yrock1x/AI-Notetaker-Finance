@@ -1,15 +1,53 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { useDealMembers, useRemoveDealMember } from "@/hooks/use-deals";
+import {
+  useAddDealMember,
+  useDealMembers,
+  useRemoveDealMember,
+} from "@/hooks/use-deals";
 import { LoadingState } from "@/components/shared/loading-state";
 import { DEAL_ROLE_LABELS } from "@/lib/constants";
-import { Users, UserMinus } from "lucide-react";
+import { DealRole } from "@/types";
+import { Users, UserMinus, UserPlus } from "lucide-react";
+
+const ROLE_OPTIONS: DealRole[] = [
+  DealRole.VIEWER,
+  DealRole.ANALYST,
+  DealRole.ADMIN,
+  DealRole.LEAD,
+];
 
 export default function TeamPage() {
   const params = useParams<{ dealId: string }>();
   const { data: members, isLoading } = useDealMembers(params.dealId);
   const removeMember = useRemoveDealMember();
+  const addMember = useAddDealMember();
+
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<DealRole>(DealRole.ANALYST);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInviteError(null);
+    try {
+      await addMember.mutateAsync({
+        dealId: params.dealId,
+        payload: { email: inviteEmail.trim(), role: inviteRole },
+      });
+      setInviteEmail("");
+      setInviteRole(DealRole.ANALYST);
+      setInviteOpen(false);
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "Unable to send invite. Check the email and try again.";
+      setInviteError(detail);
+    }
+  };
 
   if (isLoading) {
     return <LoadingState message="Loading team..." />;
@@ -19,7 +57,58 @@ export default function TeamPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Team Members</h2>
+        <button
+          type="button"
+          onClick={() => setInviteOpen((o) => !o)}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          <UserPlus className="h-4 w-4" />
+          Invite member
+        </button>
       </div>
+
+      {inviteOpen && (
+        <form
+          onSubmit={handleInvite}
+          className="rounded-lg border bg-white p-4 space-y-3"
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px_auto]">
+            <input
+              type="email"
+              required
+              placeholder="colleague@yourfirm.com"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              className="rounded-md border border-[#1A1A1A]/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            />
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as DealRole)}
+              className="rounded-md border border-[#1A1A1A]/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            >
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>
+                  {DEAL_ROLE_LABELS[r] ?? r}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={addMember.isPending || !inviteEmail.trim()}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {addMember.isPending ? "Sending…" : "Send invite"}
+            </button>
+          </div>
+          {inviteError && (
+            <p className="text-sm text-red-600">{inviteError}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            If they don&apos;t have an account yet, we&apos;ll create a
+            placeholder and link it to their Cognito sign-in on first login.
+          </p>
+        </form>
+      )}
 
       <div className="rounded-lg border bg-white">
         {!members || members.length === 0 ? (

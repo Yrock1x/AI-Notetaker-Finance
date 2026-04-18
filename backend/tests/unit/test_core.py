@@ -470,7 +470,15 @@ class TestSettingsProperties:
         assert s.cors_origin_list == ["http://a.com", "http://b.com"]
 
     def test_is_production_true(self):
-        s = Settings(app_env="production")
+        # Production construction requires a valid token_encryption_key
+        # and demo_mode=False (enforced by validate_production_secrets).
+        from cryptography.fernet import Fernet
+
+        s = Settings(
+            app_env="production",
+            demo_mode=False,
+            token_encryption_key=Fernet.generate_key().decode(),
+        )
         assert s.is_production is True
 
     def test_is_production_false_for_dev(self):

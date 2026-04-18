@@ -4,6 +4,12 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useCalendarMeetings } from "@/hooks/use-calendar";
 import type { CalendarMeeting } from "@/hooks/use-calendar";
+import {
+  useBotSessions,
+  useScheduleBot,
+  useCancelBot,
+} from "@/hooks/use-bot-sessions";
+import type { BotSession } from "@/hooks/use-bot-sessions";
 import { LoadingState } from "@/components/shared/loading-state";
 import { ChevronLeft, ChevronRight, Clock, Video } from "lucide-react";
 
@@ -130,13 +136,37 @@ function MeetingCard({ meeting, colorIndex, botEnabled, onToggleBot }: MeetingCa
   );
 }
 
+function platformFromMeeting(m: CalendarMeeting): BotSession["platform"] | null {
+  const src = (m.source || "").toLowerCase();
+  if (src === "zoom") return "zoom";
+  if (src === "teams") return "teams";
+  if (src === "meet" || src === "google_meet") return "google_meet";
+  return null;
+}
+
 export default function CalendarPage() {
   const { meetings, isLoading } = useCalendarMeetings();
+  const { data: botSessions = [] } = useBotSessions();
+  const scheduleBot = useScheduleBot();
+  const cancelBot = useCancelBot();
+
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
   const [hiddenDeals, setHiddenDeals] = useState<Set<string>>(new Set());
+
+  // Map meeting_url -> existing bot session so the toggle stays in sync with
+  // server state and we can cancel the right session on toggle-off.
+  const sessionByUrl = useMemo(() => {
+    const map: Record<string, BotSession> = {};
+    for (const s of botSessions) {
+      if (s.meeting_url && s.status !== "cancelled" && s.status !== "failed") {
+        map[s.meeting_url] = s;
+      }
+    }
+    return map;
+  }, [botSessions]);
 
   const allDealIds = useMemo(() => {
     const ids = new Set<string>();
@@ -191,14 +221,40 @@ export default function CalendarPage() {
 
   const isBotEnabled = (meeting: CalendarMeeting) => {
     if (meeting.id in botOverrides) return botOverrides[meeting.id];
+    if (meeting.source_url && sessionByUrl[meeting.source_url]) return true;
     return meeting.bot_enabled !== false;
   };
 
-  const toggleBot = (meetingId: string, currentValue: boolean) => {
-    setBotOverrides((prev) => ({
-      ...prev,
-      [meetingId]: !currentValue,
-    }));
+  const toggleBot = async (meeting: CalendarMeeting, currentValue: boolean) => {
+    const next = !currentValue;
+    // Optimistic local override so UI reacts immediately.
+    setBotOverrides((prev) => ({ ...prev, [meeting.id]: next }));
+
+    const platform = platformFromMeeting(meeting);
+    const meetingUrl = meeting.source_url || "";
+    if (!platform || !meetingUrl) {
+      // Not enough data to call the bot service — preference stored locally only.
+      return;
+    }
+
+    try {
+      if (next) {
+        await scheduleBot.mutateAsync({
+          deal_id: meeting.deal_id,
+          platform,
+          meeting_url: meetingUrl,
+          scheduled_start: meeting.meeting_date ?? null,
+        });
+      } else {
+        const existing = sessionByUrl[meetingUrl];
+        if (existing) {
+          await cancelBot.mutateAsync(existing.id);
+        }
+      }
+    } catch {
+      // Roll the optimistic override back on failure.
+      setBotOverrides((prev) => ({ ...prev, [meeting.id]: currentValue }));
+    }
   };
 
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
@@ -318,7 +374,7 @@ export default function CalendarPage() {
                             meeting={meeting}
                             colorIndex={getDealColorIndex(meeting.deal_id, allDealIds)}
                             botEnabled={isBotEnabled(meeting)}
-                            onToggleBot={() => toggleBot(meeting.id, isBotEnabled(meeting))}
+                            onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
                           />
                         ))}
                       </div>

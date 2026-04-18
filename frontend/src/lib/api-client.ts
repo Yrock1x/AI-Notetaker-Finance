@@ -1,147 +1,56 @@
+// Worker-only HTTP client. Used for the few endpoints that still require a
+// Python-side secret (Fireworks/Claude/Deepgram keys, Supabase service role).
+// Everything else in the app talks to Supabase directly via supabase-js.
+//
+// The Authorization header is the user's live Supabase access token, pulled
+// from the browser client on every request so it's always fresh.
+
 import axios, { type AxiosRequestConfig } from "axios";
-import { useAuthStore } from "@/stores/auth-store";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
+
+const workerUrl =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
 const apiClient = axios.create({
-  baseURL: "/api/v1",
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: workerUrl ? `${workerUrl}/api/v1` : "/api/v1",
+  headers: { "Content-Type": "application/json" },
 });
 
-// Track whether a token refresh is already in progress to avoid concurrent refreshes
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (value?: unknown) => void;
-  reject: (reason?: unknown) => void;
-  config: AxiosRequestConfig;
-}> = [];
-
-function processQueue(error: unknown) {
-  failedQueue.forEach(({ reject }) => {
-    reject(error);
-  });
-  failedQueue = [];
-}
-
-function retryQueue(newToken: string) {
-  failedQueue.forEach(({ resolve, config }) => {
-    if (config.headers) {
-      config.headers.Authorization = `Bearer ${newToken}`;
+apiClient.interceptors.request.use(async (config) => {
+  if (typeof window !== "undefined") {
+    const supabase = getBrowserSupabase();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
     }
-    resolve(apiClient(config));
-  });
-  failedQueue = [];
-}
-
-// Request interceptor: attach auth token and org context
-apiClient.interceptors.request.use(
-  (config) => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      const orgId = localStorage.getItem("org_id");
-      if (orgId) {
-        config.headers["X-Org-ID"] = orgId;
-      }
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
   }
-);
+  return config;
+});
 
-// Response interceptor: handle errors globally
+// On 401, force a session refresh and retry once. Supabase's browser client
+// handles actual refresh on its own; we just give it a nudge.
 apiClient.interceptors.response.use(
-  (response) => response,
+  (r) => r,
   async (error) => {
-    const originalRequest = error.config;
-
-    if (error.response) {
-      const { status } = error.response;
-
-      if (status === 401 && !originalRequest._retry) {
-        // Prevent infinite retry loops
-        originalRequest._retry = true;
-
-        const refreshToken =
-          typeof window !== "undefined"
-            ? localStorage.getItem("refresh_token")
-            : null;
-
-        if (!refreshToken) {
-          // No refresh token available, logout via store
-          useAuthStore.getState().logout();
-          if (typeof window !== "undefined") {
-            window.location.href = "/login";
-          }
-          return Promise.reject(error);
+    const original = error.config as AxiosRequestConfig & { _retry?: boolean };
+    if (error.response?.status === 401 && !original._retry) {
+      original._retry = true;
+      try {
+        const supabase = getBrowserSupabase();
+        const { data } = await supabase.auth.refreshSession();
+        if (data.session?.access_token && original.headers) {
+          original.headers.Authorization = `Bearer ${data.session.access_token}`;
+          return apiClient(original);
         }
-
-        if (isRefreshing) {
-          // Another refresh is in progress, queue this request
-          return new Promise((resolve, reject) => {
-            failedQueue.push({ resolve, reject, config: originalRequest });
-          });
-        }
-
-        isRefreshing = true;
-
-        try {
-          // Attempt to refresh the token
-          const response = await axios.post("/api/v1/auth/refresh", {
-            refresh_token: refreshToken,
-          });
-
-          const { access_token: newAccessToken, refresh_token: newRefreshToken } =
-            response.data;
-
-          // Update localStorage
-          localStorage.setItem("access_token", newAccessToken);
-          if (newRefreshToken) {
-            localStorage.setItem("refresh_token", newRefreshToken);
-          }
-
-          // Update Zustand store
-          const authState = useAuthStore.getState();
-          if (authState.tokens) {
-            useAuthStore.setState({
-              tokens: {
-                ...authState.tokens,
-                access_token: newAccessToken,
-                refresh_token: newRefreshToken || authState.tokens.refresh_token,
-              },
-              isAuthenticated: true,
-            });
-          }
-
-          // Retry queued requests
-          retryQueue(newAccessToken);
-
-          // Retry the original request with the new token
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          return apiClient(originalRequest);
-        } catch (refreshError) {
-          // Refresh failed - clear everything via store and redirect
-          processQueue(refreshError);
-          useAuthStore.getState().logout();
-          if (typeof window !== "undefined") {
-            window.location.href = "/login";
-          }
-          return Promise.reject(refreshError);
-        } finally {
-          isRefreshing = false;
-        }
+      } catch {
+        // fall through
       }
-
-      if (status === 403) {
-        // Forbidden - insufficient permissions
-        console.error("Access denied: insufficient permissions");
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
       }
     }
-
     return Promise.reject(error);
   }
 );

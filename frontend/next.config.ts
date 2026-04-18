@@ -4,6 +4,7 @@ const backendUrl =
   process.env.API_BACKEND_URL || "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   async rewrites() {
     return [
       {

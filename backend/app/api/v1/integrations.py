@@ -1,237 +1,81 @@
-from datetime import UTC, datetime
-from uuid import UUID
+"""OAuth + meeting-bot integration endpoints.
 
-import structlog
-from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+TEMPORARY STUB: the OAuth flow previously depended on a SQLAlchemy
+``IntegrationService`` that stored Fernet-encrypted tokens in the
+``integration_credentials`` table. That table now lives in Supabase and
+the flow will be re-implemented against ``supabase-py`` in the Inngest
+port PR (see plan Phase 5).
 
-from app.core.config import get_settings
-from app.dependencies import get_current_user, get_db, get_db_with_rls, get_org_id
-from app.models.user import User
-from app.schemas.integration import (
-    BotSessionCreate,
-    BotSessionResponse,
-    IntegrationResponse,
-)
-from app.services.bot_service import BotService
-from app.services.integration_service import IntegrationService
+Until then these endpoints return 501 so callers fail fast rather than
+appearing to "work" with a broken flow. The frontend integrations page
+will show the OAuth cards as disabled.
+"""
 
-logger = structlog.get_logger(__name__)
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter()
 
-# In-memory demo connection state (resets on restart)
-_demo_connections: dict[str, bool] = {
-    "zoom": False,
-    "teams": False,
-    "slack": False,
-    "outlook": False,
-}
 
-PLATFORM_SCOPES = {
-    "zoom": "meeting:read recording:read user:read",
-    "teams": "OnlineMeetings.Read Calendars.Read User.Read",
-    "slack": "channels:read chat:write commands",
-    "outlook": "Calendars.Read Mail.Read",
-}
-
-
-# --- OAuth Connections ---
-
-
-@router.get("", response_model=list[IntegrationResponse])
-async def list_integrations(
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
-) -> list[IntegrationResponse]:
-    """List all integrations with their connection status."""
-    settings = get_settings()
-    now = datetime.now(UTC)
-
-    if settings.demo_mode:
-        return [
-            IntegrationResponse(
-                platform=platform,
-                is_active=_demo_connections.get(platform, False),
-                scopes=PLATFORM_SCOPES.get(platform),
-                connected_at=now,
-            )
-            for platform in ("zoom", "teams", "slack", "outlook")
-        ]
-
-    service = IntegrationService(db, settings)
-    credentials = await service.list_integrations(
-        user_id=current_user.id, org_id=org_id
-    )
-    connected = {c.platform: c for c in credentials}
-
-    results = []
-    for platform in ("zoom", "teams", "slack", "outlook"):
-        if platform in connected:
-            c = connected[platform]
-            results.append(
-                IntegrationResponse(
-                    platform=c.platform,
-                    is_active=c.is_active,
-                    scopes=c.scopes,
-                    connected_at=c.created_at,
-                )
-            )
-        else:
-            results.append(
-                IntegrationResponse(
-                    platform=platform,
-                    is_active=False,
-                    scopes=None,
-                    connected_at=now,
-                )
-            )
-    return results
+@router.get("")
+async def list_integrations() -> list[dict]:
+    """Return an empty list until OAuth is re-implemented."""
+    return []
 
 
 @router.post("/{platform}/connect")
-async def initiate_oauth(
-    platform: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
-) -> dict:
-    """Start OAuth flow for a platform. In demo mode, instantly connects."""
-    settings = get_settings()
-
-    if settings.demo_mode:
-        _demo_connections[platform] = True
-        return {"connected": True, "platform": platform}
-
-    service = IntegrationService(db, settings)
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/v1/integrations/{platform}/callback"
-
-    authorization_url = await service.initiate_oauth(
-        user_id=current_user.id,
-        org_id=org_id,
-        platform=platform,
-        redirect_uri=redirect_uri,
+async def initiate_oauth(platform: str) -> dict:  # noqa: ARG001
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "OAuth connect is being reimplemented on Supabase; see the "
+            "migration plan Phase 5."
+        ),
     )
-    return {"authorization_url": authorization_url}
 
 
 @router.get("/{platform}/callback")
-async def oauth_callback(
-    platform: str,
-    request: Request,
-    code: str = Query(...),
-    state: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Handle OAuth callback from external platforms.
-
-    The provider redirects the user here after consent, so there is no Bearer
-    token on the request.  Instead, user_id and org_id are recovered from the
-    base64-encoded *state* parameter that ``initiate_oauth`` created.
-
-    TODO: Add HMAC signature or server-side nonce verification on the state
-    token to prevent CSRF / state-forgery attacks.  Currently the state is
-    only base64-encoded JSON, which is sufficient for development but must
-    be hardened before production deployment.
-    """
-    settings = get_settings()
-
-    # Decode user context from the state token
-    state_data = IntegrationService.decode_state(state)
-    user_id: UUID = state_data["user_id"]
-    org_id: UUID = state_data["org_id"]
-
-    # Reconstruct the redirect_uri (must match what was sent in initiate_oauth)
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/v1/integrations/{platform}/callback"
-
-    service = IntegrationService(db, settings)
-    await service.handle_oauth_callback(
-        user_id=user_id,
-        org_id=org_id,
-        platform=platform,
-        code=code,
-        state=state,
-        redirect_uri=redirect_uri,
+async def oauth_callback(platform: str) -> dict:  # noqa: ARG001
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="OAuth callback is being reimplemented on Supabase.",
     )
-
-    logger.info(
-        "oauth_callback_success",
-        platform=platform,
-        user_id=str(user_id),
-        org_id=str(org_id),
-    )
-    return {"status": "connected", "platform": platform}
 
 
 @router.delete("/{platform}/disconnect", status_code=204)
-async def disconnect_integration(
-    platform: str,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
-) -> None:
-    """Disconnect an integration."""
-    settings = get_settings()
-
-    if settings.demo_mode:
-        _demo_connections[platform] = False
-        return
-
-    service = IntegrationService(db, settings)
-    await service.disconnect(
-        user_id=current_user.id, org_id=org_id, platform=platform
+async def disconnect_integration(platform: str) -> None:  # noqa: ARG001
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="OAuth disconnect is being reimplemented on Supabase.",
     )
 
 
-# --- Meeting Bot ---
-
-
-@router.post("/bot/sessions", response_model=BotSessionResponse, status_code=201)
-async def schedule_bot(
-    payload: BotSessionCreate,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
-) -> BotSessionResponse:
-    """Schedule a meeting bot to join a call."""
-    service = BotService(db)
-    session = await service.schedule_bot(
-        org_id=org_id,
-        deal_id=payload.deal_id,
-        platform=payload.platform,
-        meeting_url=payload.meeting_url,
-        scheduled_start=payload.scheduled_start,
-        created_by=current_user.id,
+@router.post("/bot/sessions", status_code=201)
+async def schedule_bot() -> dict:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Bot scheduling is being reimplemented via Inngest + Recall; "
+            "see the migration plan Phase 5."
+        ),
     )
-    return BotSessionResponse.model_validate(session)
 
 
-@router.get("/bot/sessions", response_model=list[BotSessionResponse])
-async def list_bot_sessions(
-    deal_id: UUID | None = Query(None),
-    status: str | None = Query(None),
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-    org_id: UUID = Depends(get_org_id),
-) -> list[BotSessionResponse]:
-    """List meeting bot sessions."""
-    service = BotService(db)
-    result = await service.list_sessions(
-        org_id=org_id, deal_id=deal_id, status=status
-    )
-    return [BotSessionResponse.model_validate(s) for s in result["items"]]
+@router.get("/bot/sessions")
+async def list_bot_sessions() -> list[dict]:
+    """Return an empty list until bot scheduling is reimplemented.
+
+    The frontend calendar page tolerates an empty list — it just means no
+    bots are currently scheduled. Supabase RLS serves the actual
+    ``meeting_bot_sessions`` reads directly from the browser now.
+    """
+    return []
 
 
 @router.delete("/bot/sessions/{session_id}", status_code=204)
-async def cancel_bot_session(
-    session_id: UUID,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
-) -> None:
-    """Cancel a scheduled bot session."""
-    service = BotService(db)
-    await service.cancel_bot(session_id)
+async def cancel_bot_session(session_id: str) -> None:  # noqa: ARG001
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Bot cancellation is being reimplemented.",
+    )

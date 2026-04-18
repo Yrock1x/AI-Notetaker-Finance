@@ -59,6 +59,7 @@ export interface Meeting {
   meeting_date?: string;
   duration_seconds?: number;
   source: MeetingSource;
+  source_url?: string;
   status: MeetingStatus;
   error_message?: string;
   bot_enabled?: boolean;

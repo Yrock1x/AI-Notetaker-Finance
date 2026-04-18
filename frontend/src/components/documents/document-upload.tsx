@@ -37,9 +37,7 @@ export function DocumentUpload({ dealId }: DocumentUploadProps) {
     try {
       const initResult = await initiateUpload.mutateAsync({
         deal_id: dealId,
-        name: file.name,
-        file_name: file.name,
-        file_size: file.size,
+        filename: file.name,
         content_type: file.type,
       });
 
@@ -53,8 +51,11 @@ export function DocumentUpload({ dealId }: DocumentUploadProps) {
       }
 
       await confirmUpload.mutateAsync({
-        document_id: initResult.document_id,
-        upload_key: initResult.upload_key,
+        deal_id: dealId,
+        file_key: initResult.file_key,
+        title: file.name,
+        document_type: file.name.split(".").pop() ?? "",
+        file_size: file.size,
       });
 
       setFile(null);

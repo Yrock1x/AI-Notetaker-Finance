@@ -1,21 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMeeting } from "@/hooks/use-meetings";
-import { TranscriptViewer } from "@/components/transcripts/transcript-viewer";
-import { MeetingQAChat } from "@/components/qa/meeting-qa-chat";
-import { AnalysisPanel } from "@/components/analysis/analysis-panel";
 import { CallTypeSelector } from "@/components/analysis/call-type-selector";
 import { useAnalyses, useRunAnalysis } from "@/hooks/use-analysis";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MEETING_STATUS_LABELS } from "@/lib/constants";
 import { formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Clock, Play } from "lucide-react";
+import { ArrowLeft, Clock, Play, Radio } from "lucide-react";
 import { CallType, MeetingStatus } from "@/types";
+
+// Lazy-load heavy tab content — only loaded when the tab is active
+const TranscriptViewer = dynamic(
+  () => import("@/components/transcripts/transcript-viewer").then((m) => ({ default: m.TranscriptViewer })),
+  { loading: () => <TabSkeleton /> }
+);
+const MeetingQAChat = dynamic(
+  () => import("@/components/qa/meeting-qa-chat").then((m) => ({ default: m.MeetingQAChat })),
+  { loading: () => <TabSkeleton /> }
+);
+const AnalysisPanel = dynamic(
+  () => import("@/components/analysis/analysis-panel").then((m) => ({ default: m.AnalysisPanel })),
+  { loading: () => <TabSkeleton /> }
+);
+const LiveTranscriptPanel = dynamic(
+  () =>
+    import("@/components/transcripts/live-transcript-panel").then((m) => ({
+      default: m.LiveTranscriptPanel,
+    })),
+  { loading: () => <TabSkeleton /> }
+);
+
+function TabSkeleton() {
+  return (
+    <div className="space-y-4 rounded-lg border p-6">
+      <Skeleton className="h-6 w-1/3" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-5/6" />
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+}
 
 const STATUS_COLORS: Record<string, string> = {
   scheduled: "bg-blue-100 text-blue-800",
@@ -29,9 +61,9 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-100 text-red-800",
 };
 
-type MeetingTab = "transcript" | "analysis" | "chat";
+type MeetingTab = "live" | "transcript" | "analysis" | "chat";
 
-const meetingTabs: { key: MeetingTab; label: string }[] = [
+const BASE_TABS: { key: MeetingTab; label: string }[] = [
   { key: "transcript", label: "Transcript" },
   { key: "analysis", label: "Analysis" },
   { key: "chat", label: "AI Chat" },
@@ -40,10 +72,31 @@ const meetingTabs: { key: MeetingTab; label: string }[] = [
 export default function MeetingDetailPage() {
   const params = useParams<{ dealId: string; meetingId: string }>();
   const { data: meeting, isLoading } = useMeeting(params.dealId, params.meetingId);
+  const isLive = meeting?.status === "recording";
   const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
 
+  // Auto-jump to the Live tab the moment a bot flips the meeting into
+  // `recording` so users watching the page don't miss the first few words.
+  useEffect(() => {
+    if (isLive) setActiveTab("live");
+  }, [isLive]);
+
   if (isLoading || !meeting) {
-    return <LoadingState message="Loading meeting..." />;
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-8 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+        <div className="flex space-x-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-8 w-24 rounded-full" />
+          ))}
+        </div>
+        <TabSkeleton />
+      </div>
+    );
   }
 
   const hasContent =
@@ -55,6 +108,14 @@ export default function MeetingDetailPage() {
     meeting.status === MeetingStatus.PROCESSING ||
     meeting.status === MeetingStatus.TRANSCRIBING ||
     meeting.status === MeetingStatus.ANALYZING;
+
+  // The Live tab is only offered while the bot is actively recording.
+  // When recording stops, the post-meeting pipeline takes over and the
+  // regular Transcript tab becomes the source of truth.
+  const tabs: { key: MeetingTab; label: string }[] = isLive
+    ? [{ key: "live", label: "Live" }, ...BASE_TABS]
+    : BASE_TABS;
+  const showTabs = isLive || hasContent;
 
   return (
     <div className="space-y-6">
@@ -100,19 +161,22 @@ export default function MeetingDetailPage() {
       </div>
 
       {/* Tab bar */}
-      {hasContent && (
+      {showTabs && (
         <div className="flex space-x-2">
-          {meetingTabs.map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
+                "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
                 activeTab === tab.key
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
+              {tab.key === "live" && (
+                <Radio className="h-3 w-3 animate-pulse text-red-500" />
+              )}
               {tab.label}
             </button>
           ))}
@@ -120,17 +184,21 @@ export default function MeetingDetailPage() {
       )}
 
       {/* Tab content */}
-      {hasContent && (
+      {showTabs && (
         <>
-          {activeTab === "transcript" && (
+          {activeTab === "live" && isLive && (
+            <LiveTranscriptPanel meetingId={params.meetingId} />
+          )}
+
+          {activeTab === "transcript" && hasContent && (
             <TranscriptViewer meetingId={meeting.id} />
           )}
 
-          {activeTab === "analysis" && (
+          {activeTab === "analysis" && hasContent && (
             <AnalysisTabContent meetingId={params.meetingId} />
           )}
 
-          {activeTab === "chat" && (
+          {activeTab === "chat" && hasContent && (
             <MeetingQAChat meetingId={params.meetingId} />
           )}
         </>

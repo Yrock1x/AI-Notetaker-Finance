@@ -40,9 +40,10 @@ export interface DealFilters {
   limit?: number;
 }
 
-// Deal member requests
+// Deal member requests — either user_id (existing user) or email (invite flow)
 export interface DealMemberAdd {
-  user_id: string;
+  user_id?: string;
+  email?: string;
   role: DealRole;
 }
 
@@ -56,24 +57,19 @@ export interface MeetingCreate {
   metadata?: Record<string, unknown>;
 }
 
+// Meeting upload ticket — worker mints a Supabase Storage signed PUT URL.
+// The frontend then inserts the `meetings` row directly via supabase-js and
+// fires the `meeting/uploaded` Inngest event.
 export interface MeetingUploadInitiate {
   deal_id: string;
-  title: string;
-  call_type: CallType;
-  file_name: string;
-  file_size: number;
+  filename: string;
   content_type: string;
 }
 
-export interface MeetingUploadConfirm {
-  meeting_id: string;
-  upload_key: string;
-}
-
 export interface MeetingUploadInitiateResponse {
-  meeting_id: string;
+  file_key: string;
   upload_url: string;
-  upload_key: string;
+  token: string;
 }
 
 // Analysis requests
@@ -116,23 +112,17 @@ export interface DocumentCreate {
   metadata?: Record<string, unknown>;
 }
 
+// Deal-document upload — signed Supabase Storage PUT URL.
 export interface DocumentUploadInitiate {
   deal_id: string;
-  name: string;
-  file_name: string;
-  file_size: number;
+  filename: string;
   content_type: string;
 }
 
-export interface DocumentUploadConfirm {
-  document_id: string;
-  upload_key: string;
-}
-
 export interface DocumentUploadInitiateResponse {
-  document_id: string;
+  file_key: string;
   upload_url: string;
-  upload_key: string;
+  token: string;
 }
 
 // Transcript filters

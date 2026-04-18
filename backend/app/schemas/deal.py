@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import BaseSchema
 
@@ -42,8 +42,22 @@ class DealResponse(BaseSchema):
 
 
 class DealMemberCreate(BaseSchema):
-    user_id: UUID
+    """Add a user to a deal by user_id or by email.
+
+    When ``email`` is supplied and the user doesn't exist yet, the backend
+    creates a placeholder row that gets linked to the real Cognito subject
+    on first sign-in. At least one of ``user_id`` or ``email`` must be set.
+    """
+
+    user_id: UUID | None = None
+    email: str | None = None
     role: Literal["lead", "admin", "analyst", "viewer"] = "analyst"
+
+    @model_validator(mode="after")
+    def _require_identifier(self) -> "DealMemberCreate":
+        if self.user_id is None and not self.email:
+            raise ValueError("Either user_id or email is required")
+        return self
 
 
 class DealMemberResponse(BaseSchema):

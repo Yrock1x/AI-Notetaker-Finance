@@ -63,7 +63,18 @@ const PLATFORM_CONFIG: Record<
     bgColor: "bg-sky-50",
     supportsBot: false,
   },
+  google_meet: {
+    name: "Google Meet",
+    icon: Video,
+    description:
+      "Paste a Meet URL when scheduling — no OAuth needed; the Recall bot joins on your behalf.",
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-50",
+    supportsBot: true,
+  },
 };
+
+const NO_OAUTH_PLATFORMS = new Set(["google_meet"]);
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -203,7 +214,11 @@ export default function IntegrationsPage() {
               </div>
 
               <div className="mt-5">
-                {isConnected ? (
+                {NO_OAUTH_PLATFORMS.has(platform) ? (
+                  <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 py-2.5 text-center text-xs font-bold text-emerald-700">
+                    Always available
+                  </div>
+                ) : isConnected ? (
                   <button
                     onClick={() => handleDisconnect(platform)}
                     className="w-full rounded-xl border border-[#1A1A1A]/10 py-2.5 text-xs font-bold text-[#1A1A1A]/40 transition-all hover:border-red-300 hover:text-red-500"

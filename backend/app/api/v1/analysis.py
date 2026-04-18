@@ -1,201 +1,117 @@
-import contextlib
+"""Analysis endpoints — list / run / re-run, Supabase-backed.
+
+Access is enforced by Supabase RLS: ``analyses`` rows are visible only to
+members of the owning org. We don't do app-level RBAC checks here.
+"""
+
+from __future__ import annotations
+
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status
+from supabase import Client
 
-from app.core.config import get_settings
-from app.dependencies import get_current_user, get_db_with_rls
-from app.integrations.aws.s3 import get_s3_client
-from app.llm.router import LLMRouter
-from app.models.user import User
+from app.api.v1.qa import _build_llm_router
+from app.dependencies import AuthUser, get_current_user, get_user_supabase
 from app.schemas.analysis import AnalysisRequest, AnalysisResponse
 from app.services.analysis_service import AnalysisService
-from app.services.deal_service import DealService
-from app.services.meeting_service import MeetingService
-from app.tasks.analysis import run_analysis as run_analysis_task
-from app.tasks.pipelines import create_reanalysis_pipeline
 
 router = APIRouter()
+
+
+def _meeting_org(supabase: Client, meeting_id: UUID) -> UUID:
+    rows = (
+        supabase.table("meetings")
+        .select("org_id")
+        .eq("id", str(meeting_id))
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found"
+        )
+    return UUID(rows[0]["org_id"])
 
 
 @router.get("", response_model=list[AnalysisResponse])
 async def list_analyses(
     meeting_id: UUID,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
+    supabase: Client = Depends(get_user_supabase),
+    _user: AuthUser = Depends(get_current_user),
 ) -> list[AnalysisResponse]:
-    """List all analyses for a meeting. Requires deal membership."""
-    # Verify deal access through the meeting
-    settings = get_settings()
-    s3_client = get_s3_client()
-    meeting_service = MeetingService(db, s3_client, settings)
-    meeting = await meeting_service.get_meeting(meeting_id)
-
-    deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id)
-
-    llm_router = LLMRouter()
-    service = AnalysisService(db, llm_router)
-    analyses = await service.list_analyses(meeting_id)
-    return [AnalysisResponse.model_validate(a) for a in analyses]
+    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    rows = await svc.list_analyses(meeting_id)
+    return [AnalysisResponse.model_validate(r) for r in rows]
 
 
 @router.post("", response_model=AnalysisResponse, status_code=202)
 async def run_analysis(
     meeting_id: UUID,
     payload: AnalysisRequest,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
+    current_user: AuthUser = Depends(get_current_user),
+    supabase: Client = Depends(get_user_supabase),
 ) -> AnalysisResponse:
-    """Run a new analysis on a meeting. Requires run_analysis permission."""
-    # Get the meeting to find org_id and verify access
-    settings = get_settings()
-    s3_client = get_s3_client()
-    meeting_service = MeetingService(db, s3_client, settings)
-    meeting = await meeting_service.get_meeting(meeting_id)
+    """Run an analysis synchronously and return the resulting row.
 
-    deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id)
-
-    # Create a placeholder analysis record so we can return an ID
-    llm_router = LLMRouter()
-    service = AnalysisService(db, llm_router)
-    analysis = await service._next_version(meeting_id, payload.call_type)
-    from app.models.analysis import Analysis
-
-    analysis_record = Analysis(
+    Long-term this should be fired into Inngest; for now we execute it
+    inline so the caller gets a finished analysis back. Inngest path is
+    added by the frontend's ``meeting/uploaded`` event.
+    """
+    org_id = _meeting_org(supabase, meeting_id)
+    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    row = await svc.run_analysis(
         meeting_id=meeting_id,
-        org_id=meeting.org_id,
+        org_id=org_id,
         call_type=payload.call_type,
-        model_used="",
-        prompt_version="v1",
-        status="queued",
         requested_by=current_user.id,
-        version=analysis,
     )
-    db.add(analysis_record)
-    await db.flush()
-    await db.commit()
-
-    # Trigger Celery task (must be after commit so the worker can find the record)
-    try:
-        run_analysis_task.delay(str(meeting_id), payload.call_type, str(current_user.id))
-    except Exception:
-        # Redis/Celery unavailable — run synchronously
-        from app.llm.gemini_provider import GeminiProvider
-
-        settings_obj = get_settings()
-        if settings_obj.google_api_key:
-            llm = LLMRouter()
-            llm.register_provider("gemini", GeminiProvider(api_key=settings_obj.google_api_key))
-            svc = AnalysisService(db, llm)
-            analysis_record = await svc.run_analysis(
-                meeting_id=meeting_id,
-                org_id=meeting.org_id,
-                call_type=payload.call_type or "summarization",
-                requested_by=current_user.id,
-            )
-
-    return AnalysisResponse.model_validate(analysis_record)
+    return AnalysisResponse.model_validate(row)
 
 
 @router.get("/latest", response_model=AnalysisResponse)
 async def get_latest_analysis(
     meeting_id: UUID,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
+    supabase: Client = Depends(get_user_supabase),
+    _user: AuthUser = Depends(get_current_user),
 ) -> AnalysisResponse:
-    """Get the most recent analysis for a meeting."""
-    # Verify deal access through the meeting
-    settings = get_settings()
-    s3_client = get_s3_client()
-    meeting_service = MeetingService(db, s3_client, settings)
-    meeting = await meeting_service.get_meeting(meeting_id)
-
-    deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id)
-
-    llm_router = LLMRouter()
-    service = AnalysisService(db, llm_router)
-    # Get the latest completed analysis of any type (most recent by created_at)
-    analyses = await service.list_analyses(meeting_id)
-    if not analyses:
-        from app.core.exceptions import NotFoundError
-        raise NotFoundError("Analysis", f"meeting={meeting_id}")
-    return AnalysisResponse.model_validate(analyses[0])
+    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    rows = await svc.list_analyses(meeting_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No analyses found")
+    return AnalysisResponse.model_validate(rows[0])
 
 
 @router.get("/{analysis_id}", response_model=AnalysisResponse)
 async def get_analysis(
     meeting_id: UUID,
     analysis_id: UUID,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
+    supabase: Client = Depends(get_user_supabase),
+    _user: AuthUser = Depends(get_current_user),
 ) -> AnalysisResponse:
-    """Get a specific analysis by ID."""
-    # Verify deal access through the meeting
-    settings = get_settings()
-    s3_client = get_s3_client()
-    meeting_service = MeetingService(db, s3_client, settings)
-    meeting = await meeting_service.get_meeting(meeting_id)
-
-    deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id)
-
-    llm_router = LLMRouter()
-    service = AnalysisService(db, llm_router)
-    analysis = await service.get_analysis(analysis_id)
-    if analysis.meeting_id != meeting_id:
-        from app.core.exceptions import NotFoundError
-        raise NotFoundError("Analysis", str(analysis_id))
-    return AnalysisResponse.model_validate(analysis)
+    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    try:
+        row = await svc.get_analysis(analysis_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if row["meeting_id"] != str(meeting_id):
+        raise HTTPException(status_code=404, detail="Analysis not in meeting")
+    return AnalysisResponse.model_validate(row)
 
 
 @router.post("/{analysis_id}/rerun", response_model=AnalysisResponse, status_code=201)
 async def rerun_analysis(
     meeting_id: UUID,
     analysis_id: UUID,
-    db: AsyncSession = Depends(get_db_with_rls),
-    current_user: User = Depends(get_current_user),
+    supabase: Client = Depends(get_user_supabase),
+    current_user: AuthUser = Depends(get_current_user),  # noqa: ARG001 - reserved
 ) -> AnalysisResponse:
-    """Re-run an analysis, creating a new version. Requires run_analysis permission."""
-    # Verify deal access through the meeting
-    settings = get_settings()
-    s3_client = get_s3_client()
-    meeting_service = MeetingService(db, s3_client, settings)
-    meeting = await meeting_service.get_meeting(meeting_id)
-
-    deal_service = DealService(db)
-    await deal_service.check_deal_access(meeting.deal_id, current_user.id)
-
-    # Get the original analysis to know its call_type
-    llm_router = LLMRouter()
-    service = AnalysisService(db, llm_router)
-    original = await service.get_analysis(analysis_id)
-
-    # Trigger the reanalysis pipeline
-    with contextlib.suppress(Exception):  # Fallback handled by placeholder record below
-        create_reanalysis_pipeline(
-            str(meeting_id), original.call_type, str(current_user.id)
-        ).delay()
-
-    # Create a placeholder record
-    next_version = await service._next_version(meeting_id, original.call_type)
-    from app.models.analysis import Analysis
-
-    analysis_record = Analysis(
-        meeting_id=meeting_id,
-        org_id=meeting.org_id,
-        call_type=original.call_type,
-        model_used="",
-        prompt_version="v1",
-        status="queued",
-        requested_by=current_user.id,
-        version=next_version,
-    )
-    db.add(analysis_record)
-    await db.flush()
-    await db.commit()
-
-    return AnalysisResponse.model_validate(analysis_record)
+    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    try:
+        row = await svc.rerun_analysis(analysis_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if row["meeting_id"] != str(meeting_id):
+        raise HTTPException(status_code=404, detail="Analysis not in meeting")
+    return AnalysisResponse.model_validate(row)

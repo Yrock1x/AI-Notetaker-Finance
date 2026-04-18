@@ -51,15 +51,59 @@ def get_file_category(content_type: str) -> str | None:
 
 
 async def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text content from a PDF file."""
-    raise NotImplementedError
+    """Extract text content from a PDF file using pdfplumber."""
+    import asyncio
+    import io
+
+    import pdfplumber
+
+    def _extract() -> str:
+        pages_text: list[str] = []
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    pages_text.append(text)
+        return "\n\n".join(pages_text)
+
+    return await asyncio.to_thread(_extract)
 
 
 async def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text content from a DOCX file."""
-    raise NotImplementedError
+    """Extract text content from a DOCX file using python-docx."""
+    import asyncio
+    import io
+
+    from docx import Document
+
+    def _extract() -> str:
+        doc = Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        return "\n\n".join(paragraphs)
+
+    return await asyncio.to_thread(_extract)
 
 
 async def extract_text_from_xlsx(file_bytes: bytes) -> str:
-    """Extract text content from an XLSX file."""
-    raise NotImplementedError
+    """Extract text content from an XLSX file using openpyxl."""
+    import asyncio
+    import io
+
+    from openpyxl import load_workbook
+
+    def _extract() -> str:
+        wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        sheets_text: list[str] = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows: list[str] = []
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                if any(cells):
+                    rows.append("\t".join(cells))
+            if rows:
+                sheets_text.append(f"[{sheet_name}]\n" + "\n".join(rows))
+        wb.close()
+        return "\n\n".join(sheets_text)
+
+    return await asyncio.to_thread(_extract)

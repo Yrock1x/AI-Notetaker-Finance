@@ -28,6 +28,8 @@ out/
 
 # Environment
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 
@@ -65,3 +67,7 @@ postgres_data/
 *.key
 credentials.json
 .vercel
+
+# Also catch .venv as a symlink (trailing-slash rules only match dirs)
+.venv
+backend/.venv

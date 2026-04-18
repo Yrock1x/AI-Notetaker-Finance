@@ -7,37 +7,51 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
-from app.core.middleware import (
-    AuditLogMiddleware,
-    OrgContextMiddleware,
-    RequestIDMiddleware,
-    RequestLoggingMiddleware,
-)
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry if a DSN is configured. No-op if sentry-sdk isn't installed."""
+    if not settings.sentry_dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.app_env,
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+            send_default_pii=False,
+            integrations=[StarletteIntegration(), FastApiIntegration()],
+        )
+    except ImportError:
+        pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application startup and shutdown events."""
     setup_logging()
+    _init_sentry()
     yield
-    # Shutdown: dispose database engine connection pool
-    from app.core.database import engine
-    await engine.dispose()
 
 
 def create_app() -> FastAPI:
-    """FastAPI application factory."""
+    """FastAPI factory — slim LLM + webhook worker.
+
+    No database session middleware: all DB access goes through Supabase
+    clients obtained via DI in ``app.dependencies``.
+    """
     app = FastAPI(
         title=settings.app_name,
-        description="Meeting intelligence platform for investment professionals",
-        version="0.1.0",
+        description="DealWise AI worker — LLM, webhooks, live transcription",
+        version="0.2.0",
         docs_url="/docs" if not settings.is_production else None,
         redoc_url="/redoc" if not settings.is_production else None,
         lifespan=lifespan,
         redirect_slashes=False,
     )
 
-    # CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -46,18 +60,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Custom middleware (add_middleware stacks in reverse — last added runs outermost)
-    app.add_middleware(AuditLogMiddleware)
-    app.add_middleware(OrgContextMiddleware)
-    app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(RequestIDMiddleware)
-
-    # Exception handlers
     register_exception_handlers(app)
 
-    # Routers
     from app.api.v1.router import api_router
 
     app.include_router(api_router, prefix="/api/v1")
-
     return app

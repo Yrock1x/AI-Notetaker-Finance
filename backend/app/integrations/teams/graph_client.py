@@ -122,6 +122,45 @@ class GraphAPIClient:
             )
             raise
 
+    async def get_call_record(
+        self, access_token: str, call_record_id: str
+    ) -> dict:
+        """Fetch a Teams call record with sessions + segments expanded.
+
+        Uses ``communications/callRecords/{id}``. Requires CallRecords.Read.All
+        or application permission with tenant admin consent. The expanded
+        response includes organizer, participants, recordings, and session
+        timing.
+        """
+        url = (
+            f"{GRAPH_BASE_URL}/communications/callRecords/{call_record_id}"
+            "?$expand=sessions($expand=segments)"
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    url,
+                    headers=self._auth_headers(access_token),
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "graph_call_record_error",
+                call_record_id=call_record_id,
+                status=exc.response.status_code,
+                body=exc.response.text[:500],
+            )
+            raise
+        except httpx.HTTPError as exc:
+            logger.error(
+                "graph_call_record_network_error",
+                call_record_id=call_record_id,
+                error=str(exc),
+            )
+            raise
+
     # ------------------------------------------------------------------
     # User profile
     # ------------------------------------------------------------------

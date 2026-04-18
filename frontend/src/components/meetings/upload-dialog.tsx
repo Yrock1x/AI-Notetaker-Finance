@@ -75,17 +75,26 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
     setError("");
 
     try {
-      // Step 1: Get presigned upload URL
+      // Step 1: Get a signed Supabase Storage upload URL from the worker
       const initResult = await initiateUpload.mutateAsync({
         deal_id: dealId,
-        title,
-        call_type: callType,
-        file_name: file.name,
-        file_size: file.size,
-        content_type: file.type,
+        filename: file.name,
+        content_type: file.type as
+          | "audio/mpeg"
+          | "audio/mp3"
+          | "audio/wav"
+          | "audio/x-wav"
+          | "audio/mp4"
+          | "audio/m4a"
+          | "audio/webm"
+          | "audio/ogg"
+          | "video/mp4"
+          | "video/webm"
+          | "video/quicktime"
+          | "video/x-msvideo",
       });
 
-      // Step 2: Upload file directly to S3
+      // Step 2: PUT the file directly to Supabase Storage
       const uploadResponse = await fetch(initResult.upload_url, {
         method: "PUT",
         body: file,
@@ -95,10 +104,12 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
         throw new Error(`Upload to storage failed: ${uploadResponse.status}`);
       }
 
-      // Step 3: Confirm upload
+      // Step 3: Insert meetings row + fire Inngest event to kick off pipeline
       await confirmUpload.mutateAsync({
-        meeting_id: initResult.meeting_id,
-        upload_key: initResult.upload_key,
+        deal_id: dealId,
+        file_key: initResult.file_key,
+        title,
+        content_type: file.type,
       });
 
       // Reset and close

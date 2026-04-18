@@ -57,6 +57,7 @@ const FORMAT_COLORS: Record<string, string> = {
 function DeliverableRow({ item }: { item: Deliverable }) {
   const Icon = FORMAT_ICONS[item.file_format] || FileText;
   const colorClass = FORMAT_COLORS[item.file_format] || "text-gray-600 bg-gray-50";
+  const hasDownload = !!item.download_url;
 
   return (
     <div className="flex items-center justify-between rounded-2xl border border-[#1A1A1A]/5 bg-white p-5 transition-all hover:shadow-md">
@@ -74,10 +75,21 @@ function DeliverableRow({ item }: { item: Deliverable }) {
           </p>
         </div>
       </div>
-      <button className="flex items-center gap-2 rounded-full bg-[#F2F0E9] px-4 py-2 text-xs font-bold text-primary/60 transition-all hover:bg-primary hover:text-white">
-        <Download className="h-3.5 w-3.5" />
-        Download
-      </button>
+      {hasDownload ? (
+        <a
+          href={item.download_url!}
+          download
+          className="flex items-center gap-2 rounded-full bg-[#F2F0E9] px-4 py-2 text-xs font-bold text-primary/60 transition-all hover:bg-primary hover:text-white"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download
+        </a>
+      ) : (
+        <span className="flex items-center gap-2 rounded-full bg-[#F2F0E9]/50 px-4 py-2 text-xs font-bold text-[#1A1A1A]/30">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Processing
+        </span>
+      )}
     </div>
   );
 }

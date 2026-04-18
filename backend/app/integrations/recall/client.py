@@ -42,21 +42,28 @@ class RecallClient:
         meeting_url: str,
         bot_name: str = "Deal Companion Notetaker",
         *,
-        transcription_provider: str = "default",
+        recording_config: dict | None = None,
+        metadata: dict | None = None,
     ) -> dict:
-        """Create a bot that joins the given meeting URL."""
+        """Create a bot that joins the given meeting URL.
+
+        ``recording_config`` is passed verbatim to Recall. Pass
+        ``{"transcript": {"provider": {"deepgram_streaming": {}}}}`` to get
+        real-time Deepgram transcription streamed to the webhook configured
+        on the Recall app.
+        """
         if self.is_demo:
             return self._mock_bot(meeting_url, bot_name)
 
         async with httpx.AsyncClient(timeout=30) as client:
-            payload = {
+            payload: dict = {
                 "meeting_url": meeting_url,
                 "bot_name": bot_name,
-                "real_time_transcription": {
-                    "destination_url": "",
-                    "partial_results": False,
-                },
             }
+            if recording_config:
+                payload["recording_config"] = recording_config
+            if metadata:
+                payload["metadata"] = metadata
             resp = await client.post(
                 f"{self._base_url}/bot", json=payload, headers=self._headers
             )
@@ -64,6 +71,19 @@ class RecallClient:
             data = resp.json()
             logger.info("recall_bot_created", bot_id=data.get("id"))
             return data
+
+    async def leave_bot(self, bot_id: str) -> None:
+        """Tell Recall to have the bot leave the call."""
+        if self.is_demo:
+            return
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{self._base_url}/bot/{bot_id}/leave_call",
+                headers=self._headers,
+            )
+            # 200 or 204 both acceptable; some Recall versions return either.
+            if resp.status_code >= 400 and resp.status_code != 404:
+                resp.raise_for_status()
 
     async def get_bot(self, bot_id: str) -> dict:
         """Get bot status."""

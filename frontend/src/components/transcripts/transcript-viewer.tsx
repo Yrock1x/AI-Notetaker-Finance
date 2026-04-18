@@ -24,6 +24,34 @@ export function TranscriptViewer({ meetingId }: TranscriptViewerProps) {
   const { data: segmentsData, isLoading: segmentsLoading } = useTranscriptSegments(meetingId);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const segments = useMemo(
+    () => (Array.isArray(segmentsData) ? segmentsData : segmentsData?.items ?? []),
+    [segmentsData]
+  );
+
+  const speakerColors = useMemo(() => {
+    const map = new Map<string, string>();
+    let index = 0;
+    for (const segment of segments) {
+      const speaker = segment.speaker_label || "Unknown";
+      if (!map.has(speaker)) {
+        map.set(speaker, SPEAKER_COLORS[index % SPEAKER_COLORS.length]);
+        index++;
+      }
+    }
+    return map;
+  }, [segments]);
+
+  const filteredSegments = useMemo(
+    () =>
+      searchQuery
+        ? segments.filter((s) =>
+            s.text.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        : segments,
+    [segments, searchQuery]
+  );
+
   if (transcriptLoading || segmentsLoading) {
     return <LoadingState message="Loading transcript..." />;
   }
@@ -35,27 +63,6 @@ export function TranscriptViewer({ meetingId }: TranscriptViewerProps) {
       </div>
     );
   }
-
-  const segments = Array.isArray(segmentsData) ? segmentsData : segmentsData?.items ?? [];
-
-  const speakerColors = useMemo(() => {
-    const map = new Map<string, string>();
-    let index = 0;
-    for (const segment of segments || []) {
-      const speaker = segment.speaker_label || "Unknown";
-      if (!map.has(speaker)) {
-        map.set(speaker, SPEAKER_COLORS[index % SPEAKER_COLORS.length]);
-        index++;
-      }
-    }
-    return map;
-  }, [segments]);
-
-  const filteredSegments = searchQuery
-    ? segments.filter((s) =>
-        s.text.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : segments;
 
   return (
     <div className="space-y-4">

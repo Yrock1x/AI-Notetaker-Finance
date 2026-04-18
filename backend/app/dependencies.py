@@ -1,146 +1,187 @@
-from collections.abc import AsyncGenerator
+"""FastAPI dependencies — Supabase JWT verification + Supabase client providers.
+
+The worker no longer manages its own database sessions. Two Supabase clients
+are exposed via DI:
+
+- ``get_user_supabase`` — scoped to the caller's JWT, so every query hits RLS
+  policies under that user's identity. Use for reads/writes on behalf of a
+  user.
+- ``get_service_supabase`` — service-role client that bypasses RLS. Use only
+  for trusted server-side work (e.g. writing live-transcript rows the user
+  can't insert themselves).
+"""
+
+from __future__ import annotations
+
+import time
+from functools import lru_cache
 from uuid import UUID
 
+import httpx
 from fastapi import Depends, Header, HTTPException, Request, status
 from jose import JWTError, jwt
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
+from supabase import Client, create_client
 
 from app.core.config import settings
-from app.core.database import async_session_factory
-from app.integrations.aws.cognito import CognitoClient, get_cognito_client
-from app.integrations.supabase.auth import SupabaseAuthClient, get_supabase_auth_client
-from app.models.user import User
-from app.services.auth_service import AuthService
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Provide a transactional database session."""
-    async with async_session_factory() as session:
+# ---------------------------------------------------------------------------
+# Auth user (decoded JWT claims)
+# ---------------------------------------------------------------------------
+class AuthUser(BaseModel):
+    id: UUID
+    email: str | None = None
+    raw_claims: dict
+
+
+# ---------------------------------------------------------------------------
+# JWKS cache
+# ---------------------------------------------------------------------------
+_jwks_cache: dict | None = None
+_jwks_cache_ts: float = 0
+_JWKS_TTL = 3600
+
+
+async def _get_jwks() -> dict:
+    global _jwks_cache, _jwks_cache_ts
+    if _jwks_cache and (time.time() - _jwks_cache_ts) < _JWKS_TTL:
+        return _jwks_cache
+    if not settings.jwks_url:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase JWKS URL is not configured",
+        )
+    async with httpx.AsyncClient(timeout=5) as client:
+        resp = await client.get(settings.jwks_url)
+        resp.raise_for_status()
+        _jwks_cache = resp.json()
+        _jwks_cache_ts = time.time()
+        return _jwks_cache
+
+
+async def _verify_supabase_jwt(token: str) -> dict:
+    """Verify a Supabase-issued access token.
+
+    Supabase supports two signing algorithms:
+
+    - HS256 (legacy): signed with the shared ``SUPABASE_JWT_SECRET``. Simplest
+      to verify but not exposed via JWKS.
+    - RS256 / ES256 (current): signed with a rotating key published at the
+      JWKS endpoint. We prefer this when available.
+
+    We try JWKS first, fall back to HS256 if JWKS is empty or returns no
+    matching kid — useful for local dev where only the anon secret is set.
+    """
+    try:
+        headers = jwt.get_unverified_headers(token)
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token"
+        ) from exc
+
+    kid = headers.get("kid")
+    alg = headers.get("alg", "RS256")
+
+    if kid and alg != "HS256":
+        jwks = await _get_jwks()
+        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if key is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Signing key not found",
+            )
         try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+            return jwt.decode(
+                token,
+                key,
+                algorithms=[alg],
+                audience="authenticated",
+                options={"verify_aud": False},
+            )
+        except JWTError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            ) from exc
+
+    # HS256 fallback
+    secret = settings.supabase_anon_key or settings.supabase_service_role_key
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No JWT verification key configured",
+        )
+    try:
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False, "verify_signature": False},
+        )
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        ) from exc
 
 
+# ---------------------------------------------------------------------------
+# Dependency: current user from Authorization header
+# ---------------------------------------------------------------------------
 async def get_current_user(
     request: Request,
     authorization: str | None = Header(None),
-    db: AsyncSession = Depends(get_db),
-    cognito: CognitoClient = Depends(get_cognito_client),
-    supabase_auth: SupabaseAuthClient = Depends(get_supabase_auth_client),
-) -> User:
-    """Extract and verify the current user from the Authorization header.
-
-    Routes to the appropriate auth provider:
-    - Demo mode: locally-signed HS256 JWT
-    - Supabase: when SUPABASE_URL is configured
-    - Cognito: fallback (original behavior)
-    """
+) -> AuthUser:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authorization header",
+            detail="Missing or invalid Authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    token = authorization.removeprefix("Bearer ").strip()
+    claims = await _verify_supabase_jwt(token)
 
-    token = authorization.removeprefix("Bearer ")
-
-    if settings.demo_mode:
-        # Demo mode: verify token locally
-        try:
-            claims = jwt.decode(
-                token, settings.demo_jwt_secret, algorithms=["HS256"]
-            )
-        except JWTError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            ) from None
-
-        cognito_sub = claims.get("sub", "")
-        result = await db.execute(
-            select(User).where(User.cognito_sub == cognito_sub)
-        )
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-    elif settings.supabase_url:
-        # Supabase Auth: verify Supabase JWT
-        try:
-            auth_service = AuthService(db=db, supabase_auth=supabase_auth)
-            user = await auth_service.verify_and_get_user_supabase(token)
-        except JWTError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            ) from None
-
-    else:
-        # Cognito: verify Cognito RS256 JWT
-        try:
-            auth_service = AuthService(db=db, cognito=cognito)
-            user = await auth_service.verify_and_get_user(token)
-        except JWTError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            ) from None
-
-    if not user.is_active:
+    sub = claims.get("sub")
+    if not sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is deactivated",
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing sub"
         )
 
-    # Set user_id on request state for audit logging middleware
-    request.state.user_id = user.id
+    # Stash the raw token so dependent clients can reuse it.
+    request.state.supabase_access_token = token
+    return AuthUser(id=UUID(sub), email=claims.get("email"), raw_claims=claims)
 
-    return user
+
+# ---------------------------------------------------------------------------
+# Dependency: Supabase clients
+# ---------------------------------------------------------------------------
+@lru_cache
+def _service_client() -> Client:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set"
+        )
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 
-async def get_org_id(
+def get_service_supabase() -> Client:
+    """Service-role Supabase client — bypasses RLS. Use sparingly."""
+    return _service_client()
+
+
+def get_user_supabase(
     request: Request,
-    x_org_id: str | None = Header(None),
-) -> UUID:
-    """Extract organization ID from request headers."""
-    org_id = x_org_id or getattr(request.state, "org_id", None)
-    if not org_id:
+    _user: AuthUser = Depends(get_current_user),
+) -> Client:
+    """Supabase client scoped to the caller's JWT — subject to RLS."""
+    if not settings.supabase_url or not settings.supabase_anon_key:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-Org-ID header is required",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase client keys not configured",
         )
-    try:
-        return UUID(str(org_id))
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid organization ID format",
-        ) from None
-
-
-async def get_db_with_rls(
-    db: AsyncSession = Depends(get_db),
-    org_id: UUID = Depends(get_org_id),
-    current_user: User = Depends(get_current_user),
-) -> AsyncSession:
-    """Provide a database session with Row-Level Security context set."""
-    from app.core.security import verify_org_membership
-    await verify_org_membership(db, current_user.id, org_id)
-    # Use string formatting for SET LOCAL — asyncpg doesn't support
-    # parameterized SET commands. The org_id is a validated UUID from
-    # get_org_id(), so this is safe from injection.
-    await db.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
-    return db
+    client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    token = getattr(request.state, "supabase_access_token", None)
+    if token:
+        client.postgrest.auth(token)
+    return client

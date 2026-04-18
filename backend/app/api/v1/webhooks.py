@@ -1,14 +1,21 @@
+"""Provider webhooks — Zoom, Teams, Slack.
+
+All endpoints verify their provider's HMAC signature and then acknowledge.
+Event handling (e.g. "a Zoom recording finished, enqueue the meeting
+pipeline") is dispatched into Inngest; see the migration plan Phase 5.
+Until Inngest is wired up these handlers just log + ack, which is the
+correct no-op behaviour (Zoom retries and we'll catch up once the queue
+exists)."""
+
 import hashlib
 import hmac
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.dependencies import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +77,6 @@ def _verify_slack_signature(request: Request, raw_body: bytes, settings) -> None
 @router.post("/zoom")
 async def zoom_webhook(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Handle Zoom webhook events (recording.completed, meeting.ended, etc.)."""
     raw_body = await request.body()
@@ -112,7 +118,17 @@ async def zoom_webhook(
             meeting_id_str,
             bool(download_url),
         )
-        # TODO: Trigger Celery pipeline to download and process recording
+        if download_url:
+            from app.integrations.inngest import send_event
+
+            await send_event(
+                "zoom/recording.completed",
+                {
+                    "zoom_meeting_id": meeting_id_str,
+                    "download_url": download_url,
+                    "topic": payload.get("topic"),
+                },
+            )
 
     elif event == "meeting.ended":
         logger.info("Zoom meeting.ended event received")
@@ -123,7 +139,6 @@ async def zoom_webhook(
 @router.post("/teams", response_model=None)
 async def teams_webhook(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ) -> JSONResponse | PlainTextResponse:
     """Handle Microsoft Teams webhook events.
 
@@ -160,8 +175,23 @@ async def teams_webhook(
         )
 
         if "communications/callRecords" in resource:
-            logger.info("Teams call record notification received")
-            # TODO: Fetch call record details via Graph API and trigger processing
+            # Resource path looks like "communications/callRecords('<id>')".
+            call_record_id = ""
+            if "('" in resource and "')" in resource:
+                call_record_id = resource.split("('")[1].split("')")[0]
+            elif "/" in resource:
+                call_record_id = resource.rsplit("/", 1)[-1]
+
+            tenant_id = notification.get("tenantId") or notification.get("tenant_id")
+
+            if call_record_id:
+                from app.integrations.inngest import send_event
+
+                await send_event(
+                    "teams/call_record.created",
+                    {"call_record_id": call_record_id, "tenant_id": tenant_id},
+                )
+            logger.info("teams_call_record_available_for_ingest resource=%s", resource)
 
     return JSONResponse(content={"received": True})
 
@@ -169,7 +199,6 @@ async def teams_webhook(
 @router.post("/slack/events")
 async def slack_events(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Handle Slack event subscriptions.
 
