@@ -18,13 +18,16 @@ logger = structlog.get_logger(__name__)
 AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"  # noqa: S105 - public OAuth endpoint
 
-# Delegated scopes for Microsoft 365 work/school accounts (Entra ID). The
-# advanced scopes — OnlineMeetings.Read, Chat.Read, CallRecords.Read.All —
-# only exist in the work/school universe; users on personal Microsoft
-# accounts (outlook.com etc.) will fail here with invalid_scope. That's
-# the right tradeoff for a B2B product whose target customers are all on
-# corporate tenants. CallRecords.Read.All additionally requires a tenant
-# admin to "Grant admin consent" once per firm in the Azure app config.
+# Delegated scopes for Microsoft 365 work/school accounts (Entra ID).
+# OnlineMeetings.Read + Chat.Read only exist in the work/school universe;
+# users on personal Microsoft accounts (outlook.com etc.) will fail here
+# with invalid_scope — the right tradeoff for a B2B product.
+#
+# CallRecords.Read.All is intentionally NOT included: the Teams call-record
+# webhook feature is deferred until a customer specifically needs it.
+# Re-add it here and in the Azure app registration (Delegated, admin
+# consent required) when you want /internal/microsoft/ensure-subscription
+# to start creating live communications/callRecords subscriptions.
 SCOPES = [
     "offline_access",
     "openid",
@@ -34,7 +37,6 @@ SCOPES = [
     "Calendars.Read",
     "OnlineMeetings.Read",
     "Chat.Read",
-    "CallRecords.Read.All",
 ]
 
 
