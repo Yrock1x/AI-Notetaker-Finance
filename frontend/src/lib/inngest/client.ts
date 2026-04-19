@@ -10,6 +10,9 @@ import { EventSchemas, Inngest } from "inngest";
 type MeetingUploaded = {
   data: { meeting_id: string; deal_id: string };
 };
+type MeetingBotCompleted = {
+  data: { session_id: string; meeting_id: string; deal_id: string };
+};
 type DocumentUploaded = {
   data: { document_id: string; deal_id: string };
 };
@@ -30,6 +33,7 @@ type MicrosoftSubscriptionEnsure = {
 
 type AppEvents = {
   "meeting/uploaded": MeetingUploaded;
+  "meeting/bot-completed": MeetingBotCompleted;
   "document/uploaded": DocumentUploaded;
   "bot/scheduled": BotScheduled;
   "bot/cancelled": BotCancelled;

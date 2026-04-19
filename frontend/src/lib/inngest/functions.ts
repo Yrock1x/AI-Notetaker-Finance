@@ -149,6 +149,65 @@ export const startBotSession = inngest.createFunction(
 );
 
 // ---------------------------------------------------------------------------
+// meeting/bot-completed — post-call pipeline for bot-recorded meetings.
+// Pulls transcript + participants from Recall's recording shortcuts (Deepgram
+// ran during the call, so we skip /internal/transcribe), then runs embed +
+// analyze using the existing workers.
+// ---------------------------------------------------------------------------
+export const processBotMeeting = inngest.createFunction(
+  { id: "process-bot-meeting", concurrency: { limit: 4 } },
+  { event: "meeting/bot-completed" },
+  async ({ event, step }) => {
+    const { session_id, meeting_id } = event.data;
+
+    await step.run("finalize", async () => {
+      const r = await fetch(`${WORKER_URL}/api/v1/internal/bot/finalize`, {
+        method: "POST",
+        headers: internalHeaders(),
+        body: JSON.stringify({ session_id }),
+      });
+      if (!r.ok) throw new Error(`bot finalize failed: ${r.status}`);
+    });
+
+    const sb = serviceSupabase();
+    await step.run("mark-analyzing", async () => {
+      await sb
+        .from("meetings")
+        .update({ status: "analyzing" })
+        .eq("id", meeting_id);
+    });
+
+    await Promise.all([
+      step.run("embed", async () => {
+        const r = await fetch(`${WORKER_URL}/api/v1/internal/embed`, {
+          method: "POST",
+          headers: internalHeaders(),
+          body: JSON.stringify({ meeting_id }),
+        });
+        if (!r.ok) throw new Error(`embed failed: ${r.status}`);
+      }),
+      step.run("analyze-summarization", async () => {
+        const r = await fetch(`${WORKER_URL}/api/v1/internal/analyze`, {
+          method: "POST",
+          headers: internalHeaders(),
+          body: JSON.stringify({ meeting_id, call_type: "summarization" }),
+        });
+        if (!r.ok) throw new Error(`analyze failed: ${r.status}`);
+      }),
+    ]);
+
+    await step.run("mark-analyzed", async () => {
+      await sb
+        .from("meetings")
+        .update({ status: "analyzed" })
+        .eq("id", meeting_id);
+    });
+
+    return { meeting_id, status: "analyzed" };
+  }
+);
+
+// ---------------------------------------------------------------------------
 // bot/cancelled — tell Recall.ai to kick the bot.
 // ---------------------------------------------------------------------------
 export const cancelBotSession = inngest.createFunction(
@@ -350,6 +409,7 @@ export const ensureMicrosoftSubscription = inngest.createFunction(
 
 export const functions = [
   processMeeting,
+  processBotMeeting,
   processDocument,
   startBotSession,
   cancelBotSession,

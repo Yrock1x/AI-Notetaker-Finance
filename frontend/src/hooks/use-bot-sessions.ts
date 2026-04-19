@@ -85,14 +85,30 @@ export function useScheduleBot() {
           teams: "teams",
           google_meet: "meet",
         };
+        const platformLabel: Record<BotSession["platform"], string> = {
+          zoom: "Zoom call",
+          teams: "Teams meeting",
+          google_meet: "Google Meet",
+        };
+        // Placeholder title used until the user types one or Recall hands us
+        // the real meeting name (see /internal/bot/finalize). Format is
+        // "<platform> — <short date>" e.g. "Zoom call — Apr 19, 7:42 PM".
+        const startDate = payload.scheduled_start
+          ? new Date(payload.scheduled_start)
+          : new Date();
+        const dateLabel = startDate.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        const fallbackTitle = `${platformLabel[payload.platform]} — ${dateLabel}`;
         const { data: newMeeting, error: mErr } = await supabase
           .from("meetings")
           .insert({
             org_id: deal.org_id,
             deal_id: payload.deal_id,
-            title:
-              (payload.title ?? "").trim() ||
-              `Bot meeting — ${payload.platform}`,
+            title: (payload.title ?? "").trim() || fallbackTitle,
             meeting_date: payload.scheduled_start ?? new Date().toISOString(),
             source: platformSource[payload.platform],
             source_url: payload.meeting_url,

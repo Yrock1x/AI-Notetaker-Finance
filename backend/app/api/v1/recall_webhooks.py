@@ -94,11 +94,14 @@ async def recall_webhook(
     data = payload.get("data", {}) or {}
 
     # --- Transcript events ---------------------------------------------------
-    if event in ("transcript.partial", "transcript.final"):
+    # Recall's realtime_endpoints spell these "transcript.partial_data" /
+    # "transcript.data"; the older per-bot push used "transcript.partial" /
+    # "transcript.final". Handle both so we stay resilient across API versions.
+    if event.startswith("transcript."):
         return await _handle_transcript(event, data, service_supabase)
 
     # --- Lifecycle events ----------------------------------------------------
-    if event in ("bot.status_change", "bot.call_ended", "bot.done"):
+    if event in ("bot.status_change", "bot.call_ended", "bot.done", "bot.fatal"):
         return await _handle_status_change(event, data, service_supabase)
 
     # --- Participant join / leave -------------------------------------------
@@ -112,13 +115,25 @@ async def recall_webhook(
         return await _handle_chat(event, data, service_supabase)
 
     # Anything else — ack and ignore. Recall fires many event types.
+    logger.info("recall_webhook_unhandled event=%s", event)
     return {"received": True, "handled": False, "event": event}
 
 
 async def _handle_transcript(
     event: str, data: dict, service_supabase: Client
 ) -> dict:
-    bot_id = data.get("bot_id") or ""
+    # Recall sends transcript events in two very different shapes:
+    #  1. Legacy per-bot push: {"event":"transcript.partial", "data":
+    #     {"bot_id":"…", "segment":{"id","speaker","text","start_time",…}}}
+    #  2. realtime_endpoints push: {"event":"transcript.partial_data", "data":
+    #     {"bot":{"id","metadata"}, "data":{"participant":{…},"words":[…]}}}
+    # Normalise both into the same row before upsert so the DB stays uniform.
+    is_partial = event.endswith(".partial") or event.endswith(".partial_data")
+
+    bot = data.get("bot") or {}
+    bot_id = bot.get("id") or data.get("bot_id") or ""
+    # Realtime payloads nest the body under data.data
+    inner = data.get("data") if isinstance(data.get("data"), dict) else None
     segment = data.get("segment") or {}
 
     session = _session_for_bot(service_supabase, bot_id)
@@ -130,25 +145,50 @@ async def _handle_transcript(
         logger.warning("recall_webhook_no_meeting bot_id=%s", bot_id)
         return {"received": True, "handled": False, "reason": "no_meeting"}
 
-    recall_segment_id = segment.get("id")
-    if not recall_segment_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Segment missing id",
+    if inner:
+        words = inner.get("words") or []
+        if not words:
+            return {"received": True, "handled": False, "reason": "empty_words"}
+        participant = inner.get("participant") or {}
+        text = " ".join((w.get("text") or "").strip() for w in words if w.get("text"))
+        first = (words[0].get("start_timestamp") or {}).get("relative") or 0.0
+        last = (words[-1].get("end_timestamp") or {}).get("relative") or first
+        # Realtime payload has no stable segment id; build a deterministic one
+        # so partial → final upserts collapse in place.
+        segment_id = (
+            f"{bot_id}:{participant.get('id','?')}:{float(first):.3f}"
         )
+        row = {
+            "meeting_id": meeting_id,
+            "recall_segment_id": segment_id,
+            "speaker_label": participant.get("name") or "Speaker",
+            "speaker_name": participant.get("name"),
+            "text": text,
+            "start_time": float(first),
+            "end_time": float(last),
+            "confidence": None,
+            "segment_index": 0,
+            "is_partial": is_partial,
+        }
+    else:
+        recall_segment_id = segment.get("id")
+        if not recall_segment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Segment missing id",
+            )
+        row = {
+            "meeting_id": meeting_id,
+            "recall_segment_id": recall_segment_id,
+            "speaker_label": segment.get("speaker") or "Speaker",
+            "text": segment.get("text") or "",
+            "start_time": float(segment.get("start_time") or 0),
+            "end_time": float(segment.get("end_time") or 0),
+            "confidence": segment.get("confidence"),
+            "segment_index": int(segment.get("index") or 0),
+            "is_partial": is_partial,
+        }
 
-    is_partial = event == "transcript.partial"
-    row = {
-        "meeting_id": meeting_id,
-        "recall_segment_id": recall_segment_id,
-        "speaker_label": segment.get("speaker") or "Speaker",
-        "text": segment.get("text") or "",
-        "start_time": float(segment.get("start_time") or 0),
-        "end_time": float(segment.get("end_time") or 0),
-        "confidence": segment.get("confidence"),
-        "segment_index": int(segment.get("index") or 0),
-        "is_partial": is_partial,
-    }
     (
         service_supabase.table("transcript_segments")
         .upsert(row, on_conflict="recall_segment_id")
@@ -164,11 +204,20 @@ async def _handle_status_change(
 
     Maps Recall's ``code`` field (from ``data.status``) to our
     ``meeting_bot_sessions.status`` values. When the call truly ends
-    (``call_ended`` / ``done``), we flip the bot session + meeting rows and
-    fire ``meeting/uploaded`` so the post-meeting Inngest pipeline runs.
+    (``call_ended`` / ``done``), we fire ``meeting/bot-completed`` so the
+    bot-specific Inngest pipeline (pull transcript + participants from
+    Recall, then embed + analyze) runs.
     """
-    bot_id = data.get("bot_id") or ""
-    recall_status = (data.get("status") or {}).get("code") or ""
+    # Realtime-endpoints payloads: {"bot":{"id","metadata"}, "data":{"code",…}}
+    # Legacy payloads:             {"bot_id":"…", "status":{"code":"…"}}
+    bot = data.get("bot") or {}
+    bot_id = bot.get("id") or data.get("bot_id") or ""
+    inner = data.get("data") if isinstance(data.get("data"), dict) else None
+    recall_status = (
+        (inner or {}).get("code")
+        or (data.get("status") or {}).get("code")
+        or ""
+    )
 
     session = _session_for_bot(service_supabase, bot_id)
     if not session:
@@ -221,14 +270,15 @@ async def _handle_status_change(
             "id", session["meeting_id"]
         ).execute()
     elif next_status == "completed" and session.get("meeting_id"):
-        # Flip the meeting status and enqueue the post-meeting pipeline so
-        # embeddings + analyses run over the finalized transcript.
-        service_supabase.table("meetings").update({"status": "uploaded"}).eq(
-            "id", session["meeting_id"]
-        ).execute()
+        # Bot meetings take a dedicated pipeline that pulls the authoritative
+        # transcript + participants from Recall's recording shortcuts —
+        # Deepgram already ran during the call, so the file-upload path
+        # (``meeting/uploaded``) doesn't apply. The finalize step flips
+        # meetings.status to 'uploaded' itself once the pull succeeds.
         await send_event(
-            "meeting/uploaded",
+            "meeting/bot-completed",
             {
+                "session_id": session["id"],
                 "meeting_id": session["meeting_id"],
                 "deal_id": session.get("deal_id", ""),
             },
@@ -247,21 +297,30 @@ async def _handle_participant(
 ) -> dict:
     """Upsert ``meeting_participants`` from Recall participant_events.*.
 
-    Payload shape (Recall docs may vary by API version):
-      { bot_id, participant: { id, name, email?, is_host? }, action, timestamp }
+    Accepts both the legacy shape and the realtime_endpoints shape:
+      legacy:   { bot_id, participant: {…}, action, timestamp }
+      realtime: { bot: {id,…}, data: { participant: {…}, action, timestamp } }
     """
-    bot_id = data.get("bot_id") or ""
+    bot = data.get("bot") or {}
+    bot_id = bot.get("id") or data.get("bot_id") or ""
+    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+
     session = _session_for_bot(service_supabase, bot_id)
     if not session or not session.get("meeting_id"):
         return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
 
-    participant = data.get("participant") or {}
+    participant = inner.get("participant") or data.get("participant") or {}
     participant_id = participant.get("id") or participant.get("participant_id")
     if not participant_id:
         return {"received": True, "handled": False, "reason": "no_participant_id"}
 
     action = event.split(".")[-1]  # 'join' | 'leave' | 'update' | ...
-    timestamp = data.get("timestamp") or data.get("updated_at")
+    timestamp = (
+        inner.get("timestamp")
+        or inner.get("updated_at")
+        or data.get("timestamp")
+        or data.get("updated_at")
+    )
 
     row: dict = {
         "meeting_id": session["meeting_id"],
@@ -288,15 +347,25 @@ async def _handle_chat(
 ) -> dict:
     """Insert in-meeting chat messages captured by Recall.
 
-    Payload shape (typical):
-      { bot_id, message: { id, sender: { name, email? }, text, timestamp } }
+    Accepts both shapes:
+      legacy:   { bot_id, message: {…} }
+      realtime: { bot: {id,…}, data: { message|chat_message: {…} } }
     """
-    bot_id = data.get("bot_id") or ""
+    bot = data.get("bot") or {}
+    bot_id = bot.get("id") or data.get("bot_id") or ""
+    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+
     session = _session_for_bot(service_supabase, bot_id)
     if not session or not session.get("meeting_id"):
         return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
 
-    message = data.get("message") or data.get("chat_message") or {}
+    message = (
+        inner.get("message")
+        or inner.get("chat_message")
+        or data.get("message")
+        or data.get("chat_message")
+        or {}
+    )
     message_id = message.get("id") or message.get("message_id")
     text = message.get("text") or message.get("content") or ""
     if not text:
