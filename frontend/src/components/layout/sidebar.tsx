@@ -73,26 +73,34 @@ export function Sidebar() {
               </div>
 
               {isDeals && dealsExpanded && deals.length > 0 && (
-                <div className="ml-9 mt-1 mb-1 space-y-0.5 border-l border-[#1A1A1A]/5 pl-4">
-                  {deals.slice(0, 10).map((deal) => {
-                    const dealPath = `/deals/${deal.id}`;
-                    const isDealActive = pathname.startsWith(dealPath);
-                    return (
-                      <Link
-                        key={deal.id}
-                        href={dealPath}
-                        className={cn(
-                          "block truncate rounded-lg px-3 py-2 text-xs font-medium transition-colors",
-                          isDealActive
-                            ? "text-accent bg-accent/5 font-bold"
-                            : "text-[#1A1A1A]/40 hover:text-[#1A1A1A]/70 hover:bg-[#F2F0E9]"
-                        )}
-                        title={deal.name}
-                      >
-                        {deal.name}
-                      </Link>
-                    );
-                  })}
+                <div className="ml-9 mt-1 mb-1 border-l border-[#1A1A1A]/5 pl-4">
+                  <div className="space-y-0.5 max-h-[calc(100vh-30rem)] overflow-y-auto pr-1">
+                    {deals.map((deal) => {
+                      const dealPath = `/deals/${deal.id}`;
+                      const isDealActive = pathname.startsWith(dealPath);
+                      return (
+                        <Link
+                          key={deal.id}
+                          href={dealPath}
+                          className={cn(
+                            "block truncate rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                            isDealActive
+                              ? "text-accent bg-accent/5 font-bold"
+                              : "text-[#1A1A1A]/40 hover:text-[#1A1A1A]/70 hover:bg-[#F2F0E9]"
+                          )}
+                          title={deal.name}
+                        >
+                          {deal.name}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                  <Link
+                    href="/deals/new"
+                    className="mt-1 flex items-center gap-1 rounded-lg px-3 py-2 text-[10px] font-data uppercase tracking-widest text-[#1A1A1A]/30 hover:text-accent hover:bg-[#F2F0E9] transition-colors"
+                  >
+                    + New deal
+                  </Link>
                 </div>
               )}
             </div>
