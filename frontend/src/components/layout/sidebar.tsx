@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Briefcase,
   Calendar,
+  MessageSquare,
   Plug,
   Shield,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Deals", href: "/deals", icon: Briefcase },
+  { label: "AI Chat", href: "/chat", icon: MessageSquare },
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "Integrations", href: "/integrations", icon: Plug },
   { label: "Admin", href: "/admin", icon: Shield },
