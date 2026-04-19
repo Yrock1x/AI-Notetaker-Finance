@@ -18,12 +18,13 @@ logger = structlog.get_logger(__name__)
 AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"  # noqa: S105 - public OAuth endpoint
 
-# Delegated scopes — the common safe set that works for both personal and
-# work/school Microsoft accounts. The advanced scopes (CallRecords.Read.All,
-# Chat.Read, OnlineMeetings.Read) only exist on work/school tenants and
-# require admin consent; requesting them here breaks sign-in for personal
-# accounts with invalid_scope. Re-enable them in your deployment if every
-# user is on an Entra ID tenant and the admin has granted consent.
+# Delegated scopes for Microsoft 365 work/school accounts (Entra ID). The
+# advanced scopes — OnlineMeetings.Read, Chat.Read, CallRecords.Read.All —
+# only exist in the work/school universe; users on personal Microsoft
+# accounts (outlook.com etc.) will fail here with invalid_scope. That's
+# the right tradeoff for a B2B product whose target customers are all on
+# corporate tenants. CallRecords.Read.All additionally requires a tenant
+# admin to "Grant admin consent" once per firm in the Azure app config.
 SCOPES = [
     "offline_access",
     "openid",
@@ -31,6 +32,9 @@ SCOPES = [
     "email",
     "User.Read",
     "Calendars.Read",
+    "OnlineMeetings.Read",
+    "Chat.Read",
+    "CallRecords.Read.All",
 ]
 
 
