@@ -85,11 +85,15 @@ const BASE_TABS: { key: MeetingTab; label: string }[] = [
 export default function MeetingDetailPage() {
   const params = useParams<{ dealId: string; meetingId: string }>();
   const { data: meeting, isLoading } = useMeeting(params.dealId, params.meetingId);
-  const isLive = meeting?.status === "recording";
+  // Show the Live tab as soon as a bot is scheduled — not just when it's
+  // actually recording. Users expect to see the live panel right after
+  // clicking "Schedule Notetaker" so they can watch the bot join.
+  const isLive =
+    meeting?.status === "scheduled" || meeting?.status === "recording";
   const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
 
-  // Auto-jump to the Live tab the moment a bot flips the meeting into
-  // `recording` so users watching the page don't miss the first few words.
+  // Auto-jump to the Live tab the moment a bot is scheduled or starts
+  // recording so users watching the page don't miss the first few words.
   useEffect(() => {
     if (isLive) setActiveTab("live");
   }, [isLive]);
