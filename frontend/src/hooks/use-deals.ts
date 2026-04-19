@@ -77,10 +77,24 @@ export function useCreateDeal() {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("Not authenticated");
 
-      // Pick the user's first org as the target; the multi-org switcher sets
-      // org_id in localStorage when it's available.
-      const orgId =
+      // Resolve the target org. Prefer the active selection from the org
+      // switcher (localStorage), but fall back to a direct membership lookup
+      // so a fresh browser or cleared cache doesn't error out — otherwise
+      // /deals/new crashes if the user hits it before useOrgs has run.
+      let orgId =
         typeof window !== "undefined" ? localStorage.getItem("org_id") : null;
+      if (!orgId) {
+        const { data: memberships, error: memErr } = await supabase
+          .from("org_memberships")
+          .select("org_id")
+          .eq("user_id", user.user.id)
+          .limit(1);
+        if (memErr) throw memErr;
+        orgId = memberships?.[0]?.org_id ?? null;
+        if (orgId && typeof window !== "undefined") {
+          localStorage.setItem("org_id", orgId);
+        }
+      }
       if (!orgId) throw new Error("No active organization");
 
       const { data, error } = await supabase
