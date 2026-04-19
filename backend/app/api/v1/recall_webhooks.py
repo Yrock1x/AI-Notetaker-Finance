@@ -334,11 +334,24 @@ async def _handle_participant(
     elif action == "leave":
         row["left_at"] = timestamp
 
-    (
+    # meeting_participants has a *partial* unique index on
+    # (meeting_id, recall_participant_id) which PostgREST can't match via
+    # on_conflict. Fall back to select → update-or-insert.
+    existing = (
         service_supabase.table("meeting_participants")
-        .upsert(row, on_conflict="meeting_id,recall_participant_id")
+        .select("id")
+        .eq("meeting_id", session["meeting_id"])
+        .eq("recall_participant_id", str(participant_id))
+        .limit(1)
         .execute()
+        .data
     )
+    if existing:
+        service_supabase.table("meeting_participants").update(row).eq(
+            "id", existing[0]["id"]
+        ).execute()
+    else:
+        service_supabase.table("meeting_participants").insert(row).execute()
     return {"received": True, "handled": True, "action": action}
 
 

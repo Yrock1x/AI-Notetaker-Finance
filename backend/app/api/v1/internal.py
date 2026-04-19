@@ -765,9 +765,15 @@ async def bot_finalize(
         }
     participant_count = 0
     if participants_by_id:
-        supabase.table("meeting_participants").upsert(
-            list(participants_by_id.values()),
-            on_conflict="meeting_id,recall_participant_id",
+        # meeting_participants has a *partial* unique index on
+        # (meeting_id, recall_participant_id) which PostgREST can't pick up
+        # as an on_conflict target. Rebuild the recall-sourced rows instead
+        # — safe because /bot/finalize is the authoritative post-call pull.
+        supabase.table("meeting_participants").delete().eq(
+            "meeting_id", meeting_id
+        ).not_.is_("recall_participant_id", "null").execute()
+        supabase.table("meeting_participants").insert(
+            list(participants_by_id.values())
         ).execute()
         participant_count = len(participants_by_id)
 
