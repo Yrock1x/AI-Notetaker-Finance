@@ -17,7 +17,7 @@ export const DEAL_ROLE_LABELS: Record<DealRole, string> = {
 };
 
 export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
-  [MeetingStatus.SCHEDULED]: "Scheduled",
+  [MeetingStatus.SCHEDULED]: "Upcoming",
   [MeetingStatus.RECORDING]: "Recording",
   [MeetingStatus.PROCESSING]: "Processing",
   [MeetingStatus.TRANSCRIBING]: "Transcribing",

@@ -30,7 +30,14 @@ export function MeetingCard({ meeting }: MeetingCardProps) {
           <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {new Date(meeting.created_at).toLocaleDateString()}
+              {new Date(
+                meeting.meeting_date || meeting.created_at
+              ).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
             </span>
             <span>{meeting.source}</span>
             {meeting.duration_seconds != null && (

@@ -70,14 +70,46 @@ export function useScheduleBot() {
         .single();
       if (dealErr) throw dealErr;
 
-      // Insert the session row first; the Inngest function picks it up by id
-      // and asks Recall.ai to create the actual bot.
+      // Pre-create a meetings row when the caller didn't link one. Without
+      // this, the row only lands after the worker picks up the Inngest
+      // event and calls /internal/bot/start — which means the calendar and
+      // the deal's Meetings tab stay blank for ~30s after clicking
+      // Schedule. Eagerly inserting with status='scheduled' lets both pages
+      // show the upcoming meeting immediately; /internal/bot/start will
+      // flip the status to 'recording' when the bot actually joins.
+      let meetingId = payload.meeting_id ?? null;
+      if (!meetingId) {
+        const platformSource: Record<BotSession["platform"], string> = {
+          zoom: "zoom",
+          teams: "teams",
+          google_meet: "meet",
+        };
+        const { data: newMeeting, error: mErr } = await supabase
+          .from("meetings")
+          .insert({
+            org_id: deal.org_id,
+            deal_id: payload.deal_id,
+            title: `Bot meeting — ${payload.platform}`,
+            meeting_date: payload.scheduled_start ?? new Date().toISOString(),
+            source: platformSource[payload.platform],
+            source_url: payload.meeting_url,
+            status: "scheduled",
+            created_by: auth.user.id,
+          })
+          .select()
+          .single();
+        if (mErr) throw mErr;
+        meetingId = newMeeting.id;
+      }
+
+      // Bot session row. The Inngest function picks it up by id and asks
+      // Recall.ai to create the actual bot.
       const { data, error } = await supabase
         .from("meeting_bot_sessions")
         .insert({
           org_id: deal.org_id,
           deal_id: payload.deal_id,
-          meeting_id: payload.meeting_id ?? null,
+          meeting_id: meetingId,
           platform: payload.platform,
           meeting_url: payload.meeting_url,
           status: "scheduled",
@@ -101,6 +133,8 @@ export function useScheduleBot() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bot-sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
     },
   });
 }

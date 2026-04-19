@@ -94,8 +94,18 @@ interface MeetingCardProps {
   meeting: CalendarMeeting;
   colorIndex: number;
   botEnabled: boolean;
+  botStatus?: BotSession["status"];
   onToggleBot: () => void;
 }
+
+const BOT_STATUS_LABELS: Record<BotSession["status"], { label: string; className: string }> = {
+  scheduled: { label: "Upcoming", className: "bg-blue-100 text-blue-700" },
+  joining: { label: "Joining…", className: "bg-amber-100 text-amber-700" },
+  recording: { label: "Recording", className: "bg-red-100 text-red-700" },
+  completed: { label: "Completed", className: "bg-emerald-100 text-emerald-700" },
+  failed: { label: "Failed", className: "bg-red-50 text-red-500" },
+  cancelled: { label: "Cancelled", className: "bg-[#1A1A1A]/5 text-[#1A1A1A]/50" },
+};
 
 function UnassignedMeetingCard({ meeting }: { meeting: CalendarMeeting }) {
   const meetingTime = meeting.meeting_date || meeting.created_at;
@@ -121,9 +131,16 @@ function UnassignedMeetingCard({ meeting }: { meeting: CalendarMeeting }) {
   );
 }
 
-function MeetingCard({ meeting, colorIndex, botEnabled, onToggleBot }: MeetingCardProps) {
+function MeetingCard({
+  meeting,
+  colorIndex,
+  botEnabled,
+  botStatus,
+  onToggleBot,
+}: MeetingCardProps) {
   const colors = DEAL_COLORS[colorIndex] || DEAL_COLORS[0];
   const meetingTime = meeting.meeting_date || meeting.created_at;
+  const statusChip = botStatus ? BOT_STATUS_LABELS[botStatus] : null;
 
   return (
     <Link
@@ -152,9 +169,15 @@ function MeetingCard({ meeting, colorIndex, botEnabled, onToggleBot }: MeetingCa
             onToggle={onToggleBot}
             colorClass={colors.toggle}
           />
-          {botEnabled && (
+          {statusChip ? (
+            <span
+              className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${statusChip.className}`}
+            >
+              {statusChip.label}
+            </span>
+          ) : botEnabled ? (
             <Video className={`h-2.5 w-2.5 ${colors.text} opacity-60`} />
-          )}
+          ) : null}
         </div>
       </div>
     </Link>
@@ -417,6 +440,11 @@ export default function CalendarPage() {
                               meeting={meeting}
                               colorIndex={getDealColorIndex(meeting.deal_id, allDealIds)}
                               botEnabled={isBotEnabled(meeting)}
+                              botStatus={
+                                meeting.source_url
+                                  ? sessionByUrl[meeting.source_url]?.status
+                                  : undefined
+                              }
                               onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
                             />
                           ) : (
