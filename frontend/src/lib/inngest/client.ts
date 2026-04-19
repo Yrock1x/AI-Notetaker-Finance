@@ -21,6 +21,12 @@ type ZoomRecordingCompleted = {
 type TeamsCallRecordCreated = {
   data: { call_record_id: string; tenant_id: string | null };
 };
+type CalendarSyncRequested = {
+  data: { org_id: string; user_id: string; platform: string };
+};
+type MicrosoftSubscriptionEnsure = {
+  data: { org_id: string; user_id: string };
+};
 
 type AppEvents = {
   "meeting/uploaded": MeetingUploaded;
@@ -29,6 +35,8 @@ type AppEvents = {
   "bot/cancelled": BotCancelled;
   "zoom/recording.completed": ZoomRecordingCompleted;
   "teams/call_record.created": TeamsCallRecordCreated;
+  "calendar/sync.requested": CalendarSyncRequested;
+  "microsoft/subscription.ensure": MicrosoftSubscriptionEnsure;
 };
 
 export const inngest = new Inngest({
