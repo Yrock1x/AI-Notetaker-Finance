@@ -39,8 +39,13 @@ type AppEvents = {
   "microsoft/subscription.ensure": MicrosoftSubscriptionEnsure;
 };
 
+// NOTE: keep this id in sync with the app registered in Inngest Cloud. The
+// project was rebranded Deal Companion → CogniSuite but the Inngest app was
+// originally created as "dealwise" and swapping the id orphans the signing
+// key + function history. Keep it as "dealwise" until you deliberately
+// create a fresh app (and issue a new INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY).
 export const inngest = new Inngest({
-  id: "cognisuite",
+  id: "dealwise",
   schemas: new EventSchemas().fromRecord<AppEvents>(),
 });
 
