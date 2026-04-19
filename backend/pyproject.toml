@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dealwise-backend"
+name = "cognisuite-backend"
 version = "0.2.0"
-description = "Deal Companion - slim LLM + webhook worker"
+description = "CogniSuite - slim LLM + webhook worker"
 requires-python = ">=3.11"
 dependencies = [
     # Web framework

@@ -1,4 +1,4 @@
-project_id = "dealwise"
+project_id = "cognisuite"
 
 [api]
 enabled = true

@@ -54,7 +54,7 @@ class ZoomMeetingBot:
         )
         result = await self._recall.create_bot(
             meeting_url=meeting_url,
-            bot_name="Deal Companion Notetaker",
+            bot_name="CogniSuite Notetaker",
         )
         self._bot_id = result.get("id")
         logger.info("zoom_bot_joined", bot_id=self._bot_id)

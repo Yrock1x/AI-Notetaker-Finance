@@ -237,7 +237,7 @@ async def slack_events(
 async def slack_commands(
     request: Request,
 ) -> dict:
-    """Handle Slack slash commands (e.g., /dealwise status, /dealwise meetings)."""
+    """Handle Slack slash commands (e.g., /cognisuite status, /cognisuite meetings)."""
     raw_body = await request.body()
     settings = get_settings()
     _verify_slack_signature(request, raw_body, settings)
@@ -264,10 +264,10 @@ async def slack_commands(
         return {
             "response_type": "ephemeral",
             "text": (
-                "*Deal Companion Commands:*\n"
-                "• `/dealwise status` — Show recent meeting processing status\n"
-                "• `/dealwise meetings` — List recent meetings\n"
-                "• `/dealwise help` — Show this help message"
+                "*CogniSuite Commands:*\n"
+                "• `/cognisuite status` — Show recent meeting processing status\n"
+                "• `/cognisuite meetings` — List recent meetings\n"
+                "• `/cognisuite help` — Show this help message"
             ),
         }
 
@@ -285,5 +285,5 @@ async def slack_commands(
 
     return {
         "response_type": "ephemeral",
-        "text": "Unknown command. Use `/dealwise help` for usage.",
+        "text": "Unknown command. Use `/cognisuite help` for usage.",
     }

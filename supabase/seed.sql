@@ -6,7 +6,7 @@
 -- there break migrations.
 --
 -- Run after `supabase start` + creating a user with email
--- dev@dealwise.local via `supabase auth`.
+-- dev@cognisuite.local via `supabase auth`.
 
 do $$
 declare
@@ -14,9 +14,9 @@ declare
     org_id uuid;
     deal_id uuid;
 begin
-    select id into dev_user from auth.users where email = 'dev@dealwise.local';
+    select id into dev_user from auth.users where email = 'dev@cognisuite.local';
     if dev_user is null then
-        raise notice 'dev user not found — sign up dev@dealwise.local first, then re-run seed';
+        raise notice 'dev user not found — sign up dev@cognisuite.local first, then re-run seed';
         return;
     end if;
 

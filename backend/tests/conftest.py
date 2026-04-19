@@ -12,7 +12,7 @@ from app.main import create_app
 from app.models.base import Base
 from app.models.user import User
 
-TEST_DATABASE_URL = "postgresql+asyncpg://dealwise:localdev@localhost:5432/dealwise_test"
+TEST_DATABASE_URL = "postgresql+asyncpg://cognisuite:localdev@localhost:5432/cognisuite_test"
 
 
 @pytest.fixture(scope="session")

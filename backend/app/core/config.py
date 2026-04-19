@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # App
     app_env: Literal["development", "staging", "production"] = "development"
-    app_name: str = "Deal Companion"
+    app_name: str = "CogniSuite"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
 

@@ -1,4 +1,4 @@
-# DealWise AI — Migration to Supabase + Vercel + Fireworks
+# CogniSuite — Migration to Supabase + Vercel + Fireworks
 
 ## Context
 
@@ -292,7 +292,7 @@ Each phase is one PR, independently revertable.
 - Vercel auto-deploys the frontend on push; no workflow needed.
 
 ### Phase 8 — Deploy + cutover
-- `fly launch` → worker live at `dealwise-worker.fly.dev`.
+- `fly launch` → worker live at `cognisuite-worker.fly.dev`.
 - Vercel project → points `NEXT_PUBLIC_API_URL` at the Fly URL.
 - Supabase Auth: set redirect URLs to Vercel preview + prod domains.
 - Inngest: sync endpoint URL in Inngest dashboard.
@@ -312,7 +312,7 @@ SUPABASE_JWT_JWKS_URL=               # ${SUPABASE_URL}/auth/v1/.well-known/jwks.
 # Frontend also needs the public values (NEXT_PUBLIC_ prefix)
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_API_URL=                 # FastAPI worker (Fly) — e.g. https://dealwise-worker.fly.dev
+NEXT_PUBLIC_API_URL=                 # FastAPI worker (Fly) — e.g. https://cognisuite-worker.fly.dev
 
 # --- LLM: Fireworks (default) ---
 FIREWORKS_API_KEY=
@@ -358,7 +358,7 @@ NEXT_PUBLIC_SENTRY_DSN=
 # --- Runtime ---
 APP_ENV=development                  # development | staging | production
 LOG_LEVEL=INFO
-CORS_ORIGINS=http://localhost:3000,https://dealwise.vercel.app
+CORS_ORIGINS=http://localhost:3000,https://cognisuite.vercel.app
 ```
 
 ---

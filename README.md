@@ -1,4 +1,4 @@
-# DealWise AI
+# CogniSuite
 
 Meeting intelligence platform for investment banking, private equity, and
 venture capital professionals.

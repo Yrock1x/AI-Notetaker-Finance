@@ -1,4 +1,4 @@
--- DealWise AI — initial schema
+-- CogniSuite — initial schema
 --
 -- 16 tables, RLS on every user-facing table, Realtime enabled on the
 -- transcript_segments table so the Live transcription panel can subscribe.

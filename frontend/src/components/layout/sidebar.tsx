@@ -34,7 +34,7 @@ export function Sidebar() {
     <aside className="flex w-72 flex-col border-r border-[#1A1A1A]/5 bg-white h-screen transition-all shadow-sm relative z-30 antialiased">
       <div className="flex h-24 items-center px-10">
         <Link href="/dashboard" className="text-xl font-heading font-extrabold tracking-tight text-primary uppercase">
-          Deal Companion
+          CogniSuite
         </Link>
       </div>
       <nav className="flex-1 space-y-2 p-6 overflow-y-auto">

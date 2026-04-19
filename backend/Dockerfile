@@ -1,4 +1,4 @@
-# DealWise worker — slim FastAPI service for LLM + webhook work.
+# CogniSuite worker — slim FastAPI service for LLM + webhook work.
 # Deploys to Fly.io via `fly deploy` (see fly.toml in the same dir).
 
 FROM python:3.11-slim AS base

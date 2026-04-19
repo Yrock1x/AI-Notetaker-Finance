@@ -457,7 +457,7 @@ class TestSlackCommands:
         from urllib.parse import urlencode
 
         params = {
-            "command": "/dealwise",
+            "command": "/cognisuite",
             "text": text,
             "user_id": "U123456",
             "channel_id": "C123456",
@@ -490,9 +490,9 @@ class TestSlackCommands:
         assert resp.status_code == 200
         data = resp.json()
         assert data["response_type"] == "ephemeral"
-        assert "Deal Companion Commands" in data["text"]
-        assert "/dealwise status" in data["text"]
-        assert "/dealwise meetings" in data["text"]
+        assert "CogniSuite Commands" in data["text"]
+        assert "/cognisuite status" in data["text"]
+        assert "/cognisuite meetings" in data["text"]
 
     @patch("app.api.v1.webhooks.get_settings")
     async def test_slack_commands_status(
@@ -571,4 +571,4 @@ class TestSlackCommands:
         data = resp.json()
         assert data["response_type"] == "ephemeral"
         assert "Unknown command" in data["text"]
-        assert "/dealwise help" in data["text"]
+        assert "/cognisuite help" in data["text"]

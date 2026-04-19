@@ -160,7 +160,7 @@ class SlackNotifier:
                     {
                         "type": "mrkdwn",
                         "text": (
-                            "Deal Companion | "
+                            "CogniSuite | "
                             f"{datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
                         ),
                     },

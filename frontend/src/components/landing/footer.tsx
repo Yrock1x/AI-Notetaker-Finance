@@ -6,7 +6,7 @@ export const Footer = () => (
   <footer className="bg-[#1A1A1A] pt-24 pb-12 px-8 md:px-16 rounded-t-[4rem] text-[#F2F0E9] font-subheading relative z-40">
     <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-16 mb-24">
       <div className="md:col-span-2">
-        <div className="font-heading text-3xl font-bold mb-6 tracking-tight text-white">Deal Companion</div>
+        <div className="font-heading text-3xl font-bold mb-6 tracking-tight text-white">CogniSuite</div>
         <p className="text-white/50 max-w-md mb-10 text-lg leading-relaxed">
           The ultimate digital instrument for investment banking, private equity, and venture capital.
         </p>

@@ -32,7 +32,7 @@ type AppEvents = {
 };
 
 export const inngest = new Inngest({
-  id: "dealwise",
+  id: "cognisuite",
   schemas: new EventSchemas().fromRecord<AppEvents>(),
 });
 

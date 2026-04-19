@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# DealWise AI – AWS Bootstrap
+# CogniSuite – AWS Bootstrap
 #
 # Creates the S3 bucket and DynamoDB table required by Terraform's S3 backend.
 # Run this ONCE before the first `terraform init`.
@@ -12,8 +12,8 @@
 set -euo pipefail
 
 REGION="us-east-1"
-STATE_BUCKET="dealwise-terraform-state"
-LOCK_TABLE="dealwise-terraform-lock"
+STATE_BUCKET="cognisuite-terraform-state"
+LOCK_TABLE="cognisuite-terraform-lock"
 
 echo "==> Creating Terraform state bucket: ${STATE_BUCKET}"
 aws s3api create-bucket \

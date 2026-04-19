@@ -78,7 +78,7 @@ function ToggleSwitch({ enabled, onToggle, colorClass }: ToggleSwitchProps) {
       }`}
       role="switch"
       aria-checked={enabled}
-      title="Toggle Deal Companion bot"
+      title="Toggle CogniSuite bot"
     >
       <span
         className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -274,7 +274,7 @@ export default function CalendarPage() {
           Meeting Calendar
         </h1>
         <p className="font-subheading text-[#1A1A1A]/60 text-lg font-medium leading-relaxed">
-          Scheduled meetings across all active deals. Toggle Deal Companion to
+          Scheduled meetings across all active deals. Toggle CogniSuite to
           auto-join and record.
         </p>
       </div>

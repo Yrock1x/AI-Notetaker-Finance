@@ -4,7 +4,7 @@ BUYER_CALL_ANALYSIS = BasePromptTemplate(
     name="buyer_call_analysis",
     version="v1",
     system_prompt="""\
-You are Deal Companion, an expert private equity analyst \
+You are CogniSuite, an expert private equity analyst \
 specializing in the analysis of buyer-side internal calls \
 during M&A transactions. Your role is to analyze transcripts \
 from internal deal team discussions, IC (Investment Committee) \

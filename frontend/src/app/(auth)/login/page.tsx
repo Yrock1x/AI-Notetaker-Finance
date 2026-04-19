@@ -107,7 +107,7 @@ function LoginContent() {
     <div className="space-y-8 antialiased">
       <div className="text-center space-y-2">
         <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary uppercase">
-          Deal Companion
+          CogniSuite
         </h1>
         <p className="font-subheading text-[#1A1A1A]/60 text-sm font-medium">
           {mode === "signin"

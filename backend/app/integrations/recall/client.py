@@ -40,7 +40,7 @@ class RecallClient:
     async def create_bot(
         self,
         meeting_url: str,
-        bot_name: str = "Deal Companion Notetaker",
+        bot_name: str = "CogniSuite Notetaker",
         *,
         recording_config: dict | None = None,
         metadata: dict | None = None,

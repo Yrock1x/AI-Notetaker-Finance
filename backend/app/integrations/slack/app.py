@@ -110,7 +110,7 @@ class SlackApp:
             payload["blocks"] = blocks
             # Slack requires a text fallback when blocks are provided
             if not text:
-                payload["text"] = "New notification from Deal Companion"
+                payload["text"] = "New notification from CogniSuite"
 
         data = await self._post("chat.postMessage", payload)
         logger.info(

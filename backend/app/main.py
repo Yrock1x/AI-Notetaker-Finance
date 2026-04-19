@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title=settings.app_name,
-        description="DealWise AI worker — LLM, webhooks, live transcription",
+        description="CogniSuite worker — LLM, webhooks, live transcription",
         version="0.2.0",
         docs_url="/docs" if not settings.is_production else None,
         redoc_url="/redoc" if not settings.is_production else None,

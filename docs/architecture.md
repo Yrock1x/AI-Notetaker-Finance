@@ -2,7 +2,7 @@
 
 ## Overview
 
-DealWise AI is a multi-tenant meeting intelligence platform built as a monorepo.
+CogniSuite is a multi-tenant meeting intelligence platform built as a monorepo.
 
 ## Stack
 

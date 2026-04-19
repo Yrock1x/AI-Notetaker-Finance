@@ -1,4 +1,4 @@
-# DealWise AI - Comprehensive Code Review
+# CogniSuite - Comprehensive Code Review
 
 **Date**: 2026-02-28
 **Scope**: Full codebase (~100+ files across backend, frontend, and infrastructure)
@@ -284,7 +284,7 @@ Blocking issues exist across security, correctness, and deployment readiness. Th
 
 | # | Sev | File | Issue |
 |---|-----|------|-------|
-| 132 | HIGH | `modules/ecs/main.tf` | Worker Celery app path is `dealwise.celery` but code uses `app.tasks.celery_app` |
+| 132 | HIGH | `modules/ecs/main.tf` | Worker Celery app path is `cognisuite.celery` but code uses `app.tasks.celery_app` |
 | 133 | HIGH | `modules/ecs/main.tf` | No auto-scaling for ECS services |
 | 134 | HIGH | `Dockerfile` | `COPY . .` before `pip install` breaks Docker layer caching |
 | 135 | HIGH | `Dockerfile.worker` | Editable install without source code present -- build will fail |

@@ -491,7 +491,7 @@ async def bot_start(
 
     bot_data = await recall.create_bot(
         meeting_url=session["meeting_url"],
-        bot_name="Deal Companion Notetaker",
+        bot_name="CogniSuite Notetaker",
         recording_config={
             "transcript": {"provider": {"deepgram_streaming": {}}},
         },

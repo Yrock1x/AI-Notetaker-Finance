@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 
-class DealWiseError(Exception):
-    """Base exception for all DealWise domain errors."""
+class CogniSuiteError(Exception):
+    """Base exception for all CogniSuite domain errors."""
 
     def __init__(self, message: str, code: str = "INTERNAL_ERROR", status_code: int = 500):
         self.message = message
@@ -17,7 +17,7 @@ class DealWiseError(Exception):
         super().__init__(message)
 
 
-class NotFoundError(DealWiseError):
+class NotFoundError(CogniSuiteError):
     def __init__(self, resource: str, resource_id: str | None = None):
         detail = f"{resource} not found"
         if resource_id:
@@ -25,22 +25,22 @@ class NotFoundError(DealWiseError):
         super().__init__(message=detail, code="NOT_FOUND", status_code=404)
 
 
-class PermissionDeniedError(DealWiseError):
+class PermissionDeniedError(CogniSuiteError):
     def __init__(self, message: str = "Permission denied"):
         super().__init__(message=message, code="PERMISSION_DENIED", status_code=403)
 
 
-class ConflictError(DealWiseError):
+class ConflictError(CogniSuiteError):
     def __init__(self, message: str):
         super().__init__(message=message, code="CONFLICT", status_code=409)
 
 
-class DomainValidationError(DealWiseError):
+class DomainValidationError(CogniSuiteError):
     def __init__(self, message: str):
         super().__init__(message=message, code="VALIDATION_ERROR", status_code=422)
 
 
-class ExternalServiceError(DealWiseError):
+class ExternalServiceError(CogniSuiteError):
     def __init__(self, service: str, message: str):
         super().__init__(
             message=f"{service} error: {message}",
@@ -49,7 +49,7 @@ class ExternalServiceError(DealWiseError):
         )
 
 
-class RateLimitError(DealWiseError):
+class RateLimitError(CogniSuiteError):
     def __init__(self, message: str = "Rate limit exceeded"):
         super().__init__(message=message, code="RATE_LIMIT", status_code=429)
 
@@ -57,8 +57,8 @@ class RateLimitError(DealWiseError):
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers on the FastAPI app."""
 
-    @app.exception_handler(DealWiseError)
-    async def dealwise_error_handler(request: Request, exc: DealWiseError) -> JSONResponse:
+    @app.exception_handler(CogniSuiteError)
+    async def cognisuite_error_handler(request: Request, exc: CogniSuiteError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
             content={

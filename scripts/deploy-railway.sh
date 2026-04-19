@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# DealWise AI – Railway Deployment
+# CogniSuite – Railway Deployment
 #
 # Deploys the API and worker services to Railway.
 #

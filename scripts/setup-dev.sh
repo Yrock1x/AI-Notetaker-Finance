@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== DealWise AI - Development Setup ==="
+echo "=== CogniSuite - Development Setup ==="
 echo ""
 
 # Backend setup

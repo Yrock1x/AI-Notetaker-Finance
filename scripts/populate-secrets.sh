@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# DealWise AI – Populate Secrets Manager
+# CogniSuite – Populate Secrets Manager
 #
 # After `terraform apply`, run this script to populate runtime secrets.
 #
@@ -85,7 +85,7 @@ get_value() {
 put_secret() {
   # $1 = secret-id suffix, $2 = value
   local suffix="$1" value="$2"
-  local full_id="dealwise/${ENV}/${suffix}"
+  local full_id="cognisuite/${ENV}/${suffix}"
   if [[ -z "$value" ]]; then
     echo "  [skip] $full_id (empty)"
     return
@@ -109,7 +109,7 @@ if [[ -n "$FROM_FILE" ]]; then
   echo "loaded $(wc -l < "$FROM_FILE" | tr -d ' ') lines from $FROM_FILE"
 fi
 
-echo "=== DealWise AI – Populating secrets (${ENV}) ==="
+echo "=== CogniSuite – Populating secrets (${ENV}) ==="
 
 # --- generated secrets ------------------------------------------------------
 
@@ -137,7 +137,7 @@ REDIS_ENDPOINT=$(cd "${TF_DIR}" 2>/dev/null && terraform output -raw elasticache
 put_secret "app-secret-key"       "${VALUES[APP_SECRET_KEY]}"
 put_secret "token-encryption-key" "${VALUES[TOKEN_ENCRYPTION_KEY]}"
 
-DATABASE_URL=$(get_value DATABASE_URL "DATABASE_URL (e.g. postgresql+asyncpg://user:pw@${RDS_ENDPOINT:-HOST}:5432/dealwise)" "")
+DATABASE_URL=$(get_value DATABASE_URL "DATABASE_URL (e.g. postgresql+asyncpg://user:pw@${RDS_ENDPOINT:-HOST}:5432/cognisuite)" "")
 put_secret "database-url" "$DATABASE_URL"
 
 REDIS_URL=$(get_value REDIS_URL "REDIS_URL (e.g. rediss://:AUTH@${REDIS_ENDPOINT:-HOST}:6379/0)" "")

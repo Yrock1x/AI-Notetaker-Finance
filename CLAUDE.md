@@ -1,4 +1,4 @@
-# DealWise AI - Project Guide
+# CogniSuite - Project Guide
 
 ## Overview
 Enterprise multi-tenant AI meeting intelligence platform for IB/PE/VC professionals.

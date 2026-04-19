@@ -11,12 +11,12 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# Help text returned for the /dealwise help command (or when no subcommand is given)
+# Help text returned for the /cognisuite help command (or when no subcommand is given)
 HELP_TEXT = (
-    "*Deal Companion Slash Commands*\n"
-    "`/dealwise help` - Show this help message\n"
-    "`/dealwise status` - Show current processing status\n"
-    "`/dealwise meetings` - List recent meetings\n"
+    "*CogniSuite Slash Commands*\n"
+    "`/cognisuite help` - Show this help message\n"
+    "`/cognisuite status` - Show current processing status\n"
+    "`/cognisuite meetings` - List recent meetings\n"
 )
 
 
@@ -58,7 +58,7 @@ class SlackEventHandler:
         visible to the invoking user.
 
         Args:
-            command: The slash command name (e.g. ``/dealwise``).
+            command: The slash command name (e.g. ``/cognisuite``).
             payload: The full Slack command payload dict.
 
         Returns:
@@ -102,7 +102,7 @@ class SlackEventHandler:
             "text": (
                 "*Processing Status*\n"
                 "No meetings are currently being processed.\n"
-                "Use `/dealwise meetings` to see recent meetings."
+                "Use `/cognisuite meetings` to see recent meetings."
             ),
         }
 

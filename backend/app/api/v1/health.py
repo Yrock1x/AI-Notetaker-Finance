@@ -18,7 +18,7 @@ router = APIRouter()
 @router.get("")
 async def health_check() -> dict:
     """Liveness — returns 200 once the process is up."""
-    return {"status": "healthy", "service": "dealwise-worker"}
+    return {"status": "healthy", "service": "cognisuite-worker"}
 
 
 @router.get("/ready", response_model=None)

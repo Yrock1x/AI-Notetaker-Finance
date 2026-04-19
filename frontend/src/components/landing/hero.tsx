@@ -28,7 +28,7 @@ export const Hero = () => {
           Advantage.
         </h2>
         <p className="hero-elem font-subheading text-lg md:text-xl max-w-md mb-10 text-[#F2F0E9]/80 font-medium leading-relaxed">
-          Deal Companion joins your meetings to take live transcriptions, notes, and summaries. Ask anything, collaborate with your deal team, and produce deliverables instantly.
+          CogniSuite joins your meetings to take live transcriptions, notes, and summaries. Ask anything, collaborate with your deal team, and produce deliverables instantly.
         </p>
         <div className="hero-elem flex flex-wrap gap-4">
           <Link href="/login" className="magnetic-btn relative bg-[#CC5833] text-white px-8 py-4 rounded-[2rem] font-subheading text-sm font-semibold overflow-hidden group shadow-xl">

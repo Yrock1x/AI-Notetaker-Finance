@@ -84,7 +84,7 @@ class TestBuildMeetingCompleteBlocks:
             "title": "Q4 Earnings Call",
             "deal_name": "Acme Corp Acquisition",
             "duration_minutes": 45,
-            "meeting_url": "https://app.dealwise.ai/meetings/123",
+            "meeting_url": "https://app.cognisuite.ai/meetings/123",
         }
         blocks = build_meeting_complete_blocks(meeting)
 
@@ -159,7 +159,7 @@ class TestBuildMeetingCompleteBlocks:
             "title": "Final Review",
             "deal_name": "Deal Y",
             "duration_minutes": 30,
-            "meeting_url": "https://app.dealwise.ai/meetings/456",
+            "meeting_url": "https://app.cognisuite.ai/meetings/456",
         }
         blocks = build_meeting_complete_blocks(meeting)
 

@@ -1,8 +1,8 @@
-# Fly.io deployment config for the DealWise worker.
+# Fly.io deployment config for the CogniSuite worker.
 #
 # Bootstrap:
 #     cd backend
-#     fly launch --no-deploy --copy-config --name dealwise-worker --region iad
+#     fly launch --no-deploy --copy-config --name cognisuite-worker --region iad
 #     fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...  # etc.
 #     fly deploy
 #
@@ -13,7 +13,7 @@
 # All runtime secrets come from `fly secrets`. Do NOT put secret values
 # here — this file is committed.
 
-app = "dealwise-worker"
+app = "cognisuite-worker"
 primary_region = "iad"
 
 [build]

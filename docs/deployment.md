@@ -2,7 +2,7 @@
 
 ## Infrastructure
 
-DealWise AI deploys to AWS using Terraform.
+CogniSuite deploys to AWS using Terraform.
 
 ### AWS Services Used
 

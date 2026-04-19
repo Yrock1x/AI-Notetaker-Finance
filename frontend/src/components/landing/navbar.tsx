@@ -45,7 +45,7 @@ export const Navbar = () => {
       ref={navRef}
       className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center justify-between px-6 py-3 rounded-[3rem] w-[90%] max-w-5xl transition-all border border-transparent text-[#F2F0E9]"
     >
-      <div className="font-heading font-bold text-lg tracking-tight">Deal Companion</div>
+      <div className="font-heading font-bold text-lg tracking-tight">CogniSuite</div>
       <div className="hidden md:flex items-center gap-8 font-subheading text-sm font-medium">
         <a href="#features" className="link-lift">Features</a>
         <a href="#philosophy" className="link-lift">Philosophy</a>

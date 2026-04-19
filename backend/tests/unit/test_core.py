@@ -289,7 +289,7 @@ class TestVerifyDealMembership:
 # ---------------------------------------------------------------------------
 from app.core.exceptions import (  # noqa: E402
     ConflictError,
-    DealWiseError,
+    CogniSuiteError,
     DomainValidationError,
     ExternalServiceError,
     NotFoundError,
@@ -299,24 +299,24 @@ from app.core.exceptions import (  # noqa: E402
 )
 
 
-class TestDealWiseError:
+class TestCogniSuiteError:
     def test_defaults(self):
-        err = DealWiseError("boom")
+        err = CogniSuiteError("boom")
         assert err.message == "boom"
         assert err.code == "INTERNAL_ERROR"
         assert err.status_code == 500
 
     def test_custom_code_and_status(self):
-        err = DealWiseError("x", code="CUSTOM", status_code=418)
+        err = CogniSuiteError("x", code="CUSTOM", status_code=418)
         assert err.code == "CUSTOM"
         assert err.status_code == 418
 
     def test_str_is_message(self):
-        err = DealWiseError("hello")
+        err = CogniSuiteError("hello")
         assert str(err) == "hello"
 
     def test_is_exception(self):
-        assert issubclass(DealWiseError, Exception)
+        assert issubclass(CogniSuiteError, Exception)
 
 
 class TestNotFoundError:
@@ -330,8 +330,8 @@ class TestNotFoundError:
         err = NotFoundError("Deal", "abc-123")
         assert err.message == "Deal 'abc-123' not found"
 
-    def test_inherits_dealwise_error(self):
-        assert issubclass(NotFoundError, DealWiseError)
+    def test_inherits_cognisuite_error(self):
+        assert issubclass(NotFoundError, CogniSuiteError)
 
 
 class TestPermissionDeniedError:
@@ -390,7 +390,7 @@ class TestExceptionHandlerRegistration:
         app = FastAPI()
         register_exception_handlers(app)
         # FastAPI stores handlers keyed by exception class
-        assert DealWiseError in app.exception_handlers
+        assert CogniSuiteError in app.exception_handlers
         assert Exception in app.exception_handlers
 
 
@@ -409,7 +409,7 @@ class TestSettingsDefaults:
 
     def test_app_name_default(self):
         s = Settings()
-        assert s.app_name == "Deal Companion"
+        assert s.app_name == "CogniSuite"
 
     def test_log_level_default(self):
         s = Settings()
@@ -425,7 +425,7 @@ class TestSettingsDefaults:
 
     def test_s3_bucket_default(self):
         s = Settings()
-        assert s.s3_bucket_name == "dealwise-local"
+        assert s.s3_bucket_name == "cognisuite-local"
 
     def test_s3_endpoint_url_default_none(self):
         s = Settings()

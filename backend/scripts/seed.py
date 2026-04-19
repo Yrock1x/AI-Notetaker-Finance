@@ -1,5 +1,5 @@
 """
-Database seed script for Deal Companion.
+Database seed script for CogniSuite.
 
 Populates the development database with realistic sample data:
   - 2 organizations
