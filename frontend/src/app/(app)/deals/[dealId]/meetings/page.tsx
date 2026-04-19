@@ -11,16 +11,32 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Plus, Upload, Bot, Archive } from "lucide-react";
 
-// "Active" = things the user is waiting on or participating in.
-// Anything past the live call — including every post-meeting pipeline
-// state and failures — lands in Archive so the top of the page stays
-// focused on what's current.
+// "Active" = things the user is waiting on or participating in. Anything
+// past the live call — including every post-meeting pipeline state and
+// failures — lands in Archive so the top of the page stays focused on
+// what's current.
 const ACTIVE_STATUSES = new Set(["scheduled", "recording", "uploading"]);
+
+// Auto-archive fallback: a "scheduled" row whose meeting_date is more
+// than this many minutes in the past almost certainly represents a
+// call that never happened (or the bot failed silently). Bump it to
+// Archive so stale rows don't clutter the top of the page forever.
+const STALE_ACTIVE_MINUTES = 120;
 
 function sortByDate(a: { meeting_date?: string | null; created_at: string }, b: typeof a, dir: "asc" | "desc") {
   const ta = new Date(a.meeting_date || a.created_at).getTime();
   const tb = new Date(b.meeting_date || b.created_at).getTime();
   return dir === "asc" ? ta - tb : tb - ta;
+}
+
+function isStaleActive(m: {
+  status: string;
+  meeting_date?: string | null;
+  created_at: string;
+}): boolean {
+  if (!ACTIVE_STATUSES.has(m.status)) return false;
+  const when = new Date(m.meeting_date || m.created_at).getTime();
+  return Date.now() - when > STALE_ACTIVE_MINUTES * 60 * 1000;
 }
 
 export default function MeetingsPage() {
@@ -33,10 +49,14 @@ export default function MeetingsPage() {
 
   const { active, archived } = useMemo(() => {
     const active = meetings
-      .filter((m) => ACTIVE_STATUSES.has(m.status))
+      .filter(
+        (m) => ACTIVE_STATUSES.has(m.status) && !isStaleActive(m)
+      )
       .sort((a, b) => sortByDate(a, b, "asc"));
     const archived = meetings
-      .filter((m) => !ACTIVE_STATUSES.has(m.status))
+      .filter(
+        (m) => !ACTIVE_STATUSES.has(m.status) || isStaleActive(m)
+      )
       .sort((a, b) => sortByDate(a, b, "desc"));
     return { active, archived };
   }, [meetings]);

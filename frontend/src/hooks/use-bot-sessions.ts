@@ -32,6 +32,7 @@ export interface ScheduleBotPayload {
   meeting_url: string;
   scheduled_start?: string | null;
   meeting_id?: string | null;
+  title?: string | null;
 }
 
 export function useBotSessions(
@@ -89,7 +90,9 @@ export function useScheduleBot() {
           .insert({
             org_id: deal.org_id,
             deal_id: payload.deal_id,
-            title: `Bot meeting — ${payload.platform}`,
+            title:
+              (payload.title ?? "").trim() ||
+              `Bot meeting — ${payload.platform}`,
             meeting_date: payload.scheduled_start ?? new Date().toISOString(),
             source: platformSource[payload.platform],
             source_url: payload.meeting_url,

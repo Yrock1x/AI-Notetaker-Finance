@@ -31,6 +31,7 @@ export function ScheduleBotDialog({
   dealId: presetDealId,
 }: ScheduleBotDialogProps) {
   const [meetingUrl, setMeetingUrl] = useState("");
+  const [title, setTitle] = useState("");
   const [platform, setPlatform] = useState<BotSession["platform"]>("zoom");
   const [dealId, setDealId] = useState<string>(presetDealId ?? "");
   const [scheduledStart, setScheduledStart] = useState<string>("");
@@ -56,6 +57,7 @@ export function ScheduleBotDialog({
 
   const reset = () => {
     setMeetingUrl("");
+    setTitle("");
     setPlatform("zoom");
     setScheduledStart("");
     setError("");
@@ -83,6 +85,7 @@ export function ScheduleBotDialog({
         platform,
         meeting_url: meetingUrl,
         scheduled_start: scheduledStart || null,
+        title: title.trim() || null,
       });
       reset();
     } catch (err) {
@@ -142,6 +145,20 @@ export function ScheduleBotDialog({
               </select>
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-medium" htmlFor="bot-title">
+              Meeting title
+            </label>
+            <input
+              id="bot-title"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Acme Corp — management presentation"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
 
           <div>
             <label className="block text-sm font-medium" htmlFor="bot-url">
