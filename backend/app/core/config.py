@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     deepgram_api_key: str = ""
     recall_api_key: str = ""
     recall_webhook_secret: str = ""
+    # Recall tokens are region-scoped — a key issued in us-east-1 gets 401 on
+    # us-west-2 and vice versa. Default to us-west-2 for continuity; override
+    # via env when the account lives elsewhere.
+    recall_region: str = "us-west-2"
 
     # Async jobs
     inngest_event_key: str = ""

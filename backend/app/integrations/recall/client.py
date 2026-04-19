@@ -14,15 +14,24 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_BASE_URL = "https://us-west-2.recall.ai/api/v1"
+DEFAULT_REGION = "us-west-2"
+
+
+def _base_url_for_region(region: str) -> str:
+    return f"https://{region}.recall.ai/api/v1"
 
 
 class RecallClient:
     """Thin async wrapper around the Recall.ai REST API."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        region: str | None = None,
+    ) -> None:
         self._api_key = api_key
-        self._base_url = base_url or DEFAULT_BASE_URL
+        self._base_url = base_url or _base_url_for_region(region or DEFAULT_REGION)
         self._headers = (
             {"Authorization": f"Token {api_key}", "Content-Type": "application/json"}
             if api_key

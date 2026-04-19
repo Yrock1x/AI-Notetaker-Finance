@@ -417,6 +417,12 @@ async def bot_start(
     body: BotRequest,
     supabase: Client = Depends(get_service_supabase),
 ) -> BotResponse:
+    # Fail fast before touching the DB — if the Recall key is missing, the
+    # call can never succeed and Inngest would otherwise keep retrying while
+    # leaving the meeting row in a half-populated 'recording' state.
+    if not settings.recall_api_key:
+        raise HTTPException(status_code=500, detail="RECALL_API_KEY not configured")
+
     sess_rows = (
         supabase.table("meeting_bot_sessions")
         .select("*")
@@ -430,7 +436,9 @@ async def bot_start(
     session = sess_rows[0]
 
     # Ensure a meetings row exists — without one, live-transcript writes have
-    # nowhere to land and the Live panel can't subscribe.
+    # nowhere to land and the Live panel can't subscribe. Leave status as
+    # 'scheduled'; the Recall status webhook flips it to 'recording' only
+    # once the bot is actually in-call.
     meeting_id = session.get("meeting_id")
     if not meeting_id:
         platform_source_map = {
@@ -449,7 +457,7 @@ async def bot_start(
                         session["platform"], "upload"
                     ),
                     "source_url": session["meeting_url"],
-                    "status": "recording",
+                    "status": "scheduled",
                     "created_by": session["created_by"],
                 }
             )
@@ -460,38 +468,53 @@ async def bot_start(
         supabase.table("meeting_bot_sessions").update(
             {"meeting_id": meeting_id}
         ).eq("id", session["id"]).execute()
-    else:
-        # Flip the existing meeting to 'recording' so the Live tab shows.
-        supabase.table("meetings").update({"status": "recording"}).eq(
-            "id", meeting_id
+
+    recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
+
+    try:
+        bot_data = await recall.create_bot(
+            meeting_url=session["meeting_url"],
+            bot_name="CogniSuite Notetaker",
+            recording_config={
+                "transcript": {"provider": {"deepgram_streaming": {}}},
+                # Stream participant join/leave events and in-meeting chat via
+                # the meeting platform's own channels. Recall fans these out to
+                # the same webhook as transcript events.
+                "participant_events": {
+                    "provider": {"meeting_platform": {}},
+                },
+                "chat": {
+                    "provider": {"meeting_platform": {}},
+                },
+            },
+            metadata={
+                "session_id": session["id"],
+                "org_id": session["org_id"],
+                "deal_id": session["deal_id"],
+                "meeting_id": meeting_id,
+            },
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500]
+        logger.error(
+            "recall_create_bot_failed session_id=%s status=%s body=%s",
+            session["id"],
+            exc.response.status_code,
+            detail,
+        )
+        supabase.table("meeting_bot_sessions").update({"status": "failed"}).eq(
+            "id", session["id"]
         ).execute()
-
-    if not settings.recall_api_key:
-        raise HTTPException(status_code=500, detail="RECALL_API_KEY not configured")
-    recall = RecallClient(api_key=settings.recall_api_key)
-
-    bot_data = await recall.create_bot(
-        meeting_url=session["meeting_url"],
-        bot_name="CogniSuite Notetaker",
-        recording_config={
-            "transcript": {"provider": {"deepgram_streaming": {}}},
-            # Stream participant join/leave events and in-meeting chat via
-            # the meeting platform's own channels. Recall fans these out to
-            # the same webhook as transcript events.
-            "participant_events": {
-                "provider": {"meeting_platform": {}},
-            },
-            "chat": {
-                "provider": {"meeting_platform": {}},
-            },
-        },
-        metadata={
-            "session_id": session["id"],
-            "org_id": session["org_id"],
-            "deal_id": session["deal_id"],
-            "meeting_id": meeting_id,
-        },
-    )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Recall.ai rejected bot create ({exc.response.status_code}): {detail}",
+        ) from exc
+    except Exception as exc:
+        logger.exception("recall_create_bot_error session_id=%s", session["id"])
+        supabase.table("meeting_bot_sessions").update({"status": "failed"}).eq(
+            "id", session["id"]
+        ).execute()
+        raise HTTPException(status_code=502, detail=f"Recall.ai call failed: {exc}") from exc
 
     recall_bot_id = bot_data.get("id")
     supabase.table("meeting_bot_sessions").update(
@@ -530,7 +553,7 @@ async def bot_stop(
 
     if settings.recall_api_key and session.get("recall_bot_id"):
         try:
-            recall = RecallClient(api_key=settings.recall_api_key)
+            recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
             await recall.leave_bot(session["recall_bot_id"])
         except Exception:
             logger.exception("recall_leave_failed bot_id=%s", session["recall_bot_id"])

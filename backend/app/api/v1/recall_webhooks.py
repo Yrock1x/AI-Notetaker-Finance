@@ -213,7 +213,14 @@ async def _handle_status_change(
         "id", session["id"]
     ).execute()
 
-    if next_status == "completed" and session.get("meeting_id"):
+    # Keep meetings.status in sync with the bot's real lifecycle. bot_start
+    # intentionally leaves the meeting at 'scheduled' until Recall confirms
+    # the bot is in-call, so the Live tab's "waiting" state is truthful.
+    if next_status == "recording" and session.get("meeting_id"):
+        service_supabase.table("meetings").update({"status": "recording"}).eq(
+            "id", session["meeting_id"]
+        ).execute()
+    elif next_status == "completed" and session.get("meeting_id"):
         # Flip the meeting status and enqueue the post-meeting pipeline so
         # embeddings + analyses run over the finalized transcript.
         service_supabase.table("meetings").update({"status": "uploaded"}).eq(
