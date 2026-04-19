@@ -6,14 +6,16 @@ import Link from "next/link";
 import { useMeetings } from "@/hooks/use-meetings";
 import { MeetingCard } from "@/components/meetings/meeting-card";
 import { UploadDialog } from "@/components/meetings/upload-dialog";
+import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, Bot } from "lucide-react";
 
 export default function MeetingsPage() {
   const params = useParams<{ dealId: string }>();
   const { data, isLoading } = useMeetings(params.dealId);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const meetings = data?.items ?? [];
 
@@ -21,13 +23,22 @@ export default function MeetingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Meetings</h2>
-        <button
-          onClick={() => setUploadOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Upload className="h-4 w-4" />
-          Upload Recording
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setScheduleOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md border border-primary bg-white px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5"
+          >
+            <Bot className="h-4 w-4" />
+            Schedule Notetaker
+          </button>
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Upload className="h-4 w-4" />
+            Upload Recording
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -63,6 +74,11 @@ export default function MeetingsPage() {
         dealId={params.dealId}
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+      />
+      <ScheduleBotDialog
+        dealId={params.dealId}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
       />
     </div>
   );

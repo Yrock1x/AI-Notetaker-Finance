@@ -11,7 +11,8 @@ import {
 } from "@/hooks/use-bot-sessions";
 import type { BotSession } from "@/hooks/use-bot-sessions";
 import { LoadingState } from "@/components/shared/loading-state";
-import { ChevronLeft, ChevronRight, Clock, Video } from "lucide-react";
+import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
+import { Bot, ChevronLeft, ChevronRight, Clock, Video } from "lucide-react";
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -179,6 +180,7 @@ export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
   const [hiddenDeals, setHiddenDeals] = useState<Set<string>>(new Set());
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Map meeting_url -> existing bot session so the toggle stays in sync with
   // server state and we can cancel the right session on toggle-off.
@@ -295,15 +297,29 @@ export default function CalendarPage() {
   return (
     <div className="space-y-10 antialiased">
       {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary">
-          Meeting Calendar
-        </h1>
-        <p className="font-subheading text-[#1A1A1A]/60 text-lg font-medium leading-relaxed">
-          Scheduled meetings across all active deals. Toggle CogniSuite to
-          auto-join and record.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary">
+            Meeting Calendar
+          </h1>
+          <p className="font-subheading text-[#1A1A1A]/60 text-lg font-medium leading-relaxed">
+            Scheduled meetings across all active deals. Toggle CogniSuite to
+            auto-join and record.
+          </p>
+        </div>
+        <button
+          onClick={() => setScheduleOpen(true)}
+          className="inline-flex shrink-0 items-center gap-2 self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <Bot className="h-4 w-4" />
+          Schedule Notetaker
+        </button>
       </div>
+
+      <ScheduleBotDialog
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+      />
 
       {/* Deal filters */}
       <div className="flex flex-wrap items-center gap-3">
