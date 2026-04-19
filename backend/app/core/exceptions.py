@@ -80,7 +80,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
         from app.core.config import settings as _settings
-        error_message = str(exc) if _settings.demo_mode else "An unexpected error occurred"
+        error_message = (
+            str(exc) if not _settings.is_production else "An unexpected error occurred"
+        )
 
         return JSONResponse(
             status_code=500,

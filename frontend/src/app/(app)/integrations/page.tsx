@@ -34,47 +34,43 @@ const PLATFORM_CONFIG: Record<
   zoom: {
     name: "Zoom",
     icon: Video,
-    description: "Record meetings, import transcripts, and deploy AI notetaker bots",
+    description:
+      "Sync upcoming Zoom meetings, deploy the AI notetaker, and ingest cloud recordings.",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
     supportsBot: true,
   },
-  teams: {
-    name: "Microsoft Teams",
+  microsoft: {
+    name: "Microsoft 365",
     icon: Video,
-    description: "Record Teams meetings and capture live transcription data",
+    description:
+      "One connection covers Teams meetings, Outlook calendar sync, and Graph call records.",
     color: "text-indigo-600",
     bgColor: "bg-indigo-50",
+    supportsBot: true,
+  },
+  google: {
+    name: "Google Workspace",
+    icon: Calendar,
+    description:
+      "Sync Google Calendar events; the notetaker bot joins embedded Meet links automatically.",
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-50",
     supportsBot: true,
   },
   slack: {
     name: "Slack",
     icon: MessageSquare,
-    description: "Push deal updates, analysis alerts, and meeting summaries to channels",
+    description:
+      "Push deal updates, analysis alerts, and meeting summaries to channels.",
     color: "text-purple-600",
     bgColor: "bg-purple-50",
     supportsBot: false,
   },
-  outlook: {
-    name: "Outlook Calendar",
-    icon: Calendar,
-    description: "Sync calendar events to auto-schedule meeting bots",
-    color: "text-sky-600",
-    bgColor: "bg-sky-50",
-    supportsBot: false,
-  },
-  google_meet: {
-    name: "Google Meet",
-    icon: Video,
-    description:
-      "Paste a Meet URL when scheduling — no OAuth needed; the Recall bot joins on your behalf.",
-    color: "text-emerald-600",
-    bgColor: "bg-emerald-50",
-    supportsBot: true,
-  },
 };
 
-const NO_OAUTH_PLATFORMS = new Set(["google_meet"]);
+// No-OAuth platforms are surfaced as informational cards only.
+const NO_OAUTH_PLATFORMS = new Set<string>();
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -155,7 +151,7 @@ export default function IntegrationsPage() {
             }`}
           />
           <span className="text-sm font-bold text-primary">
-            {connectedCount} of 4 connected
+            {connectedCount} of {Object.keys(PLATFORM_CONFIG).length} connected
           </span>
         </div>
         <span className="text-xs text-[#1A1A1A]/40">
@@ -267,16 +263,18 @@ export default function IntegrationsPage() {
         </div>
 
         <div className="mt-4 rounded-xl bg-[#F2F0E9]/30 p-4">
-          {connectedPlatforms.has("zoom") || connectedPlatforms.has("teams") ? (
+          {connectedPlatforms.has("zoom") ||
+          connectedPlatforms.has("microsoft") ||
+          connectedPlatforms.has("google") ? (
             <div className="flex items-center gap-2">
               <Check className="h-4 w-4 text-emerald-600" />
               <span className="text-xs font-bold text-emerald-700">
-                Bot ready — connect a meeting platform above, then schedule a bot from any deal.
+                Bot ready — pick an upcoming meeting on the calendar and toggle the notetaker.
               </span>
             </div>
           ) : (
             <p className="text-xs text-[#1A1A1A]/40">
-              Connect Zoom or Microsoft Teams above to enable the AI notetaker bot for your meetings.
+              Connect Zoom, Microsoft 365, or Google Workspace above to enable the AI notetaker for your meetings.
             </p>
           )}
         </div>

@@ -11,8 +11,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from supabase import Client
 
-from app.api.v1.qa import _build_llm_router
-from app.dependencies import AuthUser, get_current_user, get_user_supabase
+from app.dependencies import (
+    AuthUser,
+    get_current_user,
+    get_llm_router,
+    get_user_supabase,
+)
 from app.schemas.analysis import AnalysisRequest, AnalysisResponse
 from app.services.analysis_service import AnalysisService
 
@@ -41,7 +45,7 @@ async def list_analyses(
     supabase: Client = Depends(get_user_supabase),
     _user: AuthUser = Depends(get_current_user),
 ) -> list[AnalysisResponse]:
-    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
     rows = await svc.list_analyses(meeting_id)
     return [AnalysisResponse.model_validate(r) for r in rows]
 
@@ -60,7 +64,7 @@ async def run_analysis(
     added by the frontend's ``meeting/uploaded`` event.
     """
     org_id = _meeting_org(supabase, meeting_id)
-    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
     row = await svc.run_analysis(
         meeting_id=meeting_id,
         org_id=org_id,
@@ -76,7 +80,7 @@ async def get_latest_analysis(
     supabase: Client = Depends(get_user_supabase),
     _user: AuthUser = Depends(get_current_user),
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
     rows = await svc.list_analyses(meeting_id)
     if not rows:
         raise HTTPException(status_code=404, detail="No analyses found")
@@ -90,7 +94,7 @@ async def get_analysis(
     supabase: Client = Depends(get_user_supabase),
     _user: AuthUser = Depends(get_current_user),
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
     try:
         row = await svc.get_analysis(analysis_id)
     except LookupError as exc:
@@ -107,7 +111,7 @@ async def rerun_analysis(
     supabase: Client = Depends(get_user_supabase),
     current_user: AuthUser = Depends(get_current_user),  # noqa: ARG001 - reserved
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=_build_llm_router())
+    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
     try:
         row = await svc.rerun_analysis(analysis_id)
     except LookupError as exc:

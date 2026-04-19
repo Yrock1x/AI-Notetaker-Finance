@@ -1,12 +1,8 @@
-// Inngest function definitions. Each function is the TypeScript port of
-// one of the old Celery chains — except the heavy Python work (Deepgram
-// SDK call, LLM routing, docx rendering) is still done by the FastAPI
-// worker. Inngest is pure orchestration: step.run() blocks are tiny HTTP
-// calls that either hit the worker or write to Supabase directly.
-//
-// Why not do it all in TypeScript? We'd lose the prompt library, guardrails
-// module, and grounding checks that already work in Python. Keeping one
-// HTTP hop lets us keep Python code that doesn't need to move.
+import "server-only";
+
+// Inngest orchestration. step.run blocks are small HTTP calls: either to the
+// Python worker (Deepgram, LLM routing, docx rendering) or straight to
+// Supabase via the service-role client for status updates.
 
 import { createClient } from "@supabase/supabase-js";
 import { inngest } from "./client";
@@ -220,29 +216,137 @@ export const ingestZoomRecording = inngest.createFunction(
   }
 );
 
-// ---------------------------------------------------------------------------
-// Scheduled: sync Outlook calendars every 15 min.
-// ---------------------------------------------------------------------------
-export const syncOutlookCalendars = inngest.createFunction(
-  { id: "sync-outlook-calendars" },
-  { cron: "*/15 * * * *" },
-  async ({ step }) => {
-    await step.run("fanout", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/outlook/sync-all`,
-        { method: "POST", headers: internalHeaders() }
-      );
-      if (!r.ok) throw new Error(`outlook sync failed: ${r.status}`);
-    });
-  }
-);
-
 function internalHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "X-Internal-Token": process.env.WORKER_INTERNAL_TOKEN || "",
   };
 }
+
+// ---------------------------------------------------------------------------
+// calendar sync — cron fan-out + per-user sync
+// ---------------------------------------------------------------------------
+
+// Runs every 30 min; fans out one `calendar/sync.requested` event per active
+// integration so each user's calendar gets pulled independently.
+export const syncCalendars = inngest.createFunction(
+  { id: "sync-calendars" },
+  { cron: "TZ=UTC */30 * * * *" },
+  async ({ step }) => {
+    const integrations = await step.run("list-active-integrations", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
+        { headers: internalHeaders() }
+      );
+      if (!r.ok) throw new Error(`list-active-integrations failed: ${r.status}`);
+      const body = (await r.json()) as {
+        integrations: { org_id: string; user_id: string; platform: string }[];
+      };
+      return body.integrations;
+    });
+
+    if (integrations.length === 0) return { integrations: 0 };
+
+    await step.sendEvent(
+      "fan-out-calendar-sync",
+      integrations.map((i) => ({
+        name: "calendar/sync.requested",
+        data: i,
+      }))
+    );
+
+    return { integrations: integrations.length };
+  }
+);
+
+export const syncCalendarForUser = inngest.createFunction(
+  { id: "sync-calendar-for-user", concurrency: { limit: 4 } },
+  { event: "calendar/sync.requested" },
+  async ({ event, step }) => {
+    const { org_id, user_id, platform } = event.data as {
+      org_id: string;
+      user_id: string;
+      platform: string;
+    };
+    const result = await step.run("worker-sync", async () => {
+      const r = await fetch(`${WORKER_URL}/api/v1/internal/calendar/sync`, {
+        method: "POST",
+        headers: internalHeaders(),
+        body: JSON.stringify({ org_id, user_id, platform }),
+      });
+      if (!r.ok) throw new Error(`calendar sync failed: ${r.status}`);
+      return (await r.json()) as {
+        events_seen: number;
+        meetings_upserted: number;
+      };
+    });
+    return { platform, user_id, ...result };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Microsoft Graph subscription renewal — runs every 12h. For each active
+// 'microsoft' integration, asks the worker to create or renew the callRecords
+// subscription. Graph's max lifetime for that resource is ~2.9 days, so we
+// renew well before the 24h-before-expiry cutoff the worker enforces.
+// ---------------------------------------------------------------------------
+
+export const renewMicrosoftSubscriptions = inngest.createFunction(
+  { id: "renew-microsoft-subscriptions" },
+  { cron: "TZ=UTC 0 */12 * * *" },
+  async ({ step }) => {
+    const integrations = await step.run("list-microsoft", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
+        { headers: internalHeaders() }
+      );
+      if (!r.ok) throw new Error(`list failed: ${r.status}`);
+      const body = (await r.json()) as {
+        integrations: { org_id: string; user_id: string; platform: string }[];
+      };
+      return body.integrations.filter((i) => i.platform === "microsoft");
+    });
+
+    if (integrations.length === 0) return { integrations: 0 };
+
+    await step.sendEvent(
+      "fan-out-renew",
+      integrations.map((i) => ({
+        name: "microsoft/subscription.ensure",
+        data: { org_id: i.org_id, user_id: i.user_id },
+      }))
+    );
+    return { integrations: integrations.length };
+  }
+);
+
+export const ensureMicrosoftSubscription = inngest.createFunction(
+  { id: "ensure-microsoft-subscription", concurrency: { limit: 4 } },
+  { event: "microsoft/subscription.ensure" },
+  async ({ event, step }) => {
+    const { org_id, user_id } = event.data as {
+      org_id: string;
+      user_id: string;
+    };
+    const result = await step.run("worker-ensure", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/microsoft/ensure-subscription`,
+        {
+          method: "POST",
+          headers: internalHeaders(),
+          body: JSON.stringify({ org_id, user_id }),
+        }
+      );
+      if (!r.ok) throw new Error(`ensure failed: ${r.status}`);
+      return (await r.json()) as {
+        subscription_id: string;
+        expiration: string;
+        action: string;
+      };
+    });
+    return { user_id, ...result };
+  }
+);
 
 export const functions = [
   processMeeting,
@@ -251,5 +355,8 @@ export const functions = [
   cancelBotSession,
   ingestZoomRecording,
   processTeamsCallRecord,
-  syncOutlookCalendars,
+  syncCalendars,
+  syncCalendarForUser,
+  renewMicrosoftSubscriptions,
+  ensureMicrosoftSubscription,
 ];

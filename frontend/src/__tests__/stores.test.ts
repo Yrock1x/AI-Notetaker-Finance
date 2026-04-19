@@ -1,13 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useOrgStore } from "@/stores/org-store";
+import { useOrgSelection } from "@/stores/org-store";
 import { useUIStore } from "@/stores/ui-store";
-import type { Organization } from "@/types";
 
-// The auth store is a Supabase-backed shim — its behaviour is driven by
-// @supabase/ssr cookies, not by local state. Testing it in isolation would
-// require mocking the whole Supabase client; the effective contract is
-// verified by middleware + the browser flow. Only the org + UI stores are
-// covered here.
+// Auth session lives in @supabase/ssr cookies — tested via middleware +
+// browser flow, not in isolation here. Org selection (just an id) and the UI
+// store are the only client-side stores worth unit testing.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,55 +46,31 @@ if (typeof globalThis.window === "undefined") {
   });
 }
 
-function makeOrg(overrides?: Partial<Organization>): Organization {
-  return {
-    id: "org-1",
-    name: "Acme Capital",
-    slug: "acme-capital",
-    settings: {},
-    created_at: "2024-01-01T00:00:00Z",
-    updated_at: "2024-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
-
 // ---------------------------------------------------------------------------
-// Org Store
+// Org Selection Store
 // ---------------------------------------------------------------------------
-describe("useOrgStore", () => {
+describe("useOrgSelection", () => {
   beforeEach(() => {
     localStorageMock._reset();
-    useOrgStore.setState({ currentOrg: null, orgs: [] });
+    useOrgSelection.setState({ currentOrgId: null });
   });
 
-  it("starts with null currentOrg", () => {
-    expect(useOrgStore.getState().currentOrg).toBeNull();
+  it("starts with null currentOrgId", () => {
+    expect(useOrgSelection.getState().currentOrgId).toBeNull();
   });
 
-  it("starts with empty orgs array", () => {
-    expect(useOrgStore.getState().orgs).toEqual([]);
-  });
-
-  it("persists org_id to localStorage when org is set", () => {
-    const org = makeOrg({ id: "org-42" });
-    useOrgStore.getState().setCurrentOrg(org);
+  it("persists org_id to localStorage when set", () => {
+    useOrgSelection.getState().setCurrentOrgId("org-42");
     expect(localStorageMock.setItem).toHaveBeenCalledWith("org_id", "org-42");
+    expect(useOrgSelection.getState().currentOrgId).toBe("org-42");
   });
 
-  it("removes org_id when org is cleared", () => {
-    useOrgStore.getState().setCurrentOrg(makeOrg());
+  it("removes org_id from localStorage when cleared", () => {
+    useOrgSelection.getState().setCurrentOrgId("org-1");
     localStorageMock.removeItem.mockClear();
-    useOrgStore.getState().setCurrentOrg(null);
+    useOrgSelection.getState().setCurrentOrgId(null);
     expect(localStorageMock.removeItem).toHaveBeenCalledWith("org_id");
-  });
-
-  it("replaces the orgs array on setOrgs", () => {
-    useOrgStore.getState().setOrgs([makeOrg({ id: "org-1" })]);
-    useOrgStore.getState().setOrgs([
-      makeOrg({ id: "org-2" }),
-      makeOrg({ id: "org-3" }),
-    ]);
-    expect(useOrgStore.getState().orgs).toHaveLength(2);
+    expect(useOrgSelection.getState().currentOrgId).toBeNull();
   });
 });
 

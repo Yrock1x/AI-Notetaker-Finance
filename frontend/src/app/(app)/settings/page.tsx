@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useSupabaseSession,
+  userDisplayName,
+} from "@/hooks/use-supabase-session";
 import { useUIStore } from "@/stores/ui-store";
 
 export default function SettingsPage() {
-  const user = useAuthStore((state) => state.user);
+  const { user } = useSupabaseSession();
+  const displayName = userDisplayName(user);
   const { theme, setTheme } = useUIStore();
 
   useEffect(() => {
@@ -34,10 +38,10 @@ export default function SettingsPage() {
         <div className="mt-4 space-y-3">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-lg text-primary-foreground">
-              {user?.full_name?.charAt(0)?.toUpperCase() ?? "?"}
+              {displayName.charAt(0)?.toUpperCase() || "?"}
             </div>
             <div>
-              <p className="font-medium">{user?.full_name ?? "Unknown"}</p>
+              <p className="font-medium">{displayName || "Unknown"}</p>
               <p className="text-sm text-muted-foreground">{user?.email ?? ""}</p>
             </div>
           </div>

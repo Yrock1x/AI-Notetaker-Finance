@@ -21,8 +21,8 @@ const TranscriptViewer = dynamic(
   () => import("@/components/transcripts/transcript-viewer").then((m) => ({ default: m.TranscriptViewer })),
   { loading: () => <TabSkeleton /> }
 );
-const MeetingQAChat = dynamic(
-  () => import("@/components/qa/meeting-qa-chat").then((m) => ({ default: m.MeetingQAChat })),
+const QAChat = dynamic(
+  () => import("@/components/qa/qa-chat").then((m) => ({ default: m.QAChat })),
   { loading: () => <TabSkeleton /> }
 );
 const AnalysisPanel = dynamic(
@@ -33,6 +33,13 @@ const LiveTranscriptPanel = dynamic(
   () =>
     import("@/components/transcripts/live-transcript-panel").then((m) => ({
       default: m.LiveTranscriptPanel,
+    })),
+  { loading: () => <TabSkeleton /> }
+);
+const AttendeesPanel = dynamic(
+  () =>
+    import("@/components/meetings/attendees-panel").then((m) => ({
+      default: m.AttendeesPanel,
     })),
   { loading: () => <TabSkeleton /> }
 );
@@ -61,10 +68,16 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-100 text-red-800",
 };
 
-type MeetingTab = "live" | "transcript" | "analysis" | "chat";
+type MeetingTab =
+  | "live"
+  | "transcript"
+  | "attendees"
+  | "analysis"
+  | "chat";
 
 const BASE_TABS: { key: MeetingTab; label: string }[] = [
   { key: "transcript", label: "Transcript" },
+  { key: "attendees", label: "Attendees" },
   { key: "analysis", label: "Analysis" },
   { key: "chat", label: "AI Chat" },
 ];
@@ -194,12 +207,16 @@ export default function MeetingDetailPage() {
             <TranscriptViewer meetingId={meeting.id} />
           )}
 
+          {activeTab === "attendees" && (
+            <AttendeesPanel meetingId={params.meetingId} />
+          )}
+
           {activeTab === "analysis" && hasContent && (
             <AnalysisTabContent meetingId={params.meetingId} />
           )}
 
           {activeTab === "chat" && hasContent && (
-            <MeetingQAChat meetingId={params.meetingId} />
+            <QAChat scope="meeting" meetingId={params.meetingId} />
           )}
         </>
       )}

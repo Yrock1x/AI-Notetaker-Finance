@@ -15,7 +15,7 @@ export default function QAPage() {
           transcripts and uploaded documents with citations.
         </p>
       </div>
-      <QAChat dealId={params.dealId} />
+      <QAChat scope="deal" dealId={params.dealId} />
     </div>
   );
 }

@@ -1,81 +1,228 @@
-"""OAuth + meeting-bot integration endpoints.
+"""OAuth connect / callback / disconnect endpoints.
 
-TEMPORARY STUB: the OAuth flow previously depended on a SQLAlchemy
-``IntegrationService`` that stored Fernet-encrypted tokens in the
-``integration_credentials`` table. That table now lives in Supabase and
-the flow will be re-implemented against ``supabase-py`` in the Inngest
-port PR (see plan Phase 5).
+Three platforms currently supported:
 
-Until then these endpoints return 501 so callers fail fast rather than
-appearing to "work" with a broken flow. The frontend integrations page
-will show the OAuth cards as disabled.
+- ``zoom``      — Zoom meetings + cloud recordings
+- ``microsoft`` — Teams + Outlook + Calendar (one OAuth app)
+- ``google``    — Google Calendar + Meet
+
+The ``POST /connect`` endpoint returns an ``authorization_url`` that the SPA
+redirects the browser to. ``GET /callback`` is called by the OAuth provider
+after consent; it stores tokens and 302s back to ``FRONTEND_URL/integrations``.
+``DELETE /disconnect`` soft-deletes the credential row.
+
+Bot scheduling endpoints that used to live here were moved to
+``/api/v1/internal/bot/*`` — the frontend talks to Supabase directly for
+``meeting_bot_sessions`` CRUD and fires Inngest events from the browser.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from typing import cast
+from uuid import UUID
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
+from supabase import Client
+
+from app.core.config import settings
+from app.dependencies import AuthUser, get_current_user, get_service_supabase
+from app.integrations.google import oauth as google_oauth
+from app.integrations.microsoft import oauth as microsoft_oauth
+from app.integrations.zoom import oauth as zoom_oauth
+from app.services.oauth_tokens import (
+    Platform,
+    build_state,
+    deactivate_credentials,
+    list_user_integrations,
+    redirect_uri_for,
+    save_credentials,
+    verify_state,
+)
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
 
+SUPPORTED_PLATFORMS: set[Platform] = {"zoom", "microsoft", "google"}
+
+
+def _assert_supported(platform: str) -> Platform:
+    if platform not in SUPPORTED_PLATFORMS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported platform '{platform}'",
+        )
+    return cast(Platform, platform)
+
+
+def _resolve_default_org(sb: Client, user_id: UUID) -> UUID:
+    """Pick the user's first org membership as the default scope for the
+    credential row. Users with multiple orgs are out of scope for v1 — they'll
+    get tokens attached to whichever org comes back first."""
+    resp = (
+        sb.table("org_memberships")
+        .select("org_id")
+        .eq("user_id", str(user_id))
+        .limit(1)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User has no org membership; cannot connect integration",
+        )
+    return UUID(resp.data[0]["org_id"])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/integrations
+# ---------------------------------------------------------------------------
+
+
 @router.get("")
-async def list_integrations() -> list[dict]:
-    """Return an empty list until OAuth is re-implemented."""
-    return []
+async def list_integrations(
+    user: AuthUser = Depends(get_current_user),
+    sb: Client = Depends(get_service_supabase),
+) -> list[dict]:
+    return list_user_integrations(sb, user_id=user.id)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/integrations/{platform}/connect
+# ---------------------------------------------------------------------------
 
 
 @router.post("/{platform}/connect")
-async def initiate_oauth(platform: str) -> dict:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=(
-            "OAuth connect is being reimplemented on Supabase; see the "
-            "migration plan Phase 5."
-        ),
-    )
+async def initiate_oauth(
+    platform: str,
+    user: AuthUser = Depends(get_current_user),
+    sb: Client = Depends(get_service_supabase),
+) -> dict:
+    p = _assert_supported(platform)
+    org_id = _resolve_default_org(sb, user.id)
+    state = build_state(org_id, user.id, p)
+    redirect_uri = redirect_uri_for(p)
+
+    if p == "zoom":
+        if not settings.zoom_client_id:
+            raise HTTPException(500, "Zoom OAuth is not configured")
+        url = zoom_oauth.build_authorize_url(
+            client_id=settings.zoom_client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+    elif p == "microsoft":
+        if not settings.microsoft_client_id:
+            raise HTTPException(500, "Microsoft OAuth is not configured")
+        url = microsoft_oauth.build_authorize_url(
+            client_id=settings.microsoft_client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+    elif p == "google":
+        if not settings.google_client_id:
+            raise HTTPException(500, "Google OAuth is not configured")
+        url = google_oauth.build_authorize_url(
+            client_id=settings.google_client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+    else:  # pragma: no cover - guarded above
+        raise HTTPException(400, f"Unsupported platform {p}")
+
+    logger.info("oauth_connect_initiated", platform=p, user_id=str(user.id))
+    return {"authorization_url": url}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/integrations/{platform}/callback
+# ---------------------------------------------------------------------------
 
 
 @router.get("/{platform}/callback")
-async def oauth_callback(platform: str) -> dict:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="OAuth callback is being reimplemented on Supabase.",
+async def oauth_callback(
+    platform: str,
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    sb: Client = Depends(get_service_supabase),
+) -> RedirectResponse:
+    p = _assert_supported(platform)
+    frontend = (settings.frontend_url or "http://localhost:3000").rstrip("/")
+    return_to = f"{frontend}/integrations"
+
+    if error:
+        logger.warning("oauth_callback_provider_error", platform=p, error=error)
+        return RedirectResponse(
+            url=f"{return_to}?error={error}", status_code=302
+        )
+    if not code or not state:
+        raise HTTPException(400, "Missing code or state in OAuth callback")
+
+    try:
+        claims = verify_state(state)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if claims.get("platform") != p:
+        raise HTTPException(400, "OAuth state platform mismatch")
+
+    org_id = UUID(claims["org_id"])
+    user_id = UUID(claims["user_id"])
+    redirect_uri = redirect_uri_for(p)
+
+    if p == "zoom":
+        tokens = await zoom_oauth.exchange_code(
+            client_id=settings.zoom_client_id,
+            client_secret=settings.zoom_client_secret,
+            redirect_uri=redirect_uri,
+            code=code,
+        )
+    elif p == "microsoft":
+        tokens = await microsoft_oauth.exchange_code(
+            client_id=settings.microsoft_client_id,
+            client_secret=settings.microsoft_client_secret,
+            redirect_uri=redirect_uri,
+            code=code,
+        )
+    elif p == "google":
+        tokens = await google_oauth.exchange_code(
+            client_id=settings.google_client_id,
+            client_secret=settings.google_client_secret,
+            redirect_uri=redirect_uri,
+            code=code,
+        )
+    else:  # pragma: no cover
+        raise HTTPException(400, f"Unsupported platform {p}")
+
+    save_credentials(
+        sb,
+        org_id=org_id,
+        user_id=user_id,
+        platform=p,
+        access_token=tokens["access_token"],
+        refresh_token=tokens.get("refresh_token"),
+        expires_in_seconds=tokens.get("expires_in"),
+        scopes=tokens.get("scope"),
     )
+
+    return RedirectResponse(url=f"{return_to}?connected={p}", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/v1/integrations/{platform}/disconnect
+# ---------------------------------------------------------------------------
 
 
 @router.delete("/{platform}/disconnect", status_code=204)
-async def disconnect_integration(platform: str) -> None:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="OAuth disconnect is being reimplemented on Supabase.",
-    )
-
-
-@router.post("/bot/sessions", status_code=201)
-async def schedule_bot() -> dict:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=(
-            "Bot scheduling is being reimplemented via Inngest + Recall; "
-            "see the migration plan Phase 5."
-        ),
-    )
-
-
-@router.get("/bot/sessions")
-async def list_bot_sessions() -> list[dict]:
-    """Return an empty list until bot scheduling is reimplemented.
-
-    The frontend calendar page tolerates an empty list — it just means no
-    bots are currently scheduled. Supabase RLS serves the actual
-    ``meeting_bot_sessions`` reads directly from the browser now.
-    """
-    return []
-
-
-@router.delete("/bot/sessions/{session_id}", status_code=204)
-async def cancel_bot_session(session_id: str) -> None:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Bot cancellation is being reimplemented.",
-    )
+async def disconnect_integration(
+    platform: str,
+    user: AuthUser = Depends(get_current_user),
+    sb: Client = Depends(get_service_supabase),
+) -> None:
+    p = _assert_supported(platform)
+    org_id = _resolve_default_org(sb, user.id)
+    deactivate_credentials(sb, org_id=org_id, user_id=user.id, platform=p)
+    logger.info("oauth_disconnected", platform=p, user_id=str(user.id))

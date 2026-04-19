@@ -12,35 +12,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
-from app.core.config import get_settings
-from app.dependencies import AuthUser, get_current_user, get_user_supabase
-from app.llm.fireworks_provider import (
-    FireworksEmbeddingProvider,
-    FireworksProvider,
+from app.dependencies import (
+    AuthUser,
+    get_current_user,
+    get_llm_router,
+    get_user_supabase,
 )
-from app.llm.router import LLMRouter
 from app.schemas.common import PaginatedResponse
 from app.schemas.qa import QAHistoryResponse, QARequest, QAResponse
 from app.services.qa_service import QAService
 
 router = APIRouter()
 meeting_qa_router = APIRouter()
-
-
-def _build_llm_router() -> LLMRouter:
-    settings = get_settings()
-    r = LLMRouter()
-    if settings.fireworks_api_key:
-        r.register_provider("fireworks", FireworksProvider(settings.fireworks_api_key))
-        r.register_embedding_provider(
-            "fireworks", FireworksEmbeddingProvider(settings.fireworks_api_key)
-        )
-    if settings.premium_llm_enabled and settings.anthropic_api_key:
-        # Lazy import so Anthropic is never required unless opted in.
-        from app.llm.anthropic_provider import AnthropicProvider  # type: ignore
-
-        r.register_provider("anthropic", AnthropicProvider(settings.anthropic_api_key))
-    return r
 
 
 def _persist_interaction(
@@ -87,7 +70,7 @@ async def ask_question(
     supabase: Client = Depends(get_user_supabase),
 ) -> QAResponse:
     """Ask a question scoped to a deal (RAG over all deal artefacts)."""
-    llm_router = _build_llm_router()
+    llm_router = get_llm_router()
     qa = QAService(supabase=supabase, llm_router=llm_router)
     result = await qa.ask(deal_id=deal_id, question=payload.question)
 
@@ -147,7 +130,7 @@ async def ask_meeting_question(
         )
     deal_id = UUID(meeting_rows[0]["deal_id"])
 
-    llm_router = _build_llm_router()
+    llm_router = get_llm_router()
     qa = QAService(supabase=supabase, llm_router=llm_router)
     result = await qa.ask(
         deal_id=deal_id, question=payload.question, meeting_id=meeting_id

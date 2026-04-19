@@ -1,15 +1,17 @@
 "use client";
 
-// Org list + switcher. The list comes straight from Supabase via a join
-// through `org_memberships` — RLS ensures we only see orgs we're in.
+// Org list + switcher. RLS ensures we only see orgs we're a member of.
+// useOrgs returns the list from Supabase. useOrg returns the resolved current
+// org + switchOrg action. The selection lives in Zustand + localStorage; the
+// data lives in React Query.
 
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Organization } from "@/types";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
-import { useOrgStore } from "@/stores/org-store";
+import { useOrgSelection } from "@/stores/org-store";
 
-type MembershipRow = {
+interface MembershipRow {
   org_id: string;
   role: string;
   organization: {
@@ -21,7 +23,21 @@ type MembershipRow = {
     created_at: string;
     updated_at: string;
   } | null;
-};
+}
+
+// Queries that hold per-org data. switchOrg drops these to avoid showing the
+// previous org's rows while the new org's queries refetch.
+const ORG_SCOPED_KEYS = [
+  "deals",
+  "meetings",
+  "documents",
+  "analyses",
+  "qa",
+  "calendar",
+  "bot-sessions",
+  "deliverables",
+  "transcripts",
+];
 
 export function useOrgs() {
   return useQuery<Organization[]>({
@@ -35,9 +51,10 @@ export function useOrgs() {
         .select(
           "org_id, role, organization:organizations(id, name, slug, domain, settings, created_at, updated_at)"
         )
-        .eq("user_id", auth.user.id);
+        .eq("user_id", auth.user.id)
+        .returns<MembershipRow[]>();
       if (error) throw error;
-      return (data as unknown as MembershipRow[])
+      return (data ?? [])
         .map((row) => row.organization)
         .filter((o): o is NonNullable<MembershipRow["organization"]> => o !== null)
         .map((o) => ({
@@ -55,34 +72,27 @@ export function useOrgs() {
 
 export function useOrg() {
   const { data: orgs = [] } = useOrgs();
-  const currentOrg = useOrgStore((s) => s.currentOrg);
-  const setCurrentOrg = useOrgStore((s) => s.setCurrentOrg);
-  const setOrgs = useOrgStore((s) => s.setOrgs);
+  const currentOrgId = useOrgSelection((s) => s.currentOrgId);
+  const setCurrentOrgId = useOrgSelection((s) => s.setCurrentOrgId);
   const queryClient = useQueryClient();
 
+  const currentOrg = orgs.find((o) => o.id === currentOrgId) ?? null;
+
+  // On first load, pick either the stored selection (if it's still in the
+  // user's membership) or the first org.
   useEffect(() => {
     if (orgs.length === 0) return;
-    setOrgs(orgs);
-    if (!currentOrg) {
-      const stored =
-        typeof window !== "undefined" ? localStorage.getItem("org_id") : null;
-      const match = stored ? orgs.find((o) => o.id === stored) : undefined;
-      setCurrentOrg(match ?? orgs[0]);
-    }
-  }, [orgs, currentOrg, setOrgs, setCurrentOrg]);
+    if (currentOrg) return;
+    setCurrentOrgId(orgs[0].id);
+  }, [orgs, currentOrg, setCurrentOrgId]);
 
   const switchOrg = (orgId: string) => {
-    const next = orgs.find((o) => o.id === orgId);
-    if (!next || next.id === currentOrg?.id) return;
-    setCurrentOrg(next);
-    // Drop per-tenant caches.
-    queryClient.removeQueries({ queryKey: ["deals"] });
-    queryClient.removeQueries({ queryKey: ["meetings"] });
-    queryClient.removeQueries({ queryKey: ["documents"] });
-    queryClient.removeQueries({ queryKey: ["analyses"] });
-    queryClient.removeQueries({ queryKey: ["qa"] });
-    queryClient.removeQueries({ queryKey: ["calendar"] });
+    if (!orgs.some((o) => o.id === orgId) || orgId === currentOrgId) return;
+    setCurrentOrgId(orgId);
+    for (const key of ORG_SCOPED_KEYS) {
+      queryClient.removeQueries({ queryKey: [key] });
+    }
   };
 
-  return { currentOrg, orgs, setCurrentOrg, setOrgs, switchOrg };
+  return { currentOrg, orgs, switchOrg };
 }

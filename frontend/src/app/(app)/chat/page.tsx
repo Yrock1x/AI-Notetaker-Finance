@@ -1,8 +1,7 @@
 "use client";
 
 // Global AI Chat — pick a deal (and optionally a meeting within it), then
-// ask questions. Reuses the existing QAChat / MeetingQAChat components
-// which call the worker's /qa endpoints under the hood.
+// ask questions against the worker's /qa endpoints.
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,16 +12,8 @@ import { useMeetings } from "@/hooks/use-meetings";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LoadingState } from "@/components/shared/loading-state";
 
-// Lazy — these bundles are ~40kB each and we only need one at a time.
 const QAChat = dynamic(
   () => import("@/components/qa/qa-chat").then((m) => ({ default: m.QAChat })),
-  { loading: () => <LoadingState message="Loading chat…" /> }
-);
-const MeetingQAChat = dynamic(
-  () =>
-    import("@/components/qa/meeting-qa-chat").then((m) => ({
-      default: m.MeetingQAChat,
-    })),
   { loading: () => <LoadingState message="Loading chat…" /> }
 );
 
@@ -171,12 +162,17 @@ function ChatContent() {
       {/* Chat surface */}
       {selectedDeal ? (
         selectedMeeting ? (
-          <MeetingQAChat
+          <QAChat
             key={`m-${selectedMeeting.id}`}
+            scope="meeting"
             meetingId={selectedMeeting.id}
           />
         ) : (
-          <QAChat key={`d-${selectedDeal.id}`} dealId={selectedDeal.id} />
+          <QAChat
+            key={`d-${selectedDeal.id}`}
+            scope="deal"
+            dealId={selectedDeal.id}
+          />
         )
       ) : null}
     </div>

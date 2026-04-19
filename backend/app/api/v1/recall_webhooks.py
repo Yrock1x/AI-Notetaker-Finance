@@ -101,6 +101,16 @@ async def recall_webhook(
     if event in ("bot.status_change", "bot.call_ended", "bot.done"):
         return await _handle_status_change(event, data, service_supabase)
 
+    # --- Participant join / leave -------------------------------------------
+    if event.startswith("participant_events.") or event.startswith(
+        "participant."
+    ):
+        return await _handle_participant(event, data, service_supabase)
+
+    # --- In-meeting chat -----------------------------------------------------
+    if event.startswith("chat_messages.") or event.startswith("chat."):
+        return await _handle_chat(event, data, service_supabase)
+
     # Anything else — ack and ignore. Recall fires many event types.
     return {"received": True, "handled": False, "event": event}
 
@@ -223,3 +233,92 @@ async def _handle_status_change(
         "next_status": next_status,
         "recall_status": recall_status,
     }
+
+
+async def _handle_participant(
+    event: str, data: dict, service_supabase: Client
+) -> dict:
+    """Upsert ``meeting_participants`` from Recall participant_events.*.
+
+    Payload shape (Recall docs may vary by API version):
+      { bot_id, participant: { id, name, email?, is_host? }, action, timestamp }
+    """
+    bot_id = data.get("bot_id") or ""
+    session = _session_for_bot(service_supabase, bot_id)
+    if not session or not session.get("meeting_id"):
+        return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
+
+    participant = data.get("participant") or {}
+    participant_id = participant.get("id") or participant.get("participant_id")
+    if not participant_id:
+        return {"received": True, "handled": False, "reason": "no_participant_id"}
+
+    action = event.split(".")[-1]  # 'join' | 'leave' | 'update' | ...
+    timestamp = data.get("timestamp") or data.get("updated_at")
+
+    row: dict = {
+        "meeting_id": session["meeting_id"],
+        "recall_participant_id": str(participant_id),
+        "speaker_label": participant.get("name") or f"Participant {participant_id}",
+        "speaker_name": participant.get("name"),
+        "email_address": participant.get("email"),
+    }
+    if action == "join":
+        row["joined_at"] = timestamp
+    elif action == "leave":
+        row["left_at"] = timestamp
+
+    (
+        service_supabase.table("meeting_participants")
+        .upsert(row, on_conflict="meeting_id,recall_participant_id")
+        .execute()
+    )
+    return {"received": True, "handled": True, "action": action}
+
+
+async def _handle_chat(
+    _event: str, data: dict, service_supabase: Client
+) -> dict:
+    """Insert in-meeting chat messages captured by Recall.
+
+    Payload shape (typical):
+      { bot_id, message: { id, sender: { name, email? }, text, timestamp } }
+    """
+    bot_id = data.get("bot_id") or ""
+    session = _session_for_bot(service_supabase, bot_id)
+    if not session or not session.get("meeting_id"):
+        return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
+
+    message = data.get("message") or data.get("chat_message") or {}
+    message_id = message.get("id") or message.get("message_id")
+    text = message.get("text") or message.get("content") or ""
+    if not text:
+        return {"received": True, "handled": False, "reason": "empty_message"}
+
+    sender = message.get("sender") or message.get("participant") or {}
+    row = {
+        "meeting_id": session["meeting_id"],
+        "org_id": session["org_id"],
+        "sender_name": sender.get("name"),
+        "sender_email": sender.get("email"),
+        "text": text,
+        "sent_at": (
+            message.get("timestamp")
+            or message.get("sent_at")
+            or data.get("timestamp")
+        ),
+        "recall_message_id": str(message_id) if message_id else None,
+    }
+    if row["sent_at"] is None:
+        # Can't insert without a sent_at (NOT NULL). Skip.
+        return {"received": True, "handled": False, "reason": "no_timestamp"}
+
+    if row["recall_message_id"]:
+        (
+            service_supabase.table("meeting_chat_messages")
+            .upsert(row, on_conflict="recall_message_id")
+            .execute()
+        )
+    else:
+        service_supabase.table("meeting_chat_messages").insert(row).execute()
+    return {"received": True, "handled": True}

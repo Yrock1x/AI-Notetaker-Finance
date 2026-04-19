@@ -96,6 +96,30 @@ interface MeetingCardProps {
   onToggleBot: () => void;
 }
 
+function UnassignedMeetingCard({ meeting }: { meeting: CalendarMeeting }) {
+  const meetingTime = meeting.meeting_date || meeting.created_at;
+  return (
+    <div
+      className="block rounded-xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/40 p-2"
+      title="Synced from calendar — assign to a deal from the deal's meetings page to enable the bot."
+    >
+      <p className="truncate text-[11px] font-semibold text-[#1A1A1A]/70">
+        {meeting.title}
+      </p>
+      <div className="mt-0.5 flex items-center gap-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#1A1A1A]/20" />
+        <span className="truncate text-[10px] text-[#1A1A1A]/50">
+          Unassigned
+        </span>
+      </div>
+      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[#1A1A1A]/40">
+        <Clock className="h-2.5 w-2.5" />
+        {formatTime(meetingTime)}
+      </div>
+    </div>
+  );
+}
+
 function MeetingCard({ meeting, colorIndex, botEnabled, onToggleBot }: MeetingCardProps) {
   const colors = DEAL_COLORS[colorIndex] || DEAL_COLORS[0];
   const meetingTime = meeting.meeting_date || meeting.created_at;
@@ -170,7 +194,9 @@ export default function CalendarPage() {
 
   const allDealIds = useMemo(() => {
     const ids = new Set<string>();
-    meetings.forEach((m) => ids.add(m.deal_id));
+    meetings.forEach((m) => {
+      if (m.deal_id) ids.add(m.deal_id);
+    });
     return Array.from(ids);
   }, [meetings]);
 
@@ -368,15 +394,19 @@ export default function CalendarPage() {
                         </span>
                       </div>
                       <div className="space-y-1">
-                        {dayMeetings.map((meeting) => (
-                          <MeetingCard
-                            key={meeting.id}
-                            meeting={meeting}
-                            colorIndex={getDealColorIndex(meeting.deal_id, allDealIds)}
-                            botEnabled={isBotEnabled(meeting)}
-                            onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
-                          />
-                        ))}
+                        {dayMeetings.map((meeting) =>
+                          meeting.deal_id ? (
+                            <MeetingCard
+                              key={meeting.id}
+                              meeting={meeting}
+                              colorIndex={getDealColorIndex(meeting.deal_id, allDealIds)}
+                              botEnabled={isBotEnabled(meeting)}
+                              onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
+                            />
+                          ) : (
+                            <UnassignedMeetingCard key={meeting.id} meeting={meeting} />
+                          )
+                        )}
                       </div>
                     </>
                   )}

@@ -87,8 +87,10 @@ class ZoomWebhookHandler:
     async def _handle_recording_completed(self, payload: dict) -> None:
         """Handle ``recording.completed`` — a cloud recording is ready.
 
-        This is the primary trigger for kicking off the transcription /
-        analysis pipeline.
+        The live webhook route in ``api.v1.webhooks`` is the authoritative
+        entry point; it fires ``zoom/recording.completed`` into Inngest,
+        which orchestrates the ingest + transcription pipeline. This class
+        exists for signature verification helpers only.
         """
         meeting_id = payload.get("object", {}).get("id", "unknown")
         recording_files = payload.get("object", {}).get("recording_files", [])
@@ -97,10 +99,6 @@ class ZoomWebhookHandler:
             meeting_id=meeting_id,
             file_count=len(recording_files),
         )
-
-        # TODO: Trigger the Celery processing pipeline:
-        #   from app.tasks.pipeline import process_zoom_recording
-        #   process_zoom_recording.delay(meeting_id=meeting_id, payload=payload)
 
     async def _handle_meeting_ended(self, payload: dict) -> None:
         """Handle ``meeting.ended`` — a Zoom meeting has concluded."""

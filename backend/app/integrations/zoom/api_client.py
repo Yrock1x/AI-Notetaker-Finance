@@ -53,6 +53,38 @@ class ZoomAPIClient:
             raise
 
     # ------------------------------------------------------------------
+    # Upcoming meetings (for calendar sync)
+    # ------------------------------------------------------------------
+
+    async def list_upcoming_meetings(
+        self, access_token: str, user_id: str = "me", page_size: int = 50
+    ) -> list[dict]:
+        """List the user's upcoming scheduled Zoom meetings.
+
+        Uses ``GET /users/{userId}/meetings?type=upcoming`` which returns
+        scheduled + recurring meeting occurrences with ``join_url``,
+        ``start_time`` and ``topic`` fields.
+        """
+        url = f"{ZOOM_API_BASE}/users/{user_id}/meetings"
+        params = {"type": "upcoming", "page_size": str(page_size)}
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                url, params=params, headers=self._auth_headers(access_token)
+            )
+            if resp.status_code >= 400:
+                logger.error(
+                    "zoom_list_upcoming_error",
+                    status=resp.status_code,
+                    body=resp.text[:500],
+                )
+                resp.raise_for_status()
+            data = resp.json()
+            meetings = data.get("meetings", [])
+            logger.info("zoom_upcoming_listed", count=len(meetings))
+            return meetings
+
+    # ------------------------------------------------------------------
     # Recordings
     # ------------------------------------------------------------------
 

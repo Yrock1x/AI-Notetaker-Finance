@@ -1,27 +1,29 @@
-import { create } from "zustand";
-import type { Organization } from "@/types";
+"use client";
 
-interface OrgState {
-  currentOrg: Organization | null;
-  orgs: Organization[];
-  setCurrentOrg: (org: Organization | null) => void;
-  setOrgs: (orgs: Organization[]) => void;
+import { create } from "zustand";
+
+// Stores only the user's selection (which org they picked in the switcher).
+// The actual org list + objects live in React Query (see useOrgs).
+
+const STORAGE_KEY = "org_id";
+
+function readInitial(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(STORAGE_KEY);
 }
 
-export const useOrgStore = create<OrgState>((set) => ({
-  currentOrg: null,
-  orgs: [],
+interface OrgSelectionState {
+  currentOrgId: string | null;
+  setCurrentOrgId: (id: string | null) => void;
+}
 
-  setCurrentOrg: (org: Organization | null) => {
-    set({ currentOrg: org });
-    if (org) {
-      localStorage.setItem("org_id", org.id);
-    } else {
-      localStorage.removeItem("org_id");
+export const useOrgSelection = create<OrgSelectionState>((set) => ({
+  currentOrgId: readInitial(),
+  setCurrentOrgId: (id) => {
+    if (typeof window !== "undefined") {
+      if (id) localStorage.setItem(STORAGE_KEY, id);
+      else localStorage.removeItem(STORAGE_KEY);
     }
-  },
-
-  setOrgs: (orgs: Organization[]) => {
-    set({ orgs });
+    set({ currentOrgId: id });
   },
 }));

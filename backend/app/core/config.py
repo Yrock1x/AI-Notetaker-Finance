@@ -1,10 +1,10 @@
-"""Runtime configuration — tuned for the Supabase + Fireworks + Fly.io worker.
+"""Runtime configuration — tuned for the Supabase + Fireworks + Railway worker.
 
 No AWS, no Cognito, no RDS, no Redis. This worker only needs:
 - Supabase URL + service-role key (DB, Auth JWKS, Storage)
 - Fireworks / Anthropic API keys for LLM calls
 - Deepgram + Recall for transcription/bots
-- OAuth client secrets for Zoom/Teams/Slack/Outlook
+- OAuth client secrets for Zoom, Microsoft (Teams + Outlook + Calendar), Google
 - Inngest keys for async dispatch
 - Fernet key for encrypting stored OAuth refresh tokens
 """
@@ -57,16 +57,31 @@ class Settings(BaseSettings):
     zoom_client_secret: str = ""
     zoom_webhook_secret_token: str = ""
 
+    # Microsoft (Teams + Outlook + Calendar — one OAuth app covers all three).
+    # TEAMS_* aliases are accepted for backwards compatibility.
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_webhook_secret: str = ""  # clientState for Graph change notifications
     teams_client_id: str = ""
     teams_client_secret: str = ""
     teams_webhook_secret: str = ""
+
+    # Google (Calendar + Meet).
+    google_client_id: str = ""
+    google_client_secret: str = ""
 
     slack_client_id: str = ""
     slack_client_secret: str = ""
     slack_signing_secret: str = ""
 
-    outlook_client_id: str = ""
-    outlook_client_secret: str = ""
+    # Public URL of the Next.js frontend — where we bounce users back after
+    # the OAuth consent screen (e.g. https://app.example.com).
+    frontend_url: str = "http://localhost:3000"
+
+    # Public URL of THIS worker — used to build OAuth redirect_uri values the
+    # provider will call after consent. On Railway this is the app's public
+    # domain (https://<svc>.up.railway.app). Locally it's http://localhost:8000.
+    public_api_url: str = "http://localhost:8000"
 
     # Fernet key for integration_credentials.access_token_encrypted
     token_encryption_key: str = ""
@@ -97,6 +112,20 @@ class Settings(BaseSettings):
         return ""
 
     # ------------------------------------------------------------------
+    @model_validator(mode="after")
+    def _alias_microsoft_from_teams(self) -> "Settings":
+        """Backwards-compat: honour TEAMS_CLIENT_ID/_SECRET/_WEBHOOK_SECRET if
+        the new MICROSOFT_* vars aren't populated. The single Microsoft OAuth
+        app backs Teams, Outlook, and Calendar.
+        """
+        if not self.microsoft_client_id and self.teams_client_id:
+            self.microsoft_client_id = self.teams_client_id
+        if not self.microsoft_client_secret and self.teams_client_secret:
+            self.microsoft_client_secret = self.teams_client_secret
+        if not self.microsoft_webhook_secret and self.teams_webhook_secret:
+            self.microsoft_webhook_secret = self.teams_webhook_secret
+        return self
+
     @model_validator(mode="after")
     def _require_prod_secrets(self) -> "Settings":
         """Fail fast in production if required runtime secrets are missing."""

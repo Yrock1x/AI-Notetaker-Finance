@@ -3,7 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useSupabaseSession,
+  userDisplayName,
+} from "@/hooks/use-supabase-session";
 import { OrgSwitcher } from "./org-switcher";
 import { Breadcrumbs } from "./breadcrumbs";
 import { Settings, LogOut } from "lucide-react";
@@ -11,11 +14,11 @@ import { Settings, LogOut } from "lucide-react";
 export function Topbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
+  const { user, signOut } = useSupabaseSession();
   const router = useRouter();
 
-  const initial = user?.full_name?.charAt(0)?.toUpperCase() ?? "U";
+  const displayName = userDisplayName(user);
+  const initial = displayName.charAt(0)?.toUpperCase() || "U";
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -27,9 +30,9 @@ export function Topbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setMenuOpen(false);
-    logout();
+    await signOut();
     router.push("/login");
   };
 
@@ -54,7 +57,7 @@ export function Topbar() {
             <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#1A1A1A]/10 bg-white py-1 shadow-xl z-50">
               {user && (
                 <div className="px-4 py-2 border-b border-[#1A1A1A]/5">
-                  <p className="text-sm font-bold text-primary truncate">{user.full_name}</p>
+                  <p className="text-sm font-bold text-primary truncate">{displayName}</p>
                   <p className="text-xs text-[#1A1A1A]/40 truncate">{user.email}</p>
                 </div>
               )}

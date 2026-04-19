@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useAskQuestion } from "@/hooks/use-qa";
+import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
 import { LoadingState } from "@/components/shared/loading-state";
 import { Send, MessageCircle, BookOpen } from "lucide-react";
 
-interface QAChatProps {
-  dealId: string;
-}
+type QAChatProps =
+  | { scope: "deal"; dealId: string }
+  | { scope: "meeting"; meetingId: string };
 
 interface QAEntry {
   question: string;
@@ -23,15 +23,39 @@ interface QAEntry {
   grounding_score?: number;
 }
 
-export function QAChat({ dealId }: QAChatProps) {
+const DEAL_EXAMPLES = [
+  "What are the key financial metrics discussed?",
+  "What risks were identified in the due diligence?",
+  "Summarize the management team's growth strategy",
+];
+
+const MEETING_EXAMPLES = [
+  "What were the key takeaways from this meeting?",
+  "What action items were discussed?",
+  "Summarize the financial metrics mentioned",
+];
+
+export function QAChat(props: QAChatProps) {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<QAEntry[]>([]);
-  const askQuestion = useAskQuestion();
+  const dealMutation = useAskQuestion();
+  const meetingMutation = useMeetingAskQuestion();
+  const askQuestion = props.scope === "deal" ? dealMutation : meetingMutation;
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
+
+  const examples = props.scope === "deal" ? DEAL_EXAMPLES : MEETING_EXAMPLES;
+  const intro =
+    props.scope === "deal"
+      ? "Questions are answered using meeting transcripts and documents from this deal, with source citations."
+      : "Questions are answered using the transcript and analysis from this meeting, with source citations.";
+  const placeholder =
+    props.scope === "deal"
+      ? "Ask a question about this deal..."
+      : "Ask a question about this meeting...";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,10 +65,16 @@ export function QAChat({ dealId }: QAChatProps) {
     setQuestion("");
 
     try {
-      const response = await askQuestion.mutateAsync({
-        dealId,
-        payload: { question: q },
-      });
+      const response =
+        props.scope === "deal"
+          ? await dealMutation.mutateAsync({
+              dealId: props.dealId,
+              payload: { question: q },
+            })
+          : await meetingMutation.mutateAsync({
+              meetingId: props.meetingId,
+              payload: { question: q },
+            });
       setHistory((prev) => [
         ...prev,
         {
@@ -68,25 +98,19 @@ export function QAChat({ dealId }: QAChatProps) {
 
   return (
     <div className="flex flex-col rounded-lg border bg-white">
-      {/* Chat history */}
       <div className="min-h-[400px] max-h-[600px] overflow-y-auto p-4 space-y-6">
         {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <MessageCircle className="h-12 w-12 text-muted-foreground/30" />
             <h3 className="mt-4 text-lg font-medium">Ask a question</h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Questions are answered using meeting transcripts and documents
-              from this deal, with source citations.
+              {intro}
             </p>
             <div className="mt-6 space-y-2">
               <p className="text-xs font-medium text-muted-foreground">
                 Example questions:
               </p>
-              {[
-                "What are the key financial metrics discussed?",
-                "What risks were identified in the due diligence?",
-                "Summarize the management team's growth strategy",
-              ].map((example) => (
+              {examples.map((example) => (
                 <button
                   key={example}
                   onClick={() => setQuestion(example)}
@@ -100,18 +124,15 @@ export function QAChat({ dealId }: QAChatProps) {
         ) : (
           history.map((entry, i) => (
             <div key={i} className="space-y-3">
-              {/* Question */}
               <div className="flex justify-end">
                 <div className="max-w-[80%] rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground">
                   {entry.question}
                 </div>
               </div>
-              {/* Answer */}
               <div className="space-y-2">
                 <div className="max-w-[90%] rounded-lg bg-muted px-4 py-3 text-sm">
                   <p className="whitespace-pre-wrap">{entry.answer}</p>
                 </div>
-                {/* Citations */}
                 {entry.citations.length > 0 && (
                   <div className="ml-2 space-y-1">
                     <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
@@ -152,14 +173,13 @@ export function QAChat({ dealId }: QAChatProps) {
         <div ref={chatEndRef} />
       </div>
 
-      {/* Input */}
       <form onSubmit={handleSubmit} className="border-t p-4">
         <div className="flex items-center gap-2">
           <input
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask a question about this deal..."
+            placeholder={placeholder}
             className="flex-1 rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             disabled={askQuestion.isPending}
           />

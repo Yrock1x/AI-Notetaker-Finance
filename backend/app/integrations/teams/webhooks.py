@@ -51,9 +51,9 @@ class TeamsWebhookHandler:
     async def _handle_call_record(self, payload: dict) -> None:
         """Handle a ``callRecord`` notification.
 
-        Triggered when a Teams call ends and the call record is available.
-        This is the primary entry point for kicking off post-meeting
-        transcription and analysis pipelines.
+        The live webhook route in ``api.v1.webhooks`` is the authoritative
+        entry point; it fires ``teams/call_record.created`` into Inngest,
+        which orchestrates the ingest pipeline.
         """
         call_record_id = payload.get("resourceData", {}).get("id", "unknown")
         logger.info(
@@ -61,11 +61,6 @@ class TeamsWebhookHandler:
             call_record_id=call_record_id,
             change_type=payload.get("changeType"),
         )
-
-        # TODO: Trigger the Celery processing pipeline once the task
-        # infrastructure is wired:
-        #   from app.tasks.pipeline import process_teams_call_record
-        #   process_teams_call_record.delay(call_record_id=call_record_id)
 
     async def _handle_chat_message(self, payload: dict) -> None:
         """Handle a ``chatMessage`` notification.

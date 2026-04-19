@@ -19,9 +19,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
-from app.api.v1.qa import _build_llm_router
 from app.core.config import get_settings
-from app.dependencies import AuthUser, get_current_user, get_user_supabase
+from app.dependencies import (
+    AuthUser,
+    get_current_user,
+    get_llm_router,
+    get_user_supabase,
+)
 from app.llm.router import TASK_GENERAL
 from app.services.deliverable_service import DeliverableService
 
@@ -43,17 +47,6 @@ TYPE_LABELS = {
     "financial_model": "Financial Model",
     "ic_presentation": "IC Presentation",
 }
-
-
-@router.get("")
-async def list_deliverables(
-    deal_id: str,
-    _user: AuthUser = Depends(get_current_user),
-) -> dict:
-    """Placeholder list — a future ``deliverables`` table will persist past
-    generations. For now the UI just shows what it has locally cached.
-    """
-    return {"items": [], "deal_id": deal_id}
 
 
 @router.post("/generate", status_code=201)
@@ -79,7 +72,7 @@ async def generate_deliverable(
     service = DeliverableService(
         supabase=supabase,
         settings=get_settings(),
-        llm_router=_build_llm_router(),
+        llm_router=get_llm_router(),
     )
     try:
         return await service.generate(
@@ -125,7 +118,7 @@ async def deliverable_chat(
     payload: ChatRequest,
     _user: AuthUser = Depends(get_current_user),
 ) -> dict:
-    llm_router = _build_llm_router()
+    llm_router = get_llm_router()
     try:
         response = await llm_router.complete(
             task_type=TASK_GENERAL,

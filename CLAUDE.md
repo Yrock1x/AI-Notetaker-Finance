@@ -11,7 +11,7 @@ Enterprise multi-tenant AI meeting intelligence platform for IB/PE/VC profession
   - Deployed to **Vercel** (git-integrated, no GitHub Action needed)
 - **Worker (Python/FastAPI)**: slim service for LLM calls, webhook ingestion,
   Supabase Storage signed uploads, live-transcript webhook from Recall.ai
-  - Deployed to **Fly.io** via `flyctl deploy` (see `.github/workflows/fly-deploy.yml`)
+  - Deployed to **Railway** (git-integrated auto-deploy from `backend/**` changes)
 - **Data**: Supabase — Postgres + pgvector + Auth (Google/Microsoft OAuth) +
   Storage + Realtime. RLS is the primary multi-tenancy enforcement.
 - **Async jobs**: **Inngest** (serverless queue/cron). Replaced Celery + Redis.
@@ -33,10 +33,12 @@ backend/                      — slim FastAPI worker
                                 webhooks, recall_webhooks
     services/                   qa_service, analysis_service, deliverable_service
     llm/                        router + fireworks_provider + prompts
-    integrations/               deepgram, recall, zoom, teams, slack, outlook
+    integrations/               deepgram, recall, zoom, teams, microsoft,
+                                google, slack
+    services/                   oauth_tokens, qa_service, analysis_service,
+                                deliverable_service
     utils/                      file_processing (pdf/docx/xlsx text extraction)
-  Dockerfile                    Fly.io deployment image
-  fly.toml                      Fly config
+  Dockerfile                    Railway deployment image
 
 frontend/                      — Next.js app
   src/
@@ -106,7 +108,11 @@ npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
   `NEXT_PUBLIC_API_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `INNGEST_EVENT_KEY`,
   `INNGEST_SIGNING_KEY`, `WORKER_INTERNAL_TOKEN`.
-- **Worker → Fly.io**: `.github/workflows/fly-deploy.yml` runs on `backend/**`
-  changes. `fly secrets set` everything in `.env.example` (minus `NEXT_PUBLIC_*`).
+- **Worker → Railway**: auto-deploys on `backend/**` changes via the Railway
+  git integration. Set every non-`NEXT_PUBLIC_*` var from `.env.example` in
+  the Railway service's Variables panel. `PUBLIC_API_URL` must be the
+  service's public domain (e.g. `https://cognisuite-worker.up.railway.app`);
+  OAuth redirect URIs and Graph subscription notification URLs are built
+  from it.
 - **Supabase**: `supabase link` then `supabase db push` applies migrations.
 - **Inngest dashboard**: sync endpoint → `https://<vercel>/api/inngest`.

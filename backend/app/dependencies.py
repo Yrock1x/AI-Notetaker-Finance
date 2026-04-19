@@ -24,6 +24,8 @@ from pydantic import BaseModel
 from supabase import Client, create_client
 
 from app.core.config import settings
+from app.llm.fireworks_provider import FireworksEmbeddingProvider, FireworksProvider
+from app.llm.router import LLMRouter
 
 
 # ---------------------------------------------------------------------------
@@ -185,3 +187,28 @@ def get_user_supabase(
     if token:
         client.postgrest.auth(token)
     return client
+
+
+# ---------------------------------------------------------------------------
+# Dependency: LLM router
+# ---------------------------------------------------------------------------
+@lru_cache
+def _build_llm_router() -> LLMRouter:
+    r = LLMRouter()
+    if settings.fireworks_api_key:
+        r.register_provider("fireworks", FireworksProvider(settings.fireworks_api_key))
+        r.register_embedding_provider(
+            "fireworks", FireworksEmbeddingProvider(settings.fireworks_api_key)
+        )
+    if settings.premium_llm_enabled and settings.anthropic_api_key:
+        from app.llm.claude_provider import ClaudeProvider
+
+        r.register_provider("anthropic", ClaudeProvider(settings.anthropic_api_key))
+    return r
+
+
+def get_llm_router() -> LLMRouter:
+    """Shared, cached LLM router. Fireworks is the default; Claude is opt-in
+    via ``PREMIUM_LLM_ENABLED=true`` + ``ANTHROPIC_API_KEY``.
+    """
+    return _build_llm_router()

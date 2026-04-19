@@ -1,8 +1,7 @@
-"""Zoom OAuth 2.0 authentication flow.
+"""Zoom OAuth 2.0.
 
-Zoom uses HTTP Basic authentication (base64 of client_id:client_secret) on
-the token endpoint, which differs from the form-encoded client credentials
-used by Microsoft and Slack.
+Zoom uses HTTP Basic auth (base64 of client_id:client_secret) on the token
+endpoint, unlike Microsoft/Google which accept form-encoded credentials.
 """
 
 from __future__ import annotations
@@ -15,117 +14,122 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-ZOOM_AUTHORIZE_URL = "https://zoom.us/oauth/authorize"
-ZOOM_TOKEN_URL = "https://zoom.us/oauth/token"  # noqa: S105 - not a password, this is a public OAuth endpoint URL
+AUTHORIZE_URL = "https://zoom.us/oauth/authorize"
+TOKEN_URL = "https://zoom.us/oauth/token"  # noqa: S105 - public OAuth endpoint
+
+# Scopes needed for calendar sync + cloud-recording webhook ingest.
+SCOPES = ["user:read", "meeting:read", "recording:read"]
+
+
+def _basic_auth(client_id: str, client_secret: str) -> str:
+    raw = f"{client_id}:{client_secret}".encode()
+    return base64.b64encode(raw).decode()
+
+
+def build_authorize_url(
+    *, client_id: str, redirect_uri: str, state: str
+) -> str:
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        # Zoom honours a space-delimited scope param for granular consent.
+        "scope": " ".join(SCOPES),
+    }
+    return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+
+async def exchange_code(
+    *, client_id: str, client_secret: str, redirect_uri: str, code: str
+) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+            },
+            headers={
+                "Authorization": f"Basic {_basic_auth(client_id, client_secret)}",
+            },
+        )
+        if resp.status_code >= 400:
+            logger.error(
+                "zoom_code_exchange_failed",
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
+            resp.raise_for_status()
+        data = resp.json()
+        return {
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token"),
+            "expires_in": data.get("expires_in"),
+            "scope": data.get("scope"),
+            "token_type": data.get("token_type", "bearer"),
+        }
+
+
+async def refresh_zoom(refresh_token: str) -> dict:
+    from app.core.config import settings
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={
+                "Authorization": (
+                    f"Basic {_basic_auth(settings.zoom_client_id, settings.zoom_client_secret)}"
+                ),
+            },
+        )
+        if resp.status_code >= 400:
+            logger.error(
+                "zoom_refresh_failed",
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
+            resp.raise_for_status()
+        data = resp.json()
+        return {
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token"),
+            "expires_in": data.get("expires_in"),
+            "scope": data.get("scope"),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible class wrapper. A few legacy callers still expect a
+# ``ZoomOAuth`` instance; prefer the module-level functions in new code.
+# ---------------------------------------------------------------------------
 
 
 class ZoomOAuth:
-    """Handles Zoom OAuth 2.0 authentication flow."""
-
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str) -> None:
-        """Initialize the Zoom OAuth client with app credentials."""
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
 
-    def _basic_auth_header(self) -> str:
-        """Return the Base64-encoded ``client_id:client_secret`` for Basic auth."""
-        raw = f"{self.client_id}:{self.client_secret}"
-        return base64.b64encode(raw.encode()).decode()
-
     def get_authorization_url(self, state: str) -> str:
-        """Generate the Zoom OAuth authorization URL for user consent."""
-        params = {
-            "response_type": "code",
-            "client_id": self.client_id,
-            "redirect_uri": self.redirect_uri,
-            "state": state,
-        }
-        return f"{ZOOM_AUTHORIZE_URL}?{urlencode(params)}"
+        return build_authorize_url(
+            client_id=self.client_id,
+            redirect_uri=self.redirect_uri,
+            state=state,
+        )
 
     async def exchange_code(self, code: str) -> dict:
-        """Exchange an authorization code for access and refresh tokens.
-
-        Returns a dict with ``access_token``, ``refresh_token``,
-        ``expires_in``, ``scope``, and ``token_type``.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    ZOOM_TOKEN_URL,
-                    data={
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "redirect_uri": self.redirect_uri,
-                    },
-                    headers={
-                        "Authorization": f"Basic {self._basic_auth_header()}",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                logger.info(
-                    "zoom_code_exchanged",
-                    scope=data.get("scope"),
-                    expires_in=data.get("expires_in"),
-                )
-                return {
-                    "access_token": data["access_token"],
-                    "refresh_token": data.get("refresh_token"),
-                    "expires_in": data.get("expires_in"),
-                    "scope": data.get("scope", ""),
-                    "token_type": data.get("token_type", "bearer"),
-                }
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "zoom_code_exchange_failed",
-                status=exc.response.status_code,
-                body=exc.response.text[:500],
-            )
-            raise
-        except httpx.HTTPError as exc:
-            logger.error("zoom_code_exchange_network_error", error=str(exc))
-            raise
+        return await exchange_code(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=self.redirect_uri,
+            code=code,
+        )
 
     async def refresh_token(self, refresh_token: str) -> dict:
-        """Refresh an expired access token using a refresh token.
-
-        Returns a dict with ``access_token``, ``refresh_token``,
-        ``expires_in``, ``scope``, and ``token_type``.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    ZOOM_TOKEN_URL,
-                    data={
-                        "grant_type": "refresh_token",
-                        "refresh_token": refresh_token,
-                    },
-                    headers={
-                        "Authorization": f"Basic {self._basic_auth_header()}",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                logger.info(
-                    "zoom_token_refreshed",
-                    scope=data.get("scope"),
-                    expires_in=data.get("expires_in"),
-                )
-                return {
-                    "access_token": data["access_token"],
-                    "refresh_token": data.get("refresh_token"),
-                    "expires_in": data.get("expires_in"),
-                    "scope": data.get("scope", ""),
-                    "token_type": data.get("token_type", "bearer"),
-                }
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "zoom_token_refresh_failed",
-                status=exc.response.status_code,
-                body=exc.response.text[:500],
-            )
-            raise
-        except httpx.HTTPError as exc:
-            logger.error("zoom_token_refresh_network_error", error=str(exc))
-            raise
+        return await refresh_zoom(refresh_token)

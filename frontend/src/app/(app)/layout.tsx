@@ -2,18 +2,14 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/stores/auth-store";
+import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, initialize } = useAuthStore();
-
-  useEffect(() => {
-    initialize();
-  }, [initialize]);
+  const { isAuthenticated, isLoading } = useSupabaseSession();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

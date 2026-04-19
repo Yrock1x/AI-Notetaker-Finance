@@ -1,9 +1,5 @@
 "use client";
 
-// Thin React hook over the Supabase browser client's session. Replaces the
-// old Zustand auth-store — the session lives in httpOnly cookies, and React
-// components just subscribe to auth-state changes.
-
 import { useCallback, useEffect, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,6 +11,14 @@ export interface SupabaseSessionState {
   isLoading: boolean;
   isAuthenticated: boolean;
   signOut: () => Promise<void>;
+}
+
+export function userDisplayName(user: User | null): string {
+  if (!user) return "";
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const full = (meta.full_name as string) || (meta.name as string);
+  if (full) return full;
+  return user.email ? user.email.split("@")[0] : "";
 }
 
 export function useSupabaseSession(): SupabaseSessionState {

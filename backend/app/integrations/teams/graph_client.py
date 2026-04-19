@@ -253,3 +253,54 @@ class GraphAPIClient:
         except httpx.HTTPError as exc:
             logger.error("graph_subscription_network_error", error=str(exc))
             raise
+
+    async def renew_subscription(
+        self,
+        access_token: str,
+        subscription_id: str,
+        expiration_minutes: int = 4230,
+    ) -> dict:
+        """Extend an existing Graph subscription's expirationDateTime.
+
+        Call well before expiry (subscriptions for ``communications/callRecords``
+        max out at ~2.9 days). Returns the updated subscription payload.
+        """
+        from datetime import timedelta
+
+        expiration = (
+            datetime.now(UTC) + timedelta(minutes=expiration_minutes)
+        ).isoformat()
+        url = f"{GRAPH_BASE_URL}/subscriptions/{subscription_id}"
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.patch(
+                url,
+                json={"expirationDateTime": expiration},
+                headers=self._auth_headers(access_token),
+            )
+            if resp.status_code >= 400:
+                logger.error(
+                    "graph_subscription_renew_error",
+                    subscription_id=subscription_id,
+                    status=resp.status_code,
+                    body=resp.text[:500],
+                )
+                resp.raise_for_status()
+            data = resp.json()
+            logger.info(
+                "graph_subscription_renewed",
+                subscription_id=subscription_id,
+                new_expiration=data.get("expirationDateTime"),
+            )
+            return data
+
+    async def delete_subscription(
+        self, access_token: str, subscription_id: str
+    ) -> None:
+        url = f"{GRAPH_BASE_URL}/subscriptions/{subscription_id}"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.delete(
+                url, headers=self._auth_headers(access_token)
+            )
+            if resp.status_code not in (204, 404):
+                resp.raise_for_status()
