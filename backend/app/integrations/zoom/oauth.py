@@ -29,13 +29,17 @@ def _basic_auth(client_id: str, client_secret: str) -> str:
 def build_authorize_url(
     *, client_id: str, redirect_uri: str, state: str
 ) -> str:
+    # No ``scope`` param — Zoom defaults to granting every scope configured
+    # on the app in the marketplace UI. Passing explicit legacy scope names
+    # (``user:read``, ``meeting:read``, ``recording:read``) fails with
+    # invalid_scope against apps that use the newer granular scope system
+    # (``user:read:user``, ``meeting:read:list_user_meetings`` etc). Keeping
+    # it out of the URL lets either scope style work.
     params = {
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "state": state,
-        # Zoom honours a space-delimited scope param for granular consent.
-        "scope": " ".join(SCOPES),
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
