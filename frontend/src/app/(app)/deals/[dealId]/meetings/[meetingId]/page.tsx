@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useMeeting } from "@/hooks/use-meetings";
+import { useMeeting, useUpdateMeeting } from "@/hooks/use-meetings";
 import { CallTypeSelector } from "@/components/analysis/call-type-selector";
 import { useAnalyses, useRunAnalysis } from "@/hooks/use-analysis";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MEETING_STATUS_LABELS } from "@/lib/constants";
 import { formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Clock, Play, Radio } from "lucide-react";
+import { ArrowLeft, Check, Clock, Pencil, Play, Radio, X } from "lucide-react";
 import { CallType, MeetingStatus } from "@/types";
 
 // Lazy-load heavy tab content — only loaded when the tab is active
@@ -85,12 +85,15 @@ const BASE_TABS: { key: MeetingTab; label: string }[] = [
 export default function MeetingDetailPage() {
   const params = useParams<{ dealId: string; meetingId: string }>();
   const { data: meeting, isLoading } = useMeeting(params.dealId, params.meetingId);
+  const updateMeeting = useUpdateMeeting(params.dealId);
   // Show the Live tab as soon as a bot is scheduled — not just when it's
   // actually recording. Users expect to see the live panel right after
   // clicking "Schedule Notetaker" so they can watch the bot join.
   const isLive =
     meeting?.status === "scheduled" || meeting?.status === "recording";
   const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
 
   // Auto-jump to the Live tab the moment a bot is scheduled or starts
   // recording so users watching the page don't miss the first few words.
@@ -146,7 +149,63 @@ export default function MeetingDetailPage() {
             <ArrowLeft className="h-3 w-3" />
             Back to meetings
           </Link>
-          <h1 className="text-2xl font-bold">{meeting.title}</h1>
+          {isEditingTitle ? (
+            <form
+              className="flex items-center gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const next = titleDraft.trim();
+                if (!next || next === meeting.title) {
+                  setIsEditingTitle(false);
+                  return;
+                }
+                await updateMeeting.mutateAsync({
+                  meetingId: meeting.id,
+                  patch: { title: next },
+                });
+                setIsEditingTitle(false);
+              }}
+            >
+              <input
+                autoFocus
+                type="text"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                className="min-w-[300px] rounded-md border px-3 py-1 text-2xl font-bold focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                type="submit"
+                disabled={updateMeeting.isPending}
+                className="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                title="Save"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsEditingTitle(false)}
+                className="rounded-md border p-1.5 text-muted-foreground hover:bg-muted"
+                title="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </form>
+          ) : (
+            <div className="group flex items-center gap-2">
+              <h1 className="text-2xl font-bold">{meeting.title}</h1>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleDraft(meeting.title);
+                  setIsEditingTitle(true);
+                }}
+                className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                title="Rename meeting"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
             <span>{meeting.source}</span>
             <span>·</span>

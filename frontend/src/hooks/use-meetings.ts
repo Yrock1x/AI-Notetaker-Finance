@@ -64,6 +64,36 @@ export function useMeeting(
   });
 }
 
+export function useUpdateMeeting(dealId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      meetingId,
+      patch,
+    }: {
+      meetingId: string;
+      patch: Partial<Pick<Meeting, "title" | "meeting_date">>;
+    }) => {
+      const supabase = getBrowserSupabase();
+      const { data, error } = await supabase
+        .from("meetings")
+        .update(patch)
+        .eq("id", meetingId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Meeting;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: [MEETINGS_KEY, dealId] });
+      queryClient.invalidateQueries({
+        queryKey: [MEETINGS_KEY, dealId, vars.meetingId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });
+    },
+  });
+}
+
 export function useInitiateMeetingUpload() {
   // Calls the worker to mint a Supabase Storage signed upload URL.
   return useMutation({

@@ -6,9 +6,10 @@
 // the Inngest function turns that into a live bot against Recall.ai.
 
 import { useState, useEffect } from "react";
-import { X, Bot } from "lucide-react";
+import { X, Bot, Sparkles } from "lucide-react";
 import { useScheduleBot, type BotSession } from "@/hooks/use-bot-sessions";
 import { useDeals } from "@/hooks/use-deals";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 interface ScheduleBotDialogProps {
   open: boolean;
@@ -32,9 +33,11 @@ export function ScheduleBotDialog({
 }: ScheduleBotDialogProps) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [title, setTitle] = useState("");
+  const [titleWasAutofilled, setTitleWasAutofilled] = useState(false);
   const [platform, setPlatform] = useState<BotSession["platform"]>("zoom");
   const [dealId, setDealId] = useState<string>(presetDealId ?? "");
   const [scheduledStart, setScheduledStart] = useState<string>("");
+  const [matchedMeetingId, setMatchedMeetingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,6 +48,42 @@ export function ScheduleBotDialog({
   useEffect(() => {
     const detected = detectPlatform(meetingUrl);
     if (detected) setPlatform(detected);
+  }, [meetingUrl]);
+
+  // Auto-fill the title (and reuse the meeting_id) when the pasted URL
+  // matches a calendar-synced meeting we already have. Debounced so we
+  // don't hit Supabase on every keystroke. Only overrides the title when
+  // the user hasn't typed one of their own.
+  useEffect(() => {
+    if (!meetingUrl) {
+      setMatchedMeetingId(null);
+      if (titleWasAutofilled) setTitle("");
+      return;
+    }
+    const handle = setTimeout(async () => {
+      const supabase = getBrowserSupabase();
+      const { data } = await supabase
+        .from("meetings")
+        .select("id, title")
+        .eq("source_url", meetingUrl)
+        .limit(1);
+      const hit = data?.[0];
+      if (hit) {
+        setMatchedMeetingId(hit.id);
+        if (!title || titleWasAutofilled) {
+          setTitle(hit.title ?? "");
+          setTitleWasAutofilled(true);
+        }
+      } else {
+        setMatchedMeetingId(null);
+        if (titleWasAutofilled) {
+          setTitle("");
+          setTitleWasAutofilled(false);
+        }
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingUrl]);
 
   // When the parent-provided dealId changes (e.g. dialog reused across deals),
@@ -58,6 +97,8 @@ export function ScheduleBotDialog({
   const reset = () => {
     setMeetingUrl("");
     setTitle("");
+    setTitleWasAutofilled(false);
+    setMatchedMeetingId(null);
     setPlatform("zoom");
     setScheduledStart("");
     setError("");
@@ -86,6 +127,7 @@ export function ScheduleBotDialog({
         meeting_url: meetingUrl,
         scheduled_start: scheduledStart || null,
         title: title.trim() || null,
+        meeting_id: matchedMeetingId,
       });
       reset();
     } catch (err) {
@@ -147,14 +189,25 @@ export function ScheduleBotDialog({
           )}
 
           <div>
-            <label className="block text-sm font-medium" htmlFor="bot-title">
-              Meeting title
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium" htmlFor="bot-title">
+                Meeting title
+              </label>
+              {titleWasAutofilled && matchedMeetingId && (
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                  <Sparkles className="h-3 w-3" />
+                  matched from calendar
+                </span>
+              )}
+            </div>
             <input
               id="bot-title"
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (titleWasAutofilled) setTitleWasAutofilled(false);
+              }}
               placeholder="e.g. Acme Corp — management presentation"
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
