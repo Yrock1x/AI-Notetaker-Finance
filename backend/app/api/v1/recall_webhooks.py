@@ -37,11 +37,14 @@ router = APIRouter()
 #
 # Recall pushes webhooks from two different systems:
 #
-# 1. Account-level dashboard webhooks use Svix signing: a pair of
-#    ``svix-id`` + ``svix-timestamp`` headers and a ``svix-signature`` header
-#    of the form ``v1,<base64_hmac> v1,<base64_hmac> …``. The secret shown
-#    in the dashboard is URL-safe base64 (prefixed ``whsec_`` before we
-#    strip it into RECALL_WEBHOOK_SECRET).
+# 1. Account-level dashboard webhooks are signed to the Standard Webhooks
+#    spec (https://www.standardwebhooks.com/), which Svix uses underneath.
+#    Recall's dashboard sends the generic ``webhook-id`` / ``webhook-timestamp``
+#    / ``webhook-signature`` header names — not the Svix-branded ``svix-*``
+#    variant. Signature format is ``v1,<base64_hmac>`` (optionally multiple
+#    space-separated). The secret shown in the dashboard is URL-safe base64
+#    (prefixed ``whsec_`` before we strip it into RECALL_WEBHOOK_SECRET).
+#    Accept either header set.
 #
 # 2. Older per-bot realtime_endpoints use a plain ``x-recall-signature``
 #    header carrying a hex-encoded HMAC-SHA256 of the raw body.
@@ -143,15 +146,31 @@ async def recall_webhook(
     svix_id: str | None = Header(default=None),
     svix_timestamp: str | None = Header(default=None),
     svix_signature: str | None = Header(default=None),
+    webhook_id: str | None = Header(default=None),
+    webhook_timestamp: str | None = Header(default=None),
+    webhook_signature: str | None = Header(default=None),
     service_supabase: Client = Depends(get_service_supabase),
 ) -> dict:
     raw_body = await request.body()
+    # Recall's dashboard uses the Standard Webhooks ``webhook-*`` header
+    # names; realtime_endpoints may use ``svix-*``. Collapse both into one
+    # triple before verifying.
+    msg_id = svix_id or webhook_id
+    msg_ts = svix_timestamp or webhook_timestamp
+    msg_sig = svix_signature or webhook_signature
+    logger.info(
+        "recall_webhook_received bytes=%d msg_id=%s has_std_sig=%s has_x_recall_sig=%s",
+        len(raw_body),
+        msg_id or "-",
+        bool(msg_sig),
+        bool(x_recall_signature),
+    )
     _verify_recall_signature(
         raw_body,
         x_recall_signature=x_recall_signature,
-        svix_id=svix_id,
-        svix_timestamp=svix_timestamp,
-        svix_signature=svix_signature,
+        svix_id=msg_id,
+        svix_timestamp=msg_ts,
+        svix_signature=msg_sig,
     )
 
     try:
