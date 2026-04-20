@@ -113,7 +113,10 @@ class AnalysisService:
                 task_type=_CALL_TYPE_TASK.get(call_type, TASK_IC_MEMO),
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                max_tokens=8192,
+                # Fireworks rejects max_tokens > 4096 without stream=true.
+                # 4096 is plenty for an IC memo / summary — the JSON schemas
+                # we render are well under that budget.
+                max_tokens=4096,
                 temperature=0.0,
             )
 
