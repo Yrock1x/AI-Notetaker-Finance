@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 @dataclass
 class Citation:
     chunk_id: str
+    source_id: str
     source_type: str
     text: str
     relevance: str = "direct"
@@ -210,6 +211,7 @@ class QAService:
                 out.append(
                     Citation(
                         chunk_id=chunk_id,
+                        source_id=str(r["source_id"]),
                         source_type=r["source_type"],
                         text=r["text"][:200],
                         relevance=cit.get("relevance", "direct"),

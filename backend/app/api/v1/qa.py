@@ -92,6 +92,7 @@ async def ask_question(
     citations = [
         {
             "chunk_id": c.chunk_id,
+            "source_id": c.source_id,
             "source_type": c.source_type,
             "text_excerpt": c.text,
             "relevance": c.relevance,
@@ -154,6 +155,7 @@ async def ask_meeting_question(
     citations = [
         {
             "chunk_id": c.chunk_id,
+            "source_id": c.source_id,
             "source_type": c.source_type,
             "text_excerpt": c.text,
             "relevance": c.relevance,
