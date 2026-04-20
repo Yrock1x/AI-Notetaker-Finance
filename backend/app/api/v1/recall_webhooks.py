@@ -418,15 +418,28 @@ async def _handle_participant(
     participant = inner.get("participant") or data.get("participant") or {}
     participant_id = participant.get("id") or participant.get("participant_id")
     if not participant_id:
+        # Non-per-participant events (``participant_events.done`` /
+        # ``.processing`` fire at resource-lifecycle granularity with no
+        # participant in the payload) — ack and ignore.
         return {"received": True, "handled": False, "reason": "no_participant_id"}
 
     action = event.split(".")[-1]  # 'join' | 'leave' | 'update' | ...
-    timestamp = (
+    if action not in ("join", "leave", "update"):
+        return {"received": True, "handled": False, "reason": f"skip_{action}"}
+
+    # Recall's timestamps come as either ISO strings or a
+    # {"relative": <float>, "absolute": <ISO>} object. Postgres only
+    # accepts the ISO string, so pull `.absolute` out when it's a dict.
+    raw_ts = (
         inner.get("timestamp")
         or inner.get("updated_at")
         or data.get("timestamp")
         or data.get("updated_at")
     )
+    if isinstance(raw_ts, dict):
+        timestamp = raw_ts.get("absolute")
+    else:
+        timestamp = raw_ts
 
     row: dict = {
         "meeting_id": session["meeting_id"],
@@ -435,9 +448,9 @@ async def _handle_participant(
         "speaker_name": participant.get("name"),
         "email_address": participant.get("email"),
     }
-    if action == "join":
+    if action == "join" and timestamp:
         row["joined_at"] = timestamp
-    elif action == "leave":
+    elif action == "leave" and timestamp:
         row["left_at"] = timestamp
 
     # meeting_participants has a *partial* unique index on
