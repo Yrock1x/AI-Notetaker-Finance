@@ -16,6 +16,7 @@ every event type lands on this handler.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -33,26 +34,87 @@ router = APIRouter()
 
 # ---------------------------------------------------------------------------
 # Signature verification
+#
+# Recall pushes webhooks from two different systems:
+#
+# 1. Account-level dashboard webhooks use Svix signing: a pair of
+#    ``svix-id`` + ``svix-timestamp`` headers and a ``svix-signature`` header
+#    of the form ``v1,<base64_hmac> v1,<base64_hmac> …``. The secret shown
+#    in the dashboard is URL-safe base64 (prefixed ``whsec_`` before we
+#    strip it into RECALL_WEBHOOK_SECRET).
+#
+# 2. Older per-bot realtime_endpoints use a plain ``x-recall-signature``
+#    header carrying a hex-encoded HMAC-SHA256 of the raw body.
+#
+# Accept both so the one env var works for everything Recall might send.
 # ---------------------------------------------------------------------------
-def _verify_recall_signature(raw_body: bytes, header_sig: str | None) -> None:
+def _secret_bytes() -> bytes:
+    raw = settings.recall_webhook_secret
+    if raw.startswith("whsec_"):
+        raw = raw[len("whsec_") :]
+    # URL-safe base64, may be missing padding.
+    padded = raw + "=" * (-len(raw) % 4)
+    try:
+        return base64.urlsafe_b64decode(padded)
+    except Exception:
+        return settings.recall_webhook_secret.encode()
+
+
+def _verify_svix(
+    raw_body: bytes,
+    svix_id: str,
+    svix_timestamp: str,
+    svix_signature: str,
+) -> bool:
+    signed = f"{svix_id}.{svix_timestamp}.".encode() + raw_body
+    expected = base64.b64encode(
+        hmac.new(_secret_bytes(), signed, hashlib.sha256).digest()
+    ).decode()
+    # Header is one or more space-separated "<version>,<sig>" pairs.
+    for part in svix_signature.split(" "):
+        _, _, sig = part.partition(",")
+        if sig and hmac.compare_digest(expected, sig):
+            return True
+    return False
+
+
+def _verify_recall_signature(
+    raw_body: bytes,
+    *,
+    x_recall_signature: str | None,
+    svix_id: str | None,
+    svix_timestamp: str | None,
+    svix_signature: str | None,
+) -> None:
     if not settings.recall_webhook_secret:
         # In dev we accept unsigned webhooks to simplify local testing.
         return
-    if not header_sig:
+
+    if svix_id and svix_timestamp and svix_signature:
+        if _verify_svix(raw_body, svix_id, svix_timestamp, svix_signature):
+            return
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Recall signature header",
+            detail="Invalid Svix signature",
         )
-    expected = hmac.new(
-        settings.recall_webhook_secret.encode(),
-        raw_body,
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, header_sig):
+
+    if x_recall_signature:
+        expected = hmac.new(
+            settings.recall_webhook_secret.encode(),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        if hmac.compare_digest(expected, x_recall_signature):
+            return
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Recall signature",
         )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing Recall signature header",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -78,10 +140,19 @@ def _session_for_bot(service_supabase: Client, bot_id: str) -> dict | None:
 async def recall_webhook(
     request: Request,
     x_recall_signature: str | None = Header(default=None),
+    svix_id: str | None = Header(default=None),
+    svix_timestamp: str | None = Header(default=None),
+    svix_signature: str | None = Header(default=None),
     service_supabase: Client = Depends(get_service_supabase),
 ) -> dict:
     raw_body = await request.body()
-    _verify_recall_signature(raw_body, x_recall_signature)
+    _verify_recall_signature(
+        raw_body,
+        x_recall_signature=x_recall_signature,
+        svix_id=svix_id,
+        svix_timestamp=svix_timestamp,
+        svix_signature=svix_signature,
+    )
 
     try:
         payload = await request.json()
@@ -94,14 +165,22 @@ async def recall_webhook(
     data = payload.get("data", {}) or {}
 
     # --- Transcript events ---------------------------------------------------
-    # Recall's realtime_endpoints spell these "transcript.partial_data" /
-    # "transcript.data"; the older per-bot push used "transcript.partial" /
-    # "transcript.final". Handle both so we stay resilient across API versions.
-    if event.startswith("transcript."):
+    # realtime_endpoints spells these ``transcript.partial_data`` /
+    # ``transcript.data``. The dashboard also fires resource-lifecycle events
+    # (``transcript.processing`` / ``transcript.done``) when post-call
+    # processing completes — we just ACK those; the real work happens on
+    # ``bot.done`` via /internal/bot/finalize.
+    if event in ("transcript.data", "transcript.partial_data"):
         return await _handle_transcript(event, data, service_supabase)
+    if event.startswith("transcript."):
+        return {"received": True, "handled": False, "event": event}
 
-    # --- Lifecycle events ----------------------------------------------------
-    if event in ("bot.status_change", "bot.call_ended", "bot.done", "bot.fatal"):
+    # --- Bot lifecycle -------------------------------------------------------
+    # Dashboard fires flat event names (``bot.joining_call``,
+    # ``bot.in_call_recording``, ``bot.done``, ``bot.fatal`` …); realtime
+    # endpoints, if ever configured, use ``bot.status_change`` with a nested
+    # ``data.status.code``. Both end up in _handle_status_change.
+    if event.startswith("bot."):
         return await _handle_status_change(event, data, service_supabase)
 
     # --- Participant join / leave -------------------------------------------
@@ -114,7 +193,9 @@ async def recall_webhook(
     if event.startswith("chat_messages.") or event.startswith("chat."):
         return await _handle_chat(event, data, service_supabase)
 
-    # Anything else — ack and ignore. Recall fires many event types.
+    # ``recording.done`` / ``meeting_metadata.done`` / ``video_mixed.done``
+    # etc. — just ACK. /internal/bot/finalize pulls whatever media shortcuts
+    # are ready at the time it runs (triggered by bot.done above).
     logger.info("recall_webhook_unhandled event=%s", event)
     return {"received": True, "handled": False, "event": event}
 
@@ -208,15 +289,21 @@ async def _handle_status_change(
     bot-specific Inngest pipeline (pull transcript + participants from
     Recall, then embed + analyze) runs.
     """
-    # Realtime-endpoints payloads: {"bot":{"id","metadata"}, "data":{"code",…}}
-    # Legacy payloads:             {"bot_id":"…", "status":{"code":"…"}}
+    # Dashboard payloads look like:
+    #   {"event":"bot.joining_call", "data":{"bot":{"id",…},"data":{…}}}
+    # Realtime-endpoints payloads:
+    #   {"event":"bot.status_change","data":{"bot":{…},"data":{"code",…}}}
+    # Legacy payloads:
+    #   {"event":"bot.done","data":{"bot_id":"…","status":{"code":"…"}}}
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
     inner = data.get("data") if isinstance(data.get("data"), dict) else None
+    # For dashboard events the status IS the event suffix — no nested code.
+    event_suffix = event.split(".", 1)[1] if "." in event else ""
     recall_status = (
         (inner or {}).get("code")
         or (data.get("status") or {}).get("code")
-        or ""
+        or event_suffix
     )
 
     session = _session_for_bot(service_supabase, bot_id)
