@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
@@ -72,7 +73,21 @@ async def ask_question(
     """Ask a question scoped to a deal (RAG over all deal artefacts)."""
     llm_router = get_llm_router()
     qa = QAService(supabase=supabase, llm_router=llm_router)
-    result = await qa.ask(deal_id=deal_id, question=payload.question)
+    try:
+        result = await qa.ask(deal_id=deal_id, question=payload.question)
+    except httpx.HTTPStatusError as exc:
+        # Surface provider errors (e.g. Fireworks 412 "account suspended")
+        # instead of bubbling up as a generic 500 — the frontend relies on
+        # response.data.detail to show what actually went wrong.
+        try:
+            body = exc.response.json()
+            detail = (body.get("error") or {}).get("message") or exc.response.text
+        except Exception:
+            detail = exc.response.text
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM provider error ({exc.response.status_code}): {detail[:400]}",
+        ) from exc
 
     citations = [
         {

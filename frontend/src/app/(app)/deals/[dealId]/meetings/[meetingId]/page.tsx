@@ -119,7 +119,14 @@ export default function MeetingDetailPage() {
     );
   }
 
+  // A meeting has viewable content once its transcript has landed — which
+  // for bot-recorded meetings happens at 'uploaded' (the state
+  // /internal/bot/finalize leaves the row in after pulling from Recall).
+  // Analyses may still be running at that point; individual tabs handle
+  // their own empty states.
   const hasContent =
+    meeting.status === MeetingStatus.UPLOADED ||
+    meeting.status === MeetingStatus.ANALYZING ||
     meeting.status === MeetingStatus.TRANSCRIBED ||
     meeting.status === MeetingStatus.ANALYZED ||
     meeting.status === MeetingStatus.READY;

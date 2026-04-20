@@ -84,14 +84,22 @@ export function QAChat(props: QAChatProps) {
           grounding_score: response.grounding_score,
         },
       ]);
-    } catch {
+    } catch (err: unknown) {
+      // Surface the backend detail when present (e.g. Fireworks 412 "Account
+      // suspended"), so a billing / config issue isn't hidden behind a
+      // generic "Sorry, an error occurred" message.
+      let detail = "";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = (err as { response?: { data?: { detail?: string } } })
+          .response;
+        detail = r?.data?.detail ?? "";
+      }
+      const answer = detail
+        ? `Sorry, the model couldn't answer: ${detail}`
+        : "Sorry, an error occurred while processing your question.";
       setHistory((prev) => [
         ...prev,
-        {
-          question: q,
-          answer: "Sorry, an error occurred while processing your question.",
-          citations: [],
-        },
+        { question: q, answer, citations: [] },
       ]);
     }
   };

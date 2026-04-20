@@ -22,6 +22,7 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   [MeetingStatus.PROCESSING]: "Processing",
   [MeetingStatus.TRANSCRIBING]: "Transcribing",
   [MeetingStatus.ANALYZING]: "Analyzing",
+  [MeetingStatus.UPLOADED]: "Uploaded",
   [MeetingStatus.TRANSCRIBED]: "Transcribed",
   [MeetingStatus.ANALYZED]: "Analyzed",
   [MeetingStatus.READY]: "Ready",

@@ -34,6 +34,7 @@ export enum MeetingStatus {
   PROCESSING = "processing",
   TRANSCRIBING = "transcribing",
   ANALYZING = "analyzing",
+  UPLOADED = "uploaded",
   TRANSCRIBED = "transcribed",
   ANALYZED = "analyzed",
   READY = "ready",
