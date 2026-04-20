@@ -487,11 +487,12 @@ async def bot_start(
 
     recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
 
-    # Per-bot webhook URL. Without ``realtime_endpoints`` Recall has nowhere
-    # to send transcript / participant / status events — which is why the
-    # earlier smoke tests recorded cleanly on Recall's side but populated
-    # nothing in our DB. Sending every event type to the same handler keeps
-    # the routing in recall_webhooks.py in one place.
+    # Per-bot realtime webhook. Recall v1 only accepts transcript +
+    # participant_events.* here — bot.* lifecycle events (status_change,
+    # done, fatal) come through Recall's account-level webhook configured
+    # in the dashboard. Both land on the same /api/v1/webhooks/recall
+    # handler, which also accepts the dashboard-signed payloads via
+    # RECALL_WEBHOOK_SECRET.
     webhook_url = f"{settings.public_api_url.rstrip('/')}/api/v1/webhooks/recall"
     realtime_events = [
         "transcript.data",
@@ -499,11 +500,7 @@ async def bot_start(
         "participant_events.join",
         "participant_events.leave",
         "participant_events.update",
-        "chat_messages.data",
-        "bot.status_change",
-        "bot.call_ended",
-        "bot.done",
-        "bot.fatal",
+        "participant_events.chat_message",
     ]
 
     try:
