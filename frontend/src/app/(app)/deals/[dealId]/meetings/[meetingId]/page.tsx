@@ -286,7 +286,11 @@ export default function MeetingDetailPage() {
           )}
 
           {activeTab === "chat" && hasContent && (
-            <QAChat scope="meeting" meetingId={params.meetingId} />
+            <QAChat
+              scope="meeting"
+              meetingId={params.meetingId}
+              dealId={params.dealId}
+            />
           )}
         </>
       )}

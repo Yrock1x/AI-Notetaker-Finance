@@ -1,26 +1,96 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
 import { LoadingState } from "@/components/shared/loading-state";
 import { Send, MessageCircle, BookOpen } from "lucide-react";
 
 type QAChatProps =
   | { scope: "deal"; dealId: string }
-  | { scope: "meeting"; meetingId: string };
+  | { scope: "meeting"; meetingId: string; dealId: string };
+
+interface QACitation {
+  source_type: string;
+  source_id: string;
+  source_title?: string;
+  text_excerpt: string;
+  timestamp?: number;
+  page?: number;
+  // Extras spread from backend citation metadata. Present for
+  // transcript_segment citations so we can link to the meeting.
+  meeting_id?: string;
+  start_time?: number;
+  chunk_id?: string;
+}
 
 interface QAEntry {
   question: string;
   answer: string;
-  citations: Array<{
-    source_type: string;
-    source_id: string;
-    source_title: string;
-    text_excerpt: string;
-    timestamp?: number;
-    page?: number;
-  }>;
+  citations: QACitation[];
   grounding_score?: number;
+}
+
+// Build the navigation target for a citation. Transcript segments go to the
+// meeting page with the segment's start_time as a hash so the transcript can
+// auto-scroll; documents currently just link to the meeting for now. Returns
+// null when we don't have enough info to link (keep it as plain text).
+function citationHref(
+  c: QACitation,
+  dealId: string | undefined,
+): string | null {
+  if (!dealId) return null;
+  if (c.source_type === "transcript_segment" && c.meeting_id) {
+    const frag = c.start_time != null ? `#t=${c.start_time}` : "";
+    return `/deals/${dealId}/meetings/${c.meeting_id}${frag}`;
+  }
+  return null;
+}
+
+// Replace ``[Source:chunk_N]`` tokens in the answer text with clickable
+// <Link>s (when the Nth citation has a target) or keep them as plain text
+// when we can't build a link. Fragments are stitched back into the final
+// React children array so whitespace / paragraph breaks survive.
+function renderAnswerWithCitations(
+  answer: string,
+  citations: QACitation[],
+  dealId: string | undefined,
+): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /\[Source:([a-z0-9_-]+)\]/gi;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let keyIdx = 0;
+  while ((match = regex.exec(answer)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(answer.slice(lastIndex, match.index));
+    }
+    const chunkId = match[1];
+    // chunk_id is "chunk_<N>" where N indexes into the citations array.
+    const n = Number(chunkId.replace(/^chunk_/, ""));
+    const c = Number.isFinite(n) ? citations[n] : undefined;
+    const href = c ? citationHref(c, dealId) : null;
+    const label = c?.source_title || `source ${Number.isFinite(n) ? n + 1 : "?"}`;
+    parts.push(
+      href ? (
+        <Link
+          key={`c-${keyIdx++}`}
+          href={href}
+          className="text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          title={c?.text_excerpt}
+        >
+          [{label}]
+        </Link>
+      ) : (
+        <span key={`c-${keyIdx++}`} className="text-muted-foreground">
+          [{label}]
+        </span>
+      ),
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < answer.length) parts.push(answer.slice(lastIndex));
+  return parts;
 }
 
 const DEAL_EXAMPLES = [
@@ -41,6 +111,8 @@ export function QAChat(props: QAChatProps) {
   const dealMutation = useAskQuestion();
   const meetingMutation = useMeetingAskQuestion();
   const askQuestion = props.scope === "deal" ? dealMutation : meetingMutation;
+  const dealId =
+    props.scope === "deal" ? props.dealId : props.dealId;
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,7 +211,13 @@ export function QAChat(props: QAChatProps) {
               </div>
               <div className="space-y-2">
                 <div className="max-w-[90%] rounded-lg bg-muted px-4 py-3 text-sm">
-                  <p className="whitespace-pre-wrap">{entry.answer}</p>
+                  <p className="whitespace-pre-wrap">
+                    {renderAnswerWithCitations(
+                      entry.answer,
+                      entry.citations,
+                      dealId,
+                    )}
+                  </p>
                 </div>
                 {entry.citations.length > 0 && (
                   <div className="ml-2 space-y-1">
@@ -147,17 +225,35 @@ export function QAChat(props: QAChatProps) {
                       <BookOpen className="h-3 w-3" />
                       Sources ({entry.citations.length})
                     </p>
-                    {entry.citations.map((citation, j) => (
-                      <div
-                        key={j}
-                        className="rounded border bg-white px-3 py-2 text-xs"
-                      >
-                        <p className="font-medium">{citation.source_title}</p>
-                        <p className="mt-0.5 text-muted-foreground line-clamp-2">
-                          {citation.text_excerpt}
-                        </p>
-                      </div>
-                    ))}
+                    {entry.citations.map((citation, j) => {
+                      const href = citationHref(citation, dealId);
+                      const body = (
+                        <>
+                          <p className="font-medium">
+                            {citation.source_title || `Source ${j + 1}`}
+                          </p>
+                          <p className="mt-0.5 text-muted-foreground line-clamp-2">
+                            {citation.text_excerpt}
+                          </p>
+                        </>
+                      );
+                      return href ? (
+                        <Link
+                          key={j}
+                          href={href}
+                          className="block rounded border bg-white px-3 py-2 text-xs hover:border-primary hover:bg-muted"
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <div
+                          key={j}
+                          className="rounded border bg-white px-3 py-2 text-xs"
+                        >
+                          {body}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {entry.grounding_score != null && (

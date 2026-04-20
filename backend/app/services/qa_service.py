@@ -90,6 +90,34 @@ class QAService:
             for row in (rpc.data or [])
         ]
 
+        # Enrich transcript_segment citations with meeting_id + start_time so
+        # the frontend can build a direct link to the exact moment in the
+        # meeting transcript. Batched in one query per question.
+        ts_ids = [
+            str(r["source_id"])
+            for r in search_results
+            if r["source_type"] == "transcript_segment"
+        ]
+        if ts_ids:
+            seg_rows = (
+                self.supabase.table("transcript_segments")
+                .select("id, meeting_id, start_time")
+                .in_("id", ts_ids)
+                .execute()
+                .data
+            ) or []
+            by_id = {str(row["id"]): row for row in seg_rows}
+            for r in search_results:
+                if r["source_type"] != "transcript_segment":
+                    continue
+                seg = by_id.get(str(r["source_id"]))
+                if not seg:
+                    continue
+                md = dict(r.get("metadata") or {})
+                md.setdefault("meeting_id", str(seg["meeting_id"]))
+                md.setdefault("start_time", seg.get("start_time"))
+                r["metadata"] = md
+
         if not search_results:
             return QAResponse(
                 answer=(

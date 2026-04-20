@@ -166,6 +166,7 @@ function ChatContent() {
             key={`m-${selectedMeeting.id}`}
             scope="meeting"
             meetingId={selectedMeeting.id}
+            dealId={selectedDeal.id}
           />
         ) : (
           <QAChat
