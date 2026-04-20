@@ -35,7 +35,7 @@ TASK_EMBEDDING = "embedding"
 # Defaults. Format: "<provider>:<model>" where provider is "fireworks" or
 # "anthropic". Everything is Fireworks by default.
 _FIREWORKS_LLAMA = "fireworks:accounts/fireworks/models/llama-v3p3-70b-instruct"
-_FIREWORKS_DEEPSEEK = "fireworks:accounts/fireworks/models/deepseek-v3"
+_FIREWORKS_DEEPSEEK = "fireworks:accounts/fireworks/models/deepseek-v3p1"
 _FIREWORKS_NOMIC = "fireworks:nomic-ai/nomic-embed-text-v1.5"
 
 _DEFAULT_TASK_MODEL_MAP: dict[str, str] = {
