@@ -15,8 +15,11 @@ import re
 # ``us02web.zoom.us`` for personal meeting rooms, plus the bare
 # ``zoom.us`` for business accounts. Capture up to the first whitespace,
 # closing bracket, or newline — Zoom URLs never legally contain those.
+# Exclude angle brackets / HTML-entity starts / quotes so Zoom URLs
+# pasted into Google Calendar descriptions (which often carry <br/>
+# line breaks or &nbsp;) don't get their query strings contaminated.
 _ZOOM_URL = re.compile(
-    r"https?://[a-zA-Z0-9-]*\.?zoom\.us/j/\d+(?:\?[^\s)\]]+)?",
+    r"https?://[a-zA-Z0-9-]*\.?zoom\.us/j/\d+(?:\?[^\s)\]<>\"'&]+)?",
     re.IGNORECASE,
 )
 

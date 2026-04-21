@@ -105,30 +105,47 @@ def _dedupe_zoom_google_rows(
     for date_rows in by_date.values():
         if len(date_rows) < 2:
             continue
+        # Prefer the row that came directly from Zoom's own calendar API
+        # as the canonical one — its source_url is always the real
+        # ``us05web.zoom.us/j/…`` join link with no HTML cruft. Google-
+        # sourced rows can also carry source='zoom' (we parse the Zoom
+        # URL out of the event description), but that URL may have been
+        # pasted from a template and is less reliable.
         zoom_row = next(
-            (r for r in date_rows if r.get("source") == "zoom"),
+            (
+                r
+                for r in date_rows
+                if r.get("source") == "zoom"
+                and r.get("external_provider") == "zoom"
+            ),
             None,
         )
         if not zoom_row:
+            zoom_row = next(
+                (r for r in date_rows if r.get("source") == "zoom"),
+                None,
+            )
+        if not zoom_row:
             continue
         zoom_id = extract_zoom_meeting_id(zoom_row.get("source_url") or "")
+
         for other in date_rows:
             if other["id"] == zoom_row["id"]:
                 continue
-            if other.get("source") == "zoom":
-                # Two Zoom rows at the same second is unusual (two
-                # different Zoom events back-to-back) — don't touch them.
+            # Two rows for the SAME provider at the same second — don't
+            # merge; that would be destroying two real back-to-back
+            # meetings (vanishingly rare but possible).
+            if other.get("external_provider") == zoom_row.get(
+                "external_provider"
+            ):
                 continue
-            # Only merge when we can confirm the other row refers to the
-            # same Zoom meeting. For Google rows we may have seeded
-            # source='zoom' + source_url from the description; those
-            # already sit in the zoom_row==zoom branch. Here we check the
-            # 'upload' / 'meet' rows: if their source_url or any extra
-            # text contains the same Zoom meeting id, it's a dupe.
-            candidate_text = " ".join(
-                str(other.get(k) or "") for k in ("source_url",)
+            # Confirm the other row points at the same Zoom meeting
+            # before deleting. If we can extract a meeting id from its
+            # source_url and it doesn't match, leave both alone — they
+            # really are different calls.
+            other_zoom_id = extract_zoom_meeting_id(
+                other.get("source_url") or ""
             )
-            other_zoom_id = extract_zoom_meeting_id(candidate_text)
             if zoom_id and other_zoom_id and other_zoom_id != zoom_id:
                 continue
             # Merge user-set fields onto the surviving Zoom row.
