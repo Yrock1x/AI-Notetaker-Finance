@@ -89,8 +89,12 @@ export default function MeetingDetailPage() {
   // Show the Live tab as soon as a bot is scheduled — not just when it's
   // actually recording. Users expect to see the live panel right after
   // clicking "Schedule Notetaker" so they can watch the bot join.
+  // 'uploading' is the default status for calendar-synced meetings that
+  // are waiting on the bot to arrive; treat it as a pre-live state too.
   const isLive =
-    meeting?.status === "scheduled" || meeting?.status === "recording";
+    meeting?.status === "scheduled" ||
+    meeting?.status === "recording" ||
+    meeting?.status === "uploading";
   const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");

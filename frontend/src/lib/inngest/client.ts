@@ -33,6 +33,12 @@ type CalendarRefreshRequested = {
   // calendar/sync.requested per platform.
   data: { org_id: string; user_id: string };
 };
+type BotAutoScheduleRequested = {
+  // Fired right after the user attaches a meeting to a deal so the
+  // bot spawns in seconds instead of waiting for the next cron tick.
+  // Reuses the worker's /internal/bot/auto-schedule-due endpoint.
+  data: Record<string, never>;
+};
 type MicrosoftSubscriptionEnsure = {
   data: { org_id: string; user_id: string };
 };
@@ -47,6 +53,7 @@ type AppEvents = {
   "teams/call_record.created": TeamsCallRecordCreated;
   "calendar/sync.requested": CalendarSyncRequested;
   "calendar/refresh.requested": CalendarRefreshRequested;
+  "bot/auto-schedule.requested": BotAutoScheduleRequested;
   "microsoft/subscription.ensure": MicrosoftSubscriptionEnsure;
 };
 

@@ -60,6 +60,25 @@ export function AssignMeetingDialog({
         .update({ deal_id: dealId, bot_enabled: botEnabled })
         .eq("id", meeting.id);
       if (updErr) throw updErr;
+
+      // Kick auto-schedule immediately so the bot spawns in seconds.
+      // Without this nudge we'd wait for the next 5-min cron tick,
+      // which is easy to miss when a user assigns a meeting that's
+      // about to start (or just started).
+      if (botEnabled) {
+        try {
+          await fetch("/api/inngest/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: "bot/auto-schedule.requested",
+              data: {},
+            }),
+          });
+        } catch {
+          // Non-fatal — the cron will catch it on the next tick.
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });

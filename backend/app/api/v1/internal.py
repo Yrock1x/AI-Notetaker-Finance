@@ -737,6 +737,11 @@ async def bot_auto_schedule_due(
     supabase: Client = Depends(get_service_supabase),
 ) -> AutoScheduleDueResponse:
     now = datetime.now(UTC)
+    # Grace window at the front edge: cover meetings that started up to
+    # 15 min ago so a late dealassignment (or a cron tick that just
+    # missed the start) still spawns a bot into the call. Back edge
+    # stays 10 min ahead so we join a bit before the meeting begins.
+    window_start = now - timedelta(minutes=15)
     window_end = now + timedelta(minutes=10)
 
     candidates = (
@@ -746,7 +751,7 @@ async def bot_auto_schedule_due(
         .eq("status", "uploading")
         .not_.is_("deal_id", "null")
         .not_.is_("source_url", "null")
-        .gte("meeting_date", now.isoformat())
+        .gte("meeting_date", window_start.isoformat())
         .lte("meeting_date", window_end.isoformat())
         .execute()
         .data

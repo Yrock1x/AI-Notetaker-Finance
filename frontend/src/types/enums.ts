@@ -31,6 +31,10 @@ export enum DealType {
 export enum MeetingStatus {
   SCHEDULED = "scheduled",
   RECORDING = "recording",
+  // Default state for calendar-synced meetings — pre-bot, before the
+  // auto-schedule cron kicks a session. Distinct from UPLOADED, which
+  // is the post-bot/finalize state.
+  UPLOADING = "uploading",
   PROCESSING = "processing",
   TRANSCRIBING = "transcribing",
   ANALYZING = "analyzing",

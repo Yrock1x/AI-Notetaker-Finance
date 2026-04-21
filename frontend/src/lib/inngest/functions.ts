@@ -157,6 +157,7 @@ export const startBotSession = inngest.createFunction(
 // code path regardless of whether the user scheduled manually or via
 // auto-join.
 // ---------------------------------------------------------------------------
+// Cron trigger: sweeps every 5 min for meetings about to start.
 export const autoScheduleDueBots = inngest.createFunction(
   { id: "auto-schedule-due-bots" },
   { cron: "TZ=UTC */5 * * * *" },
@@ -166,17 +167,13 @@ export const autoScheduleDueBots = inngest.createFunction(
         `${WORKER_URL}/api/v1/internal/bot/auto-schedule-due`,
         { method: "POST", headers: internalHeaders() }
       );
-      if (!r.ok) {
-        throw new Error(`auto-schedule-due failed: ${r.status}`);
-      }
+      if (!r.ok) throw new Error(`auto-schedule-due failed: ${r.status}`);
       const body = (await r.json()) as {
         scheduled: { session_id: string; meeting_id: string; deal_id: string }[];
       };
       return body.scheduled;
     });
-
     if (scheduled.length === 0) return { scheduled: 0 };
-
     await step.sendEvent(
       "fanout-bot-scheduled",
       scheduled.map((s) => ({
@@ -184,7 +181,37 @@ export const autoScheduleDueBots = inngest.createFunction(
         data: { session_id: s.session_id },
       }))
     );
+    return { scheduled: scheduled.length };
+  }
+);
 
+// On-demand twin: fires the same logic immediately when a user assigns
+// a calendar-synced meeting to a deal. Without this, the bot wouldn't
+// spawn until the next 5-min cron tick — easy to miss a meeting that's
+// about to start.
+export const autoScheduleDueBotsOnDemand = inngest.createFunction(
+  { id: "auto-schedule-due-bots-on-demand", concurrency: { limit: 4 } },
+  { event: "bot/auto-schedule.requested" },
+  async ({ step }) => {
+    const scheduled = await step.run("find-due", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/bot/auto-schedule-due`,
+        { method: "POST", headers: internalHeaders() }
+      );
+      if (!r.ok) throw new Error(`auto-schedule-due failed: ${r.status}`);
+      const body = (await r.json()) as {
+        scheduled: { session_id: string; meeting_id: string; deal_id: string }[];
+      };
+      return body.scheduled;
+    });
+    if (scheduled.length === 0) return { scheduled: 0 };
+    await step.sendEvent(
+      "fanout-bot-scheduled",
+      scheduled.map((s) => ({
+        name: "bot/scheduled" as const,
+        data: { session_id: s.session_id },
+      }))
+    );
     return { scheduled: scheduled.length };
   }
 );
@@ -496,6 +523,7 @@ export const functions = [
   startBotSession,
   cancelBotSession,
   autoScheduleDueBots,
+  autoScheduleDueBotsOnDemand,
   ingestZoomRecording,
   processTeamsCallRecord,
   syncCalendars,
