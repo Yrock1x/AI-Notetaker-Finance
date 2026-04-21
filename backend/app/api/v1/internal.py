@@ -64,6 +64,88 @@ MEETINGS_BUCKET = "meeting-recordings"
 DOCUMENTS_BUCKET = "deal-documents"
 
 
+def _dedupe_zoom_google_rows(
+    supabase: Client,
+    org_id: Any,
+    dates: list[str],
+) -> None:
+    """Collapse Google+Zoom duplicates into one Zoom-sourced row.
+
+    When a user schedules a Zoom meeting that auto-creates a Google Calendar
+    event, both providers sync the same underlying call. The Zoom row has
+    the real ``us05web.zoom.us/j/<id>`` URL; the Google row only has an
+    ``htmlLink`` fallback (or a ``source='zoom'`` row we built from the
+    description). After each sync we look at the dates we just touched and
+    merge any same-time pair into the Zoom row so:
+      - The Calendar view + Dashboard widget show one card, not two.
+      - Any user-set ``deal_id`` / ``bot_enabled`` on either row is
+        preserved on the surviving Zoom row.
+    """
+    from app.integrations.zoom.urls import extract_zoom_meeting_id
+
+    if not dates:
+        return
+    rows = (
+        supabase.table("meetings")
+        .select(
+            "id, external_provider, source, source_url, deal_id, bot_enabled, meeting_date"
+        )
+        .eq("org_id", str(org_id))
+        .in_("meeting_date", list(set(dates)))
+        .execute()
+        .data
+    ) or []
+
+    # Group by meeting_date — a Zoom meeting + its Google shadow share the
+    # same start time down to the second, so that's a stable join key.
+    by_date: dict[str, list[dict]] = {}
+    for r in rows:
+        by_date.setdefault(r["meeting_date"], []).append(r)
+
+    for date_rows in by_date.values():
+        if len(date_rows) < 2:
+            continue
+        zoom_row = next(
+            (r for r in date_rows if r.get("source") == "zoom"),
+            None,
+        )
+        if not zoom_row:
+            continue
+        zoom_id = extract_zoom_meeting_id(zoom_row.get("source_url") or "")
+        for other in date_rows:
+            if other["id"] == zoom_row["id"]:
+                continue
+            if other.get("source") == "zoom":
+                # Two Zoom rows at the same second is unusual (two
+                # different Zoom events back-to-back) — don't touch them.
+                continue
+            # Only merge when we can confirm the other row refers to the
+            # same Zoom meeting. For Google rows we may have seeded
+            # source='zoom' + source_url from the description; those
+            # already sit in the zoom_row==zoom branch. Here we check the
+            # 'upload' / 'meet' rows: if their source_url or any extra
+            # text contains the same Zoom meeting id, it's a dupe.
+            candidate_text = " ".join(
+                str(other.get(k) or "") for k in ("source_url",)
+            )
+            other_zoom_id = extract_zoom_meeting_id(candidate_text)
+            if zoom_id and other_zoom_id and other_zoom_id != zoom_id:
+                continue
+            # Merge user-set fields onto the surviving Zoom row.
+            patch: dict[str, Any] = {}
+            if not zoom_row.get("deal_id") and other.get("deal_id"):
+                patch["deal_id"] = other["deal_id"]
+            # bot_enabled: prefer an explicit off (user opt-out) over on.
+            if other.get("bot_enabled") is False:
+                patch["bot_enabled"] = False
+            if patch:
+                supabase.table("meetings").update(patch).eq(
+                    "id", zoom_row["id"]
+                ).execute()
+                zoom_row.update(patch)
+            supabase.table("meetings").delete().eq("id", other["id"]).execute()
+
+
 # ---------------------------------------------------------------------------
 # /internal/transcribe
 # ---------------------------------------------------------------------------
@@ -1346,6 +1428,7 @@ async def calendar_sync(
 
     elif body.platform == "google":
         from app.integrations.google.calendar_client import GoogleCalendarClient
+        from app.integrations.zoom.urls import extract_zoom_url
 
         gcal = GoogleCalendarClient()
         events = await gcal.list_events(
@@ -1356,18 +1439,36 @@ async def calendar_sync(
             if not start:
                 continue  # all-day events don't have dateTime
             meet_url = GoogleCalendarClient.extract_meet_url(ev)
+            # Zoom-via-Google case: event was created in Zoom (or pasted in
+            # manually), Google stores the join URL in description/location.
+            # Falling back here means the Google-sourced row can carry the
+            # real Zoom URL + source='zoom' even before the Zoom OAuth sync
+            # runs — the auto-schedule cron then has everything it needs.
+            zoom_from_body = (
+                None
+                if meet_url
+                else extract_zoom_url(ev.get("description"))
+                or extract_zoom_url(ev.get("location"))
+            )
+            source, source_url = (
+                ("meet", meet_url)
+                if meet_url
+                else ("zoom", zoom_from_body)
+                if zoom_from_body
+                else ("upload", ev.get("htmlLink"))
+            )
             rows.append(
                 {
                     "org_id": str(org_uuid),
                     "deal_id": None,
                     "title": ev.get("summary") or "Meeting",
                     "meeting_date": start,
-                    "source": "meet" if meet_url else "upload",
-                    "source_url": meet_url or ev.get("htmlLink"),
+                    "source": source,
+                    "source_url": source_url,
                     "external_event_id": ev.get("id"),
                     "external_provider": "google",
                     "status": "uploading",
-                    "bot_enabled": bool(meet_url),
+                    "bot_enabled": bool(meet_url or zoom_from_body),
                     "created_by": str(user_uuid),
                 }
             )
@@ -1398,6 +1499,15 @@ async def calendar_sync(
         else:
             supabase.table("meetings").insert(row).execute()
         upserted += 1
+
+    # Dedupe pass. When a user has both Google Calendar sync and Zoom sync
+    # active, the same Zoom meeting shows up as two rows: one from Zoom
+    # (source='zoom', real join URL) and one from Google (source='meet' or
+    # 'upload' with an htmlLink fallback). Keep the Zoom row — it has the
+    # authoritative join URL — and collapse any duplicate into it.
+    #
+    # We only look at the dates we just touched to keep the query bounded.
+    _dedupe_zoom_google_rows(supabase, org_uuid, [r["meeting_date"] for r in rows])
 
     logger.info(
         "calendar_sync_complete platform=%s user=%s events=%d upserted=%d",

@@ -385,6 +385,47 @@ export const syncCalendarForUser = inngest.createFunction(
 );
 
 // ---------------------------------------------------------------------------
+// calendar/refresh.requested — user-triggered refresh from the Calendar
+// page's "Refresh" button. Looks up only the invoking user's active
+// integrations and fans out a `calendar/sync.requested` per platform so
+// the existing syncCalendarForUser handler does the pull. Scoped to one
+// user so a single button press doesn't re-sync the whole workspace.
+// ---------------------------------------------------------------------------
+export const refreshCalendarForUser = inngest.createFunction(
+  { id: "refresh-calendar-for-user", concurrency: { limit: 4 } },
+  { event: "calendar/refresh.requested" },
+  async ({ event, step }) => {
+    const { org_id, user_id } = event.data;
+
+    const integrations = await step.run("list-user-integrations", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
+        { headers: internalHeaders() }
+      );
+      if (!r.ok) throw new Error(`list failed: ${r.status}`);
+      const body = (await r.json()) as {
+        integrations: { org_id: string; user_id: string; platform: string }[];
+      };
+      return body.integrations.filter(
+        (i) => i.org_id === org_id && i.user_id === user_id
+      );
+    });
+
+    if (integrations.length === 0) return { platforms: 0 };
+
+    await step.sendEvent(
+      "fan-out-user-sync",
+      integrations.map((i) => ({
+        name: "calendar/sync.requested" as const,
+        data: { org_id: i.org_id, user_id: i.user_id, platform: i.platform },
+      }))
+    );
+
+    return { platforms: integrations.length };
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Microsoft Graph subscription renewal — runs every 12h. For each active
 // 'microsoft' integration, asks the worker to create or renew the callRecords
 // subscription. Graph's max lifetime for that resource is ~2.9 days, so we
@@ -459,6 +500,7 @@ export const functions = [
   processTeamsCallRecord,
   syncCalendars,
   syncCalendarForUser,
+  refreshCalendarForUser,
   renewMicrosoftSubscriptions,
   ensureMicrosoftSubscription,
 ];

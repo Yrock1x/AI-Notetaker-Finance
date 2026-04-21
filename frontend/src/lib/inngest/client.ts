@@ -27,6 +27,12 @@ type TeamsCallRecordCreated = {
 type CalendarSyncRequested = {
   data: { org_id: string; user_id: string; platform: string };
 };
+type CalendarRefreshRequested = {
+  // Triggered by the user clicking "Refresh" on the Calendar page. The
+  // handler looks up their active integrations and fans out one
+  // calendar/sync.requested per platform.
+  data: { org_id: string; user_id: string };
+};
 type MicrosoftSubscriptionEnsure = {
   data: { org_id: string; user_id: string };
 };
@@ -40,6 +46,7 @@ type AppEvents = {
   "zoom/recording.completed": ZoomRecordingCompleted;
   "teams/call_record.created": TeamsCallRecordCreated;
   "calendar/sync.requested": CalendarSyncRequested;
+  "calendar/refresh.requested": CalendarRefreshRequested;
   "microsoft/subscription.ensure": MicrosoftSubscriptionEnsure;
 };
 

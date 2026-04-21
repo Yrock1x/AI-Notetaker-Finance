@@ -53,16 +53,23 @@ export interface DealMember {
 
 export interface Meeting {
   id: string;
-  deal_id: string;
+  // Calendar-synced meetings land with deal_id=null until the user
+  // assigns them from the Dashboard widget or an Unassigned card on the
+  // Calendar. Everything else has deal_id set.
+  deal_id: string | null;
   org_id: string;
   title: string;
   meeting_date?: string;
   duration_seconds?: number;
   source: MeetingSource;
-  source_url?: string;
+  source_url?: string | null;
   status: MeetingStatus;
   error_message?: string;
   bot_enabled?: boolean;
+  // Provider that sourced the row. null for manually-uploaded or
+  // bot-scheduled meetings.
+  external_provider?: "google" | "microsoft" | "zoom" | null;
+  external_event_id?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

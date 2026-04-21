@@ -9,8 +9,18 @@ import type { BotSession } from "@/hooks/use-bot-sessions";
 import { useToggleMeetingBot } from "@/hooks/use-meetings";
 import { LoadingState } from "@/components/shared/loading-state";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
+import { AssignMeetingDialog } from "@/components/meetings/assign-meeting-dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { Bot, ChevronLeft, ChevronRight, Clock, Video } from "lucide-react";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  RefreshCw,
+  Video,
+} from "lucide-react";
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -75,12 +85,20 @@ const BOT_STATUS_LABELS: Record<BotSession["status"], { label: string; className
   cancelled: { label: "Cancelled", className: "bg-[#1A1A1A]/5 text-[#1A1A1A]/50" },
 };
 
-function UnassignedMeetingCard({ meeting }: { meeting: CalendarMeeting }) {
+function UnassignedMeetingCard({
+  meeting,
+  onClick,
+}: {
+  meeting: CalendarMeeting;
+  onClick: () => void;
+}) {
   const meetingTime = meeting.meeting_date || meeting.created_at;
   return (
-    <div
-      className="block rounded-xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/40 p-2"
-      title="Synced from calendar — assign to a deal from the deal's meetings page to enable the bot."
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded-xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/40 p-2 text-left transition-colors hover:border-primary/30 hover:bg-[#F2F0E9]/70"
+      title="Click to assign this meeting to a deal."
     >
       <p className="truncate text-[11px] font-semibold text-[#1A1A1A]/70">
         {meeting.title}
@@ -88,14 +106,14 @@ function UnassignedMeetingCard({ meeting }: { meeting: CalendarMeeting }) {
       <div className="mt-0.5 flex items-center gap-1">
         <span className="h-1.5 w-1.5 rounded-full bg-[#1A1A1A]/20" />
         <span className="truncate text-[10px] text-[#1A1A1A]/50">
-          Unassigned
+          Click to assign
         </span>
       </div>
       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[#1A1A1A]/40">
         <Clock className="h-2.5 w-2.5" />
         {formatTime(meetingTime)}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -155,6 +173,7 @@ function MeetingCard({
 export default function CalendarPage() {
   const { meetings, isLoading } = useCalendarMeetings();
   const { data: botSessions = [] } = useBotSessions();
+  const queryClient = useQueryClient();
   // Mutation is un-scoped (no dealId) — the calendar spans many deals. We
   // still invalidate ["calendar","meetings"] from the hook, which is what
   // useCalendarMeetings reads from.
@@ -166,6 +185,43 @@ export default function CalendarPage() {
   const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
   const [hiddenDeals, setHiddenDeals] = useState<Set<string>>(new Set());
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [assignTarget, setAssignTarget] = useState<CalendarMeeting | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const supabase = getBrowserSupabase();
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) throw new Error("not authed");
+      const { data: memberships } = await supabase
+        .from("org_memberships")
+        .select("org_id")
+        .eq("user_id", auth.user.id)
+        .limit(1);
+      const orgId = memberships?.[0]?.org_id;
+      if (!orgId) throw new Error("no org");
+      await fetch("/api/inngest/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "calendar/refresh.requested",
+          data: { org_id: orgId, user_id: auth.user.id },
+        }),
+      });
+      // Inngest → list-active-integrations → fan-out → per-platform
+      // /internal/calendar/sync takes ~2-4s; wait out the round trip
+      // before refetching so the UI doesn't flash stale state.
+      await new Promise((r) => setTimeout(r, 4000));
+      await queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });
+    } catch (err) {
+      // Silently swallow — the spinner stops below regardless.
+      console.error("calendar refresh failed", err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Map meeting_id -> most recent live bot session so the row badge can
   // reflect lifecycle state (Joining… / Recording / Completed).
@@ -274,18 +330,36 @@ export default function CalendarPage() {
             auto-join and record.
           </p>
         </div>
-        <button
-          onClick={() => setScheduleOpen(true)}
-          className="inline-flex shrink-0 items-center gap-2 self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Bot className="h-4 w-4" />
-          Schedule Notetaker
-        </button>
+        <div className="flex shrink-0 items-center gap-2 self-start">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 rounded-md border border-[#1A1A1A]/10 bg-white px-3 py-2 text-sm font-medium text-[#1A1A1A]/70 transition-colors hover:bg-[#F2F0E9] disabled:opacity-60"
+            title="Pull fresh events from your calendar providers"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+            />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+          <button
+            onClick={() => setScheduleOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Bot className="h-4 w-4" />
+            Schedule Notetaker
+          </button>
+        </div>
       </div>
 
       <ScheduleBotDialog
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
+      />
+      <AssignMeetingDialog
+        meeting={assignTarget}
+        open={assignTarget !== null}
+        onClose={() => setAssignTarget(null)}
       />
 
       {/* Deal filters */}
@@ -388,7 +462,11 @@ export default function CalendarPage() {
                               onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
                             />
                           ) : (
-                            <UnassignedMeetingCard key={meeting.id} meeting={meeting} />
+                            <UnassignedMeetingCard
+                              key={meeting.id}
+                              meeting={meeting}
+                              onClick={() => setAssignTarget(meeting)}
+                            />
                           )
                         )}
                       </div>

@@ -4,6 +4,7 @@ import { useDeals } from "@/hooks/use-deals";
 import { DealCard } from "@/components/deals/deal-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UpcomingUnassignedWidget } from "@/components/dashboard/upcoming-unassigned-widget";
 import { DealStatus } from "@/types";
 import { Briefcase, Calendar, FileText, TrendingUp, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -73,6 +74,10 @@ export default function DashboardPage() {
           value={`${(deals?.length || 0) * 80}+`}
         />
       </div>
+
+      {/* Calendar-synced meetings awaiting a deal assignment. Hidden
+          automatically when the list is empty. */}
+      <UpcomingUnassignedWidget />
 
       {/* Recent deals */}
       <div className="space-y-8">
