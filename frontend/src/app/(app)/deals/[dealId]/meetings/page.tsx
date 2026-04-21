@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useMeetings } from "@/hooks/use-meetings";
+import { useMeetings, useToggleMeetingBot } from "@/hooks/use-meetings";
 import { MeetingCard } from "@/components/meetings/meeting-card";
 import { UploadDialog } from "@/components/meetings/upload-dialog";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Plus, Upload, Bot, Archive } from "lucide-react";
@@ -42,8 +43,13 @@ function isStaleActive(m: {
 export default function MeetingsPage() {
   const params = useParams<{ dealId: string }>();
   const { data, isLoading } = useMeetings(params.dealId);
+  const toggleBot = useToggleMeetingBot(params.dealId);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // Optimistic override layer so the switch flips instantly while the
+  // mutation is in flight. Falls back to the server value for any id not
+  // present here (i.e. the default rendering path).
+  const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
 
   const meetings = data?.items ?? [];
 
@@ -106,14 +112,55 @@ export default function MeetingsPage() {
               <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Active
               </h3>
-              {active.map((meeting) => (
-                <Link
-                  key={meeting.id}
-                  href={`/deals/${params.dealId}/meetings/${meeting.id}`}
-                >
-                  <MeetingCard meeting={meeting} />
-                </Link>
-              ))}
+              {active.map((meeting) => {
+                // Only calendar-sourced meetings (with a real conferencing
+                // URL) can honor the bot toggle. Manually-uploaded rows
+                // have no URL for the bot to join, so we hide the switch.
+                const showToggle = Boolean(meeting.source_url);
+                const enabled =
+                  botOverrides[meeting.id] ?? meeting.bot_enabled ?? true;
+                return (
+                  <Link
+                    key={meeting.id}
+                    href={`/deals/${params.dealId}/meetings/${meeting.id}`}
+                  >
+                    <MeetingCard
+                      meeting={meeting}
+                      variant="active"
+                      rightSlot={
+                        showToggle ? (
+                          <ToggleSwitch
+                            enabled={enabled}
+                            title={
+                              enabled
+                                ? "Bot will auto-join"
+                                : "Bot disabled for this meeting"
+                            }
+                            onToggle={async () => {
+                              const next = !enabled;
+                              setBotOverrides((prev) => ({
+                                ...prev,
+                                [meeting.id]: next,
+                              }));
+                              try {
+                                await toggleBot.mutateAsync({
+                                  meetingId: meeting.id,
+                                  bot_enabled: next,
+                                });
+                              } catch {
+                                setBotOverrides((prev) => ({
+                                  ...prev,
+                                  [meeting.id]: enabled,
+                                }));
+                              }
+                            }}
+                          />
+                        ) : null
+                      }
+                    />
+                  </Link>
+                );
+              })}
             </section>
           )}
 
@@ -131,7 +178,7 @@ export default function MeetingsPage() {
                   key={meeting.id}
                   href={`/deals/${params.dealId}/meetings/${meeting.id}`}
                 >
-                  <MeetingCard meeting={meeting} />
+                  <MeetingCard meeting={meeting} variant="archive" />
                 </Link>
               ))}
             </section>

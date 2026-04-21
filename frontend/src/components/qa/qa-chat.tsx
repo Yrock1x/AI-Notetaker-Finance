@@ -6,9 +6,16 @@ import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
 import { LoadingState } from "@/components/shared/loading-state";
 import { Send, MessageCircle, BookOpen } from "lucide-react";
 
-type QAChatProps =
+type QAChatScope =
   | { scope: "deal"; dealId: string }
   | { scope: "meeting"; meetingId: string; dealId: string };
+
+// `fillHeight` makes the chat stretch to its parent's height (the internal
+// message scroller becomes `flex-1 min-h-0` and the outer card grows with
+// `h-full`). The meeting detail page passes this for the Live split-pane
+// and the AI Chat tab; deal-level / global chat pages leave it off so the
+// default clamped height preserves today's look.
+type QAChatProps = QAChatScope & { fillHeight?: boolean };
 
 interface QACitation {
   source_type: string;
@@ -176,9 +183,22 @@ export function QAChat(props: QAChatProps) {
     }
   };
 
+  const fillHeight = props.fillHeight;
   return (
-    <div className="flex flex-col rounded-lg border bg-white">
-      <div className="min-h-[400px] max-h-[600px] overflow-y-auto p-4 space-y-6">
+    <div
+      className={
+        "flex flex-col rounded-lg border bg-white" +
+        (fillHeight ? " h-full" : "")
+      }
+    >
+      <div
+        className={
+          "overflow-y-auto p-4 space-y-6" +
+          (fillHeight
+            ? " flex-1 min-h-0"
+            : " min-h-[400px] max-h-[600px]")
+        }
+      >
         {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <MessageCircle className="h-12 w-12 text-muted-foreground/30" />

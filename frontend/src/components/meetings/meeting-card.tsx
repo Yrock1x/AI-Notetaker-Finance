@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Meeting } from "@/types";
 import { MEETING_STATUS_LABELS } from "@/lib/constants";
 import { formatDuration, cn } from "@/lib/utils";
@@ -5,6 +6,13 @@ import { Calendar, Clock, Mic } from "lucide-react";
 
 interface MeetingCardProps {
   meeting: Meeting;
+  // "archive" suppresses the "Upcoming" label on meetings that ran past
+  // their scheduled time without ever recording — shows "Missed" instead.
+  // Every other status label/color is unchanged.
+  variant?: "active" | "archive";
+  // Optional right-side slot (e.g. a ToggleSwitch) so callers can hang
+  // extra controls next to the status badge without forking this card.
+  rightSlot?: ReactNode;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -16,7 +24,19 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-100 text-red-800",
 };
 
-export function MeetingCard({ meeting }: MeetingCardProps) {
+export function MeetingCard({
+  meeting,
+  variant = "active",
+  rightSlot,
+}: MeetingCardProps) {
+  const isMissed = variant === "archive" && meeting.status === "scheduled";
+  const badgeLabel = isMissed
+    ? "Missed"
+    : (MEETING_STATUS_LABELS[meeting.status] ?? meeting.status);
+  const badgeClass = isMissed
+    ? "bg-gray-100 text-gray-600"
+    : (STATUS_COLORS[meeting.status] ?? "bg-gray-100 text-gray-800");
+
   return (
     <div className="group flex items-center justify-between rounded-lg border bg-white p-4 transition-shadow hover:shadow-md">
       <div className="flex items-start gap-3">
@@ -49,14 +69,17 @@ export function MeetingCard({ meeting }: MeetingCardProps) {
           </div>
         </div>
       </div>
-      <span
-        className={cn(
-          "rounded-full px-2 py-0.5 text-xs font-medium",
-          STATUS_COLORS[meeting.status] ?? "bg-gray-100 text-gray-800"
-        )}
-      >
-        {MEETING_STATUS_LABELS[meeting.status] ?? meeting.status}
-      </span>
+      <div className="flex items-center gap-3">
+        {rightSlot}
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-xs font-medium",
+            badgeClass
+          )}
+        >
+          {badgeLabel}
+        </span>
+      </div>
     </div>
   );
 }

@@ -72,7 +72,9 @@ export function useUpdateMeeting(dealId: string | undefined) {
       patch,
     }: {
       meetingId: string;
-      patch: Partial<Pick<Meeting, "title" | "meeting_date">>;
+      patch: Partial<
+        Pick<Meeting, "title" | "meeting_date"> & { bot_enabled: boolean }
+      >;
     }) => {
       const supabase = getBrowserSupabase();
       const { data, error } = await supabase
@@ -90,6 +92,61 @@ export function useUpdateMeeting(dealId: string | undefined) {
         queryKey: [MEETINGS_KEY, dealId, vars.meetingId],
       });
       queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });
+    },
+  });
+}
+
+// Flip the bot on/off for a synced meeting. Writes the preference to
+// meetings.bot_enabled (the single source of truth read by the
+// auto-schedule cron + calendar sync). When the user turns the bot OFF,
+// we also tell any in-flight session to leave the call — otherwise a
+// recording bot would keep going until the meeting ends naturally.
+export function useToggleMeetingBot(dealId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      meetingId,
+      bot_enabled,
+    }: {
+      meetingId: string;
+      bot_enabled: boolean;
+    }) => {
+      const supabase = getBrowserSupabase();
+      const { error: updErr } = await supabase
+        .from("meetings")
+        .update({ bot_enabled })
+        .eq("id", meetingId);
+      if (updErr) throw updErr;
+
+      // Turning the toggle OFF needs to stop any session the auto-scheduler
+      // (or a manual Schedule click) already kicked off. Scan sessions
+      // for this meeting that are still live and fire bot/cancelled for
+      // them — the Inngest handler calls /internal/bot/stop which
+      // instructs Recall to have the bot leave.
+      if (!bot_enabled) {
+        const { data: sessions } = await supabase
+          .from("meeting_bot_sessions")
+          .select("id, status")
+          .eq("meeting_id", meetingId)
+          .in("status", ["scheduled", "joining", "recording"]);
+        for (const s of sessions ?? []) {
+          await fetch("/api/inngest/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: "bot/cancelled",
+              data: { session_id: s.id },
+            }),
+          });
+        }
+      }
+      return { meetingId, bot_enabled };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [MEETINGS_KEY, dealId] });
+      queryClient.invalidateQueries({ queryKey: [MEETINGS_KEY] });
+      queryClient.invalidateQueries({ queryKey: ["calendar", "meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["bot-sessions"] });
     },
   });
 }

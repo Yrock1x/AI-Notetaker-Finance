@@ -25,7 +25,16 @@ export default function DealLayout({
 
   return (
     <div>
-      <nav className="mb-6 border-b">
+      {/*
+        Sticky tab bar so the deal header can scroll away and leave the
+        whole viewport for tab content. The nearest scroll ancestor is
+        the app-shell <main className="overflow-auto p-10 md:p-14"> so
+        top:0 anchors to the inside of that container. We bleed the nav
+        horizontally into <main>'s padding (negative margins + matching
+        padding) so the underline + background reach edge-to-edge and
+        don't look like a floating pill.
+      */}
+      <nav className="sticky top-0 z-10 -mx-10 border-b bg-background px-10 md:-mx-14 md:px-14">
         <div className="flex space-x-4">
           {tabs.map((tab) => {
             const tabPath = `${basePath}${tab.href}`;
@@ -51,7 +60,7 @@ export default function DealLayout({
           })}
         </div>
       </nav>
-      {children}
+      <div className="pt-6">{children}</div>
     </div>
   );
 }

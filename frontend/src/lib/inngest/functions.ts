@@ -149,6 +149,47 @@ export const startBotSession = inngest.createFunction(
 );
 
 // ---------------------------------------------------------------------------
+// auto-schedule-due-bots — every 5 min, ask the worker which synced
+// meetings are about to start (next 10 min) with bot_enabled=true. For
+// each, the worker has already pre-created a meeting_bot_sessions row; we
+// just fan out a `bot/scheduled` event per session so the existing
+// start-bot handler does the Recall call. Keeps bot launches a single
+// code path regardless of whether the user scheduled manually or via
+// auto-join.
+// ---------------------------------------------------------------------------
+export const autoScheduleDueBots = inngest.createFunction(
+  { id: "auto-schedule-due-bots" },
+  { cron: "TZ=UTC */5 * * * *" },
+  async ({ step }) => {
+    const scheduled = await step.run("find-due", async () => {
+      const r = await fetch(
+        `${WORKER_URL}/api/v1/internal/bot/auto-schedule-due`,
+        { method: "POST", headers: internalHeaders() }
+      );
+      if (!r.ok) {
+        throw new Error(`auto-schedule-due failed: ${r.status}`);
+      }
+      const body = (await r.json()) as {
+        scheduled: { session_id: string; meeting_id: string; deal_id: string }[];
+      };
+      return body.scheduled;
+    });
+
+    if (scheduled.length === 0) return { scheduled: 0 };
+
+    await step.sendEvent(
+      "fanout-bot-scheduled",
+      scheduled.map((s) => ({
+        name: "bot/scheduled" as const,
+        data: { session_id: s.session_id },
+      }))
+    );
+
+    return { scheduled: scheduled.length };
+  }
+);
+
+// ---------------------------------------------------------------------------
 // meeting/bot-completed — post-call pipeline for bot-recorded meetings.
 // Pulls transcript + participants from Recall's recording shortcuts (Deepgram
 // ran during the call, so we skip /internal/transcribe), then runs embed +
@@ -413,6 +454,7 @@ export const functions = [
   processDocument,
   startBotSession,
   cancelBotSession,
+  autoScheduleDueBots,
   ingestZoomRecording,
   processTeamsCallRecord,
   syncCalendars,

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -607,6 +607,102 @@ async def bot_stop(
         status=new_status,
         recall_bot_id=session.get("recall_bot_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# /internal/bot/auto-schedule-due — find calendar-synced meetings that are
+# about to start and pre-create a meeting_bot_sessions row for each. The
+# Inngest cron that calls this fans out a bot/scheduled event per returned
+# session id so the existing start-bot handler does the actual Recall call.
+# ---------------------------------------------------------------------------
+class AutoScheduleDueResponse(BaseModel):
+    scheduled: list[dict]  # each: {session_id, meeting_id, deal_id}
+
+
+# Platforms accepted by meeting_bot_sessions.platform — map the wider set
+# of meetings.source values down to the three Recall supports.
+_SOURCE_TO_PLATFORM: dict[str, str] = {
+    "zoom": "zoom",
+    "teams": "teams",
+    "meet": "google_meet",
+    "google_meet": "google_meet",
+}
+
+
+@router.post(
+    "/bot/auto-schedule-due",
+    response_model=AutoScheduleDueResponse,
+    dependencies=[Depends(require_internal_token)],
+)
+async def bot_auto_schedule_due(
+    supabase: Client = Depends(get_service_supabase),
+) -> AutoScheduleDueResponse:
+    now = datetime.now(UTC)
+    window_end = now + timedelta(minutes=10)
+
+    candidates = (
+        supabase.table("meetings")
+        .select("id, org_id, deal_id, source, source_url, meeting_date, created_by")
+        .eq("bot_enabled", True)
+        .eq("status", "uploading")
+        .not_.is_("deal_id", "null")
+        .not_.is_("source_url", "null")
+        .gte("meeting_date", now.isoformat())
+        .lte("meeting_date", window_end.isoformat())
+        .execute()
+        .data
+    ) or []
+
+    scheduled: list[dict] = []
+    for m in candidates:
+        platform = _SOURCE_TO_PLATFORM.get((m.get("source") or "").lower())
+        if not platform:
+            # Upload-only / unrecognised source — nothing to do.
+            continue
+
+        # Dedupe: skip if any live session already exists for this meeting.
+        # Active statuses are the ones a cron rerun shouldn't clobber.
+        existing = (
+            supabase.table("meeting_bot_sessions")
+            .select("id")
+            .eq("meeting_id", m["id"])
+            .in_("status", ["scheduled", "joining", "recording", "completed"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        if existing:
+            continue
+
+        session_row = (
+            supabase.table("meeting_bot_sessions")
+            .insert(
+                {
+                    "org_id": m["org_id"],
+                    "deal_id": m["deal_id"],
+                    "meeting_id": m["id"],
+                    "platform": platform,
+                    "meeting_url": m["source_url"],
+                    "status": "scheduled",
+                    "scheduled_start": m["meeting_date"],
+                    "created_by": m["created_by"],
+                }
+            )
+            .execute()
+            .data
+        )
+        if not session_row:
+            continue
+        scheduled.append(
+            {
+                "session_id": session_row[0]["id"],
+                "meeting_id": m["id"],
+                "deal_id": m["deal_id"],
+            }
+        )
+
+    logger.info("bot_auto_schedule_due scheduled=%d", len(scheduled))
+    return AutoScheduleDueResponse(scheduled=scheduled)
 
 
 # ---------------------------------------------------------------------------

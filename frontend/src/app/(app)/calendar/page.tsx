@@ -4,14 +4,12 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useCalendarMeetings } from "@/hooks/use-calendar";
 import type { CalendarMeeting } from "@/hooks/use-calendar";
-import {
-  useBotSessions,
-  useScheduleBot,
-  useCancelBot,
-} from "@/hooks/use-bot-sessions";
+import { useBotSessions } from "@/hooks/use-bot-sessions";
 import type { BotSession } from "@/hooks/use-bot-sessions";
+import { useToggleMeetingBot } from "@/hooks/use-meetings";
 import { LoadingState } from "@/components/shared/loading-state";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Bot, ChevronLeft, ChevronRight, Clock, Video } from "lucide-react";
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -59,36 +57,6 @@ const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-interface ToggleSwitchProps {
-  enabled: boolean;
-  onToggle: () => void;
-  colorClass: string;
-}
-
-function ToggleSwitch({ enabled, onToggle, colorClass }: ToggleSwitchProps) {
-  return (
-    <button
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onToggle();
-      }}
-      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-[#1A1A1A]/10 transition-colors duration-200 ease-in-out focus:outline-none ${
-        enabled ? colorClass : "bg-[#1A1A1A]/10"
-      }`}
-      role="switch"
-      aria-checked={enabled}
-      title="Toggle CogniSuite bot"
-    >
-      <span
-        className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-          enabled ? "translate-x-3" : "translate-x-0"
-        }`}
-      />
-    </button>
-  );
-}
 
 interface MeetingCardProps {
   meeting: CalendarMeeting;
@@ -184,19 +152,13 @@ function MeetingCard({
   );
 }
 
-function platformFromMeeting(m: CalendarMeeting): BotSession["platform"] | null {
-  const src = (m.source || "").toLowerCase();
-  if (src === "zoom") return "zoom";
-  if (src === "teams") return "teams";
-  if (src === "meet" || src === "google_meet") return "google_meet";
-  return null;
-}
-
 export default function CalendarPage() {
   const { meetings, isLoading } = useCalendarMeetings();
   const { data: botSessions = [] } = useBotSessions();
-  const scheduleBot = useScheduleBot();
-  const cancelBot = useCancelBot();
+  // Mutation is un-scoped (no dealId) — the calendar spans many deals. We
+  // still invalidate ["calendar","meetings"] from the hook, which is what
+  // useCalendarMeetings reads from.
+  const toggleBotMutation = useToggleMeetingBot(undefined);
 
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -205,14 +167,14 @@ export default function CalendarPage() {
   const [hiddenDeals, setHiddenDeals] = useState<Set<string>>(new Set());
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
-  // Map meeting_url -> existing bot session so the toggle stays in sync with
-  // server state and we can cancel the right session on toggle-off.
-  const sessionByUrl = useMemo(() => {
+  // Map meeting_id -> most recent live bot session so the row badge can
+  // reflect lifecycle state (Joining… / Recording / Completed).
+  const sessionByMeetingId = useMemo(() => {
     const map: Record<string, BotSession> = {};
     for (const s of botSessions) {
-      if (s.meeting_url && s.status !== "cancelled" && s.status !== "failed") {
-        map[s.meeting_url] = s;
-      }
+      if (!s.meeting_id) continue;
+      if (s.status === "cancelled" || s.status === "failed") continue;
+      map[s.meeting_id] = s;
     }
     return map;
   }, [botSessions]);
@@ -272,38 +234,20 @@ export default function CalendarPage() {
 
   const isBotEnabled = (meeting: CalendarMeeting) => {
     if (meeting.id in botOverrides) return botOverrides[meeting.id];
-    if (meeting.source_url && sessionByUrl[meeting.source_url]) return true;
     return meeting.bot_enabled !== false;
   };
 
   const toggleBot = async (meeting: CalendarMeeting, currentValue: boolean) => {
     const next = !currentValue;
-    // Optimistic local override so UI reacts immediately.
+    // Optimistic local override so UI reacts immediately. Rolled back on
+    // failure below.
     setBotOverrides((prev) => ({ ...prev, [meeting.id]: next }));
-
-    const platform = platformFromMeeting(meeting);
-    const meetingUrl = meeting.source_url || "";
-    if (!platform || !meetingUrl) {
-      // Not enough data to call the bot service — preference stored locally only.
-      return;
-    }
-
     try {
-      if (next) {
-        await scheduleBot.mutateAsync({
-          deal_id: meeting.deal_id,
-          platform,
-          meeting_url: meetingUrl,
-          scheduled_start: meeting.meeting_date ?? null,
-        });
-      } else {
-        const existing = sessionByUrl[meetingUrl];
-        if (existing) {
-          await cancelBot.mutateAsync(existing.id);
-        }
-      }
+      await toggleBotMutation.mutateAsync({
+        meetingId: meeting.id,
+        bot_enabled: next,
+      });
     } catch {
-      // Roll the optimistic override back on failure.
       setBotOverrides((prev) => ({ ...prev, [meeting.id]: currentValue }));
     }
   };
@@ -440,11 +384,7 @@ export default function CalendarPage() {
                               meeting={meeting}
                               colorIndex={getDealColorIndex(meeting.deal_id, allDealIds)}
                               botEnabled={isBotEnabled(meeting)}
-                              botStatus={
-                                meeting.source_url
-                                  ? sessionByUrl[meeting.source_url]?.status
-                                  : undefined
-                              }
+                              botStatus={sessionByMeetingId[meeting.id]?.status}
                               onToggleBot={() => toggleBot(meeting, isBotEnabled(meeting))}
                             />
                           ) : (

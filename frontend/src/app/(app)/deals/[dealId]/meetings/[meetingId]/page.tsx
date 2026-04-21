@@ -270,7 +270,22 @@ export default function MeetingDetailPage() {
       {showTabs && (
         <>
           {activeTab === "live" && isLive && (
-            <LiveTranscriptPanel meetingId={params.meetingId} />
+            // Two-column layout during a live recording: transcript on the
+            // left (wider), Q&A chat on the right so you can ask questions
+            // in real time without leaving the tab. Collapses to a single
+            // column on <lg so mobile/tablet still works.
+            <div className="grid h-[calc(100vh-14rem)] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+              <LiveTranscriptPanel
+                meetingId={params.meetingId}
+                heightClass="h-full"
+              />
+              <QAChat
+                scope="meeting"
+                meetingId={params.meetingId}
+                dealId={params.dealId}
+                fillHeight
+              />
+            </div>
           )}
 
           {activeTab === "transcript" && hasContent && (
@@ -286,11 +301,17 @@ export default function MeetingDetailPage() {
           )}
 
           {activeTab === "chat" && hasContent && (
-            <QAChat
-              scope="meeting"
-              meetingId={params.meetingId}
-              dealId={params.dealId}
-            />
+            // Fill the remaining viewport vertically so the chat gets max
+            // real estate for conversation. The offset is topbar + sticky
+            // deal tabs + page header; tuned to match the Live split above.
+            <div className="h-[calc(100vh-14rem)]">
+              <QAChat
+                scope="meeting"
+                meetingId={params.meetingId}
+                dealId={params.dealId}
+                fillHeight
+              />
+            </div>
           )}
         </>
       )}
