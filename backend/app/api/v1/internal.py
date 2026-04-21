@@ -1373,15 +1373,31 @@ async def calendar_sync(
             )
 
     upserted = 0
-    if rows:
-        # Upsert per-row because supabase-py can't do composite on_conflict
-        # across a partial unique index cleanly; volume is low (<100/run).
-        for row in rows:
-            supabase.table("meetings").upsert(
-                row,
-                on_conflict="org_id,external_provider,external_event_id",
+    # meetings has a PARTIAL unique index
+    #   (org_id, external_provider, external_event_id) WHERE external_event_id
+    # IS NOT NULL — PostgREST can't target a partial index via on_conflict
+    # (returns 42P10), so we select-then-insert-or-update per row instead.
+    for row in rows:
+        existing = (
+            supabase.table("meetings")
+            .select("id")
+            .eq("org_id", row["org_id"])
+            .eq("external_provider", row["external_provider"])
+            .eq("external_event_id", row["external_event_id"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        if existing:
+            # Don't overwrite bot_enabled — the user might have toggled it
+            # off, and a re-sync shouldn't resurrect their preference.
+            patch = {k: v for k, v in row.items() if k != "bot_enabled"}
+            supabase.table("meetings").update(patch).eq(
+                "id", existing[0]["id"]
             ).execute()
-            upserted += 1
+        else:
+            supabase.table("meetings").insert(row).execute()
+        upserted += 1
 
     logger.info(
         "calendar_sync_complete platform=%s user=%s events=%d upserted=%d",
