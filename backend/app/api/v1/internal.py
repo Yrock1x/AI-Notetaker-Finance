@@ -1512,9 +1512,17 @@ async def calendar_sync(
             .data
         )
         if existing:
-            # Don't overwrite bot_enabled — the user might have toggled it
-            # off, and a re-sync shouldn't resurrect their preference.
-            patch = {k: v for k, v in row.items() if k != "bot_enabled"}
+            # Preserve user-set state that the provider would otherwise
+            # clobber on every re-sync:
+            #   bot_enabled — user's on/off toggle
+            #   deal_id     — user's assignment via AssignMeetingDialog
+            # Everything else (title, meeting_date, source_url, status)
+            # is safe to refresh from the provider.
+            patch = {
+                k: v
+                for k, v in row.items()
+                if k not in ("bot_enabled", "deal_id")
+            }
             supabase.table("meetings").update(patch).eq(
                 "id", existing[0]["id"]
             ).execute()
