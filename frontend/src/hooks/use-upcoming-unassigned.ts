@@ -14,13 +14,17 @@ export function useUpcomingUnassigned() {
     queryFn: async () => {
       const supabase = getBrowserSupabase();
       const now = new Date();
+      // Include meetings that just started (up to 30 min ago) so a call
+      // in progress doesn't vanish from the widget the moment the clock
+      // ticks past its start. Future window stays 7 days.
+      const floor = new Date(now.getTime() - 30 * 60 * 1000);
       const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       const { data, error } = await supabase
         .from("meetings")
         .select("*")
         .is("deal_id", null)
         .not("external_provider", "is", null)
-        .gte("meeting_date", now.toISOString())
+        .gte("meeting_date", floor.toISOString())
         .lte("meeting_date", horizon.toISOString())
         .order("meeting_date", { ascending: true });
       if (error) throw error;
