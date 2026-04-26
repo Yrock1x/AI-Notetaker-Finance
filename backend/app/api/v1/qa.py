@@ -10,9 +10,10 @@ from __future__ import annotations
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from supabase import Client
 
+from app.core.rate_limit import limiter
 from app.dependencies import (
     AuthUser,
     get_current_user,
@@ -25,6 +26,11 @@ from app.services.qa_service import QAService
 
 router = APIRouter()
 meeting_qa_router = APIRouter()
+
+# Q&A is the most expensive endpoint (RAG retrieval + a long-context LLM
+# call). 10/min/user blocks accidental loops + cost-DoS without getting
+# in the way of normal interactive use.
+QA_RATE_LIMIT = "10/minute"
 
 
 def _persist_interaction(
@@ -64,7 +70,9 @@ def _persist_interaction(
 
 
 @router.post("/ask", response_model=QAResponse)
+@limiter.limit(QA_RATE_LIMIT)
 async def ask_question(
+    request: Request,
     deal_id: UUID,
     payload: QARequest,
     current_user: AuthUser = Depends(get_current_user),
@@ -124,7 +132,9 @@ async def ask_question(
 
 
 @meeting_qa_router.post("/ask", response_model=QAResponse)
+@limiter.limit(QA_RATE_LIMIT)
 async def ask_meeting_question(
+    request: Request,
     meeting_id: UUID,
     payload: QARequest,
     current_user: AuthUser = Depends(get_current_user),

@@ -13,7 +13,15 @@ class ClaudeProvider(LLMProvider):
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
         self.model = model
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        # Anthropic SDK has built-in retry on 429/5xx with exponential backoff;
+        # set the values explicitly so they don't drift on SDK upgrades. 3
+        # retries matches the Fireworks provider; a 5-min request timeout
+        # bounds tail latency well under typical Inngest step timeouts.
+        self._client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            max_retries=3,
+            timeout=300.0,
+        )
 
     async def complete(self, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
         """Send system + user prompt to Claude and return an LLMResponse.

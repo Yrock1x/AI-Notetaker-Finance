@@ -22,7 +22,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.dependencies import AuthUser, get_current_user, get_service_supabase
+from app.dependencies import (
+    AuthUser,
+    get_current_user,
+    get_service_supabase,
+    get_user_supabase,
+)
 from supabase import Client
 
 router = APIRouter()
@@ -50,6 +55,7 @@ class UploadTicketResponse(BaseModel):
 async def create_upload_ticket(
     body: UploadTicketRequest,
     current_user: AuthUser = Depends(get_current_user),
+    user_supabase: Client = Depends(get_user_supabase),
     service_supabase: Client = Depends(get_service_supabase),
 ) -> UploadTicketResponse:
     """Mint a signed upload URL for Supabase Storage.
@@ -58,6 +64,24 @@ async def create_upload_ticket(
     successful upload, the client creates the ``meetings`` row pointing at
     ``file_key`` and fires ``meeting/uploaded`` into Inngest.
     """
+    # Confirm the caller can see this deal before minting a Storage path
+    # under it. The user-scoped client respects RLS, so a returned row IS
+    # the membership proof — without this, anyone could enumerate deal IDs
+    # and obtain valid signed PUT URLs into another tenant's storage tree.
+    deal_rows = (
+        user_supabase.table("deals")
+        .select("id")
+        .eq("id", body.deal_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not deal_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deal not found",
+        )
+
     ext = ("." + body.filename.rsplit(".", 1)[1]) if "." in body.filename else ""
     file_key = f"{body.deal_id}/{uuid.uuid4()}{ext}"
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import structlog
@@ -11,6 +12,11 @@ from deepgram import AsyncDeepgramClient as DGClient
 from app.integrations.deepgram.config import DEEPGRAM_CONFIG
 
 logger = structlog.get_logger(__name__)
+
+# 30 minutes covers anything reasonable up to a ~3-hour meeting (Deepgram
+# typically processes at ~10x real-time). Without this, a stuck transcription
+# pins an Inngest function step indefinitely.
+DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS = 30 * 60
 
 
 class DeepgramClient:
@@ -64,8 +70,11 @@ class DeepgramClient:
 
         try:
             client = DGClient(api_key=self.api_key)
-            response = await client.listen.v1.media.transcribe_url(
-                url=audio_url, **options
+            response = await asyncio.wait_for(
+                client.listen.v1.media.transcribe_url(
+                    url=audio_url, **options
+                ),
+                timeout=DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS,
             )
 
             logger.info(
@@ -75,6 +84,16 @@ class DeepgramClient:
 
             return response.model_dump()
 
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "deepgram.transcribe_file.timeout",
+                audio_url=audio_url,
+                timeout_seconds=DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS,
+            )
+            raise TimeoutError(
+                f"Deepgram transcription exceeded "
+                f"{DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS}s"
+            ) from exc
         except Exception as exc:
             logger.error(
                 "deepgram.transcribe_file.error",
@@ -115,8 +134,11 @@ class DeepgramClient:
 
         try:
             client = DGClient(api_key=self.api_key)
-            response = await client.listen.v1.media.transcribe_file(
-                request=audio_data, **options
+            response = await asyncio.wait_for(
+                client.listen.v1.media.transcribe_file(
+                    request=audio_data, **options
+                ),
+                timeout=DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS,
             )
 
             logger.info(
@@ -127,6 +149,16 @@ class DeepgramClient:
 
             return response.model_dump()
 
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "deepgram.transcribe_bytes.timeout",
+                mimetype=mimetype,
+                timeout_seconds=DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS,
+            )
+            raise TimeoutError(
+                f"Deepgram transcription exceeded "
+                f"{DEEPGRAM_TRANSCRIBE_TIMEOUT_SECONDS}s"
+            ) from exc
         except Exception as exc:
             logger.error(
                 "deepgram.transcribe_bytes.error",

@@ -35,6 +35,9 @@ dependencies = [
     "python-dateutil>=2.9.0",
     "tenacity>=8.5.0",
 
+    # Per-user rate limiting (LLM endpoints — cost-DoS protection)
+    "slowapi>=0.1.9",
+
     # File processing (for docx deliverable generation + doc uploads)
     "pdfplumber>=0.11.0",
     "python-docx>=1.1.0",

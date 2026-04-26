@@ -9,17 +9,44 @@ Docs: https://docs.fireworks.ai/api-reference/
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 import structlog
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 
 logger = structlog.get_logger(__name__)
 
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+
+# Module-level concurrency cap on outbound Fireworks calls. Without this, a
+# burst of QA requests can hit Fireworks faster than its rate limiter
+# allows, producing a stampede of 429s and amplifying the original spike.
+# 20 is a sane default for a single worker process; multiplied across
+# uvicorn workers (WEB_CONCURRENCY=4) we cap at ~80 in-flight, well under
+# Fireworks' per-account RPM ceilings.
+_FIREWORKS_SEMAPHORE = asyncio.Semaphore(20)
+
+
+def _is_retryable_http(exc: BaseException) -> bool:
+    """429s and 5xx are transient; everything else is the caller's problem.
+
+    Network/timeout exceptions also retry.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        sc = exc.response.status_code
+        return sc == 429 or sc >= 500
+    return isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
 
 
 class FireworksProvider(LLMProvider):
@@ -58,28 +85,43 @@ class FireworksProvider(LLMProvider):
         log = logger.bind(provider="fireworks", model=self.model, max_tokens=max_tokens)
         log.info("fireworks_complete_start")
 
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{FIREWORKS_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=body,
+        # Concurrency cap held across the *entire* retry sequence, not per
+        # attempt — otherwise a burst can effectively double the in-flight
+        # ceiling during retries.
+        async with _FIREWORKS_SEMAPHORE:
+            try:
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(3),
+                    wait=wait_exponential(multiplier=1, min=1, max=8),
+                    retry=retry_if_exception(_is_retryable_http),
+                    reraise=True,
+                ):
+                    with attempt:
+                        async with httpx.AsyncClient(timeout=self._timeout) as client:
+                            resp = await client.post(
+                                f"{FIREWORKS_BASE_URL}/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {self.api_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                json=body,
+                            )
+                            resp.raise_for_status()
+                            data = resp.json()
+            except RetryError as exc:
+                # Should not happen with reraise=True, but guard anyway.
+                log.error("fireworks_complete_retry_exhausted", error=str(exc))
+                raise
+            except httpx.HTTPStatusError as exc:
+                log.error(
+                    "fireworks_complete_http_error",
+                    status=exc.response.status_code,
+                    body=exc.response.text[:500],
                 )
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPStatusError as exc:
-            log.error(
-                "fireworks_complete_http_error",
-                status=exc.response.status_code,
-                body=exc.response.text[:500],
-            )
-            raise
-        except httpx.HTTPError as exc:
-            log.error("fireworks_complete_network_error", error=str(exc))
-            raise
+                raise
+            except httpx.HTTPError as exc:
+                log.error("fireworks_complete_network_error", error=str(exc))
+                raise
 
         choice = (data.get("choices") or [{}])[0]
         content = (choice.get("message") or {}).get("content", "")

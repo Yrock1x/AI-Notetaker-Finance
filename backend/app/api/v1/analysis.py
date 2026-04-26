@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from supabase import Client
 
+from app.core.rate_limit import limiter
 from app.dependencies import (
     AuthUser,
     get_current_user,
@@ -21,6 +22,10 @@ from app.schemas.analysis import AnalysisRequest, AnalysisResponse
 from app.services.analysis_service import AnalysisService
 
 router = APIRouter()
+
+# Analyses fan out to multiple LLM calls (summarisation + downstream calls)
+# and write to storage — tighter than QA per minute.
+ANALYSIS_RATE_LIMIT = "5/minute"
 
 
 def _meeting_org(supabase: Client, meeting_id: UUID) -> UUID:
@@ -51,7 +56,9 @@ async def list_analyses(
 
 
 @router.post("", response_model=AnalysisResponse, status_code=202)
+@limiter.limit(ANALYSIS_RATE_LIMIT)
 async def run_analysis(
+    request: Request,
     meeting_id: UUID,
     payload: AnalysisRequest,
     current_user: AuthUser = Depends(get_current_user),

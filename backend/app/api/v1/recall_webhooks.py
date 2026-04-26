@@ -16,6 +16,7 @@ every event type lands on this handler.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -46,6 +47,20 @@ router = APIRouter()
 _SEEN_WEBHOOK_IDS: OrderedDict[str, float] = OrderedDict()
 _SEEN_MAX_SIZE = 10000
 _SEEN_TTL_SECONDS = 600  # 10 min — covers both Recall's 5-min ts tolerance
+
+
+# ---------------------------------------------------------------------------
+# Backpressure on Postgres-bound writes
+#
+# Each transcript partial upserts a row; the supabase-py client's underlying
+# httpx call is sync-ish (PostgREST round-trip) and at burst — 50 concurrent
+# live meetings stacking partials — can saturate the pool and starve other
+# request types. Cap concurrent writes per worker process; once full, new
+# webhook handlers wait, which gives Recall natural backpressure rather than
+# letting us amplify the spike. 8 keeps healthy headroom under PgBouncer's
+# default transaction-mode pool while still serving steady-state load.
+# ---------------------------------------------------------------------------
+_WRITE_SEMAPHORE = asyncio.Semaphore(8)
 
 
 def _is_replay(msg_id: str | None) -> bool:
@@ -333,11 +348,12 @@ async def _handle_transcript(
             "is_partial": is_partial,
         }
 
-    (
-        service_supabase.table("transcript_segments")
-        .upsert(row, on_conflict="recall_segment_id")
-        .execute()
-    )
+    async with _WRITE_SEMAPHORE:
+        (
+            service_supabase.table("transcript_segments")
+            .upsert(row, on_conflict="recall_segment_id")
+            .execute()
+        )
     return {"received": True, "handled": True, "is_partial": is_partial}
 
 
@@ -408,17 +424,19 @@ async def _handle_status_change(
     update.pop("actual_start", None) if update.get("actual_start") == "now()" else None
     update.pop("actual_end", None) if update.get("actual_end") == "now()" else None
 
-    service_supabase.table("meeting_bot_sessions").update(update).eq(
-        "id", session["id"]
-    ).execute()
+    async with _WRITE_SEMAPHORE:
+        service_supabase.table("meeting_bot_sessions").update(update).eq(
+            "id", session["id"]
+        ).execute()
 
     # Keep meetings.status in sync with the bot's real lifecycle. bot_start
     # intentionally leaves the meeting at 'scheduled' until Recall confirms
     # the bot is in-call, so the Live tab's "waiting" state is truthful.
     if next_status == "recording" and session.get("meeting_id"):
-        service_supabase.table("meetings").update({"status": "recording"}).eq(
-            "id", session["meeting_id"]
-        ).execute()
+        async with _WRITE_SEMAPHORE:
+            service_supabase.table("meetings").update({"status": "recording"}).eq(
+                "id", session["meeting_id"]
+            ).execute()
     elif next_status == "completed" and session.get("meeting_id"):
         # Bot meetings take a dedicated pipeline that pulls the authoritative
         # transcript + participants from Recall's recording shortcuts —
@@ -509,12 +527,13 @@ async def _handle_participant(
         .execute()
         .data
     )
-    if existing:
-        service_supabase.table("meeting_participants").update(row).eq(
-            "id", existing[0]["id"]
-        ).execute()
-    else:
-        service_supabase.table("meeting_participants").insert(row).execute()
+    async with _WRITE_SEMAPHORE:
+        if existing:
+            service_supabase.table("meeting_participants").update(row).eq(
+                "id", existing[0]["id"]
+            ).execute()
+        else:
+            service_supabase.table("meeting_participants").insert(row).execute()
     return {"received": True, "handled": True, "action": action}
 
 
@@ -565,12 +584,13 @@ async def _handle_chat(
         # Can't insert without a sent_at (NOT NULL). Skip.
         return {"received": True, "handled": False, "reason": "no_timestamp"}
 
-    if row["recall_message_id"]:
-        (
-            service_supabase.table("meeting_chat_messages")
-            .upsert(row, on_conflict="recall_message_id")
-            .execute()
-        )
-    else:
-        service_supabase.table("meeting_chat_messages").insert(row).execute()
+    async with _WRITE_SEMAPHORE:
+        if row["recall_message_id"]:
+            (
+                service_supabase.table("meeting_chat_messages")
+                .upsert(row, on_conflict="recall_message_id")
+                .execute()
+            )
+        else:
+            service_supabase.table("meeting_chat_messages").insert(row).execute()
     return {"received": True, "handled": True}

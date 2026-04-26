@@ -154,6 +154,8 @@ async def get_current_user(
 
     # Stash the raw token so dependent clients can reuse it.
     request.state.supabase_access_token = token
+    # Stash user_id so the rate limiter can key per-user (vs per-IP).
+    request.state.user_id = sub
     return AuthUser(id=UUID(sub), email=claims.get("email"), raw_claims=claims)
 
 

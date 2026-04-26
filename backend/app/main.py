@@ -3,10 +3,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
+from app.core.rate_limit import limiter
 
 
 def _init_sentry() -> None:
@@ -59,6 +63,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Per-user rate limiting. Routes opt in via @limiter.limit("...").
+    # The middleware materialises the limit-per-request hooks; the
+    # exception handler converts RateLimitExceeded into a 429 response.
+    app.state.limiter = limiter
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     register_exception_handlers(app)
 

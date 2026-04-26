@@ -26,4 +26,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:${PORT:-8000}/api/v1/health || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}"]
+# Multi-worker for parallelism on multi-core hosts. WEB_CONCURRENCY honours
+# the platform's preference (Fly/Railway can override per-machine size); 4 is
+# a sane default for the default 1-shared-CPU sizing.
+# NOTE: per-worker state (e.g. recall_webhooks._SEEN_WEBHOOK_IDS) is
+# process-local. If we move to a horizontally-replicated webhook path, swap
+# the in-memory LRU for Redis/Postgres-backed dedupe.
+CMD ["sh", "-c", "uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4}"]
