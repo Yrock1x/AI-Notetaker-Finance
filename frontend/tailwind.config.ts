@@ -4,6 +4,7 @@ const config: Config = {
   content: [
     "./src/**/*.{ts,tsx}",
   ],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
@@ -33,10 +34,14 @@ const config: Config = {
         sm: "calc(var(--radius) - 16px)",
       },
       fontFamily: {
-        heading: ['Plus Jakarta Sans', 'sans-serif'],
-        subheading: ['Outfit', 'sans-serif'],
-        drama: ['Cormorant Garamond', 'serif'],
-        data: ['IBM Plex Mono', 'monospace'],
+        sans: ['"Inter Tight"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        serif: ['"Instrument Serif"', 'ui-serif', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        heading: ['"Inter Tight"', 'ui-sans-serif', 'system-ui'],
+        subheading: ['"Inter Tight"', 'ui-sans-serif', 'system-ui'],
+        drama: ['"Instrument Serif"', 'ui-serif', 'Georgia'],
+        data: ['"JetBrains Mono"', 'ui-monospace'],
+        display: ['"Instrument Serif"', 'ui-serif', 'Georgia'],
       },
     },
   },

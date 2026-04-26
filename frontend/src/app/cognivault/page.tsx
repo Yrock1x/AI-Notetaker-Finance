@@ -4,15 +4,16 @@ import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 import { ScribeNav } from "@/components/cogniscribe/nav";
 import { ScribeFooter } from "@/components/cogniscribe/footer";
 import {
-  LandingHero,
-  LogoMarquee,
-  IndustriesSection,
-  ProductsSection,
-  SecuritySection,
-  LandingCTA,
-} from "@/components/cogniscribe/landing-sections";
+  VaultHero,
+  HowItWorks,
+  VaultChat,
+  VaultFeatures,
+  VaultUseCases,
+  VaultCrossProduct,
+  VaultCTA,
+} from "@/components/cogniscribe/vault-sections";
 
-export default function LandingPage() {
+export default function CogniVaultPage() {
   const { isDark, aiDemosPlaying } = useScribeTheme();
   return (
     <div
@@ -20,13 +21,14 @@ export default function LandingPage() {
         isDark ? "bg-[#0a0a0a] text-white" : "bg-[#fafafa] text-[#0a0a0a]"
       }`}
     >
-      <ScribeNav />
-      <LandingHero />
-      <LogoMarquee />
-      <IndustriesSection />
-      <ProductsSection />
-      <SecuritySection />
-      <LandingCTA />
+      <ScribeNav currentProduct="vdr" />
+      <VaultHero />
+      <HowItWorks />
+      <VaultChat />
+      <VaultFeatures />
+      <VaultUseCases />
+      <VaultCrossProduct />
+      <VaultCTA />
       <ScribeFooter />
     </div>
   );

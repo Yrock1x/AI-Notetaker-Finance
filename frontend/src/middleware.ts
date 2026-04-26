@@ -7,7 +7,15 @@ import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 // Paths that don't require a session. Everything else gets redirected to
 // /login. Root `/` is public because it renders the marketing landing page.
-const PUBLIC_PATHS = ["/", "/login", "/auth/callback", "/api/inngest"];
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/auth/callback",
+  "/api/inngest",
+  "/cogniscribe",
+  "/cognivault",
+  "/landing-v1",
+];
 
 export async function middleware(request: NextRequest) {
   const response = await updateSupabaseSession(request);

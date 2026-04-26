@@ -10,8 +10,12 @@ import {
 import { OrgSwitcher } from "./org-switcher";
 import { Breadcrumbs } from "./breadcrumbs";
 import { Settings, LogOut } from "lucide-react";
+import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
+import { ThemeToggle } from "@/components/cogniscribe/theme-toggle";
+import { cn } from "@/lib/utils";
 
 export function Topbar() {
+  const { isDark } = useScribeTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, signOut } = useSupabaseSession();
@@ -37,44 +41,85 @@ export function Topbar() {
   };
 
   return (
-    <header className="flex h-24 items-center justify-between border-b border-[#1A1A1A]/5 px-10 bg-[#F2F0E9]/80 backdrop-blur-xl relative z-20 antialiased">
-      <div className="flex items-center gap-6">
+    <header
+      className={cn(
+        "flex h-16 items-center justify-between border-b px-8 backdrop-blur-xl relative z-20",
+        isDark
+          ? "bg-[#0a0a0a]/85 text-white border-white/5"
+          : "bg-[#fafafa]/85 text-black border-black/[0.06]"
+      )}
+    >
+      <div className="flex items-center gap-4">
         <Breadcrumbs />
       </div>
-      <div className="flex items-center gap-6">
-        <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white/50 rounded-full border border-[#1A1A1A]/5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "hidden md:flex items-center px-3 py-1.5 rounded-full border",
+            isDark ? "bg-white/[0.03] border-white/10" : "bg-white border-black/[0.06]"
+          )}
+        >
           <OrgSwitcher />
         </div>
+        <ThemeToggle />
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="magnetic-btn group flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white text-sm font-heading font-extrabold shadow-lg overflow-hidden relative cursor-pointer"
+            aria-label="Open user menu"
+            className={cn(
+              "group flex h-9 w-9 items-center justify-center rounded-full text-[12px] font-semibold transition-colors",
+              isDark
+                ? "bg-white text-[#0a0a0a] hover:bg-white/90"
+                : "bg-[#0a0a0a] text-white hover:bg-black/90"
+            )}
           >
-            <span className="relative z-10 transition-transform group-hover:scale-110">{initial}</span>
-            <div className="absolute inset-0 bg-accent translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            {initial}
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#1A1A1A]/10 bg-white py-1 shadow-xl z-50">
+            <div
+              className={cn(
+                "absolute right-0 top-full mt-2 w-56 rounded-xl border py-1 shadow-2xl z-50",
+                isDark
+                  ? "bg-[#0a0a0a] border-white/10"
+                  : "bg-white border-black/[0.08]"
+              )}
+            >
               {user && (
-                <div className="px-4 py-2 border-b border-[#1A1A1A]/5">
-                  <p className="text-sm font-bold text-primary truncate">{displayName}</p>
-                  <p className="text-xs text-[#1A1A1A]/40 truncate">{user.email}</p>
+                <div
+                  className={cn("px-3 py-2 border-b", isDark ? "border-white/5" : "border-black/[0.06]")}
+                >
+                  <p className={cn("text-[13px] font-medium truncate", isDark ? "text-white/90" : "text-black/85")}>
+                    {displayName}
+                  </p>
+                  <p className={cn("text-[11px] truncate font-mono", isDark ? "text-white/40" : "text-black/40")}>
+                    {user.email}
+                  </p>
                 </div>
               )}
               <Link
                 href="/settings"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-[#1A1A1A]/70 hover:bg-[#F2F0E9] transition-colors"
+                className={cn(
+                  "flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors",
+                  isDark
+                    ? "text-white/70 hover:bg-white/[0.05] hover:text-white"
+                    : "text-black/70 hover:bg-black/[0.04] hover:text-black"
+                )}
               >
                 <Settings className="h-4 w-4" />
                 Settings
               </Link>
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-[13px] transition-colors",
+                  isDark
+                    ? "text-rose-300 hover:bg-rose-500/10"
+                    : "text-rose-600 hover:bg-rose-50"
+                )}
               >
                 <LogOut className="h-4 w-4" />
-                Log Out
+                Log out
               </button>
             </div>
           )}

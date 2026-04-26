@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import { Providers } from "./providers";
+import { ScribeThemeProvider } from "@/components/cogniscribe/theme-provider";
 import "@/styles/globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
+import "@/styles/cogniscribe.css";
 
 export const metadata: Metadata = {
-  title: "CogniSuite",
-  description: "AI-powered deal intelligence platform for finance professionals",
+  title: "CogniSuite.ai — The AI workspace for complex engagements",
+  description:
+    "Purpose-built for finance, legal, and advisory teams. A secure data room and a meeting intelligence engine — sharing one context, one audit trail, one source of truth.",
 };
 
 export default function RootLayout({
@@ -16,9 +16,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+    <html lang="en" suppressHydrationWarning>
+      <body className="cogniscribe-root antialiased">
+        <ScribeThemeProvider initialTheme="dark">
+          <Providers>{children}</Providers>
+        </ScribeThemeProvider>
       </body>
     </html>
   );

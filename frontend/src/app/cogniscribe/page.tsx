@@ -4,15 +4,16 @@ import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 import { ScribeNav } from "@/components/cogniscribe/nav";
 import { ScribeFooter } from "@/components/cogniscribe/footer";
 import {
-  LandingHero,
-  LogoMarquee,
-  IndustriesSection,
-  ProductsSection,
-  SecuritySection,
-  LandingCTA,
-} from "@/components/cogniscribe/landing-sections";
+  ScribeHero,
+  ScribePipeline,
+  ScribeExtraction,
+  ScribeLibrary,
+  ScribeIntegrations,
+  ScribeCrossProduct,
+  ScribeCTA,
+} from "@/components/cogniscribe/sections";
 
-export default function LandingPage() {
+export default function CogniScribePage() {
   const { isDark, aiDemosPlaying } = useScribeTheme();
   return (
     <div
@@ -20,13 +21,14 @@ export default function LandingPage() {
         isDark ? "bg-[#0a0a0a] text-white" : "bg-[#fafafa] text-[#0a0a0a]"
       }`}
     >
-      <ScribeNav />
-      <LandingHero />
-      <LogoMarquee />
-      <IndustriesSection />
-      <ProductsSection />
-      <SecuritySection />
-      <LandingCTA />
+      <ScribeNav currentProduct="mic" />
+      <ScribeHero />
+      <ScribePipeline />
+      <ScribeExtraction />
+      <ScribeLibrary />
+      <ScribeIntegrations />
+      <ScribeCrossProduct />
+      <ScribeCTA />
       <ScribeFooter />
     </div>
   );

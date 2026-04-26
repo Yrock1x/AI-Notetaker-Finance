@@ -1,68 +1,135 @@
+"use client";
+
 import type { Deal } from "@/types";
 import { DEAL_STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { Briefcase, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 
 interface DealCardProps {
   deal: Deal;
 }
 
-const STATUS_COLORS: Record<string, { bg: string, text: string, dot: string }> = {
-  active: { bg: "bg-emerald-50", text: "text-emerald-800", dot: "bg-emerald-500" },
-  archived: { bg: "bg-slate-50", text: "text-slate-800", dot: "bg-slate-500" },
+const STATUS_TONE: Record<string, { dotCls: string; textDark: string; textLight: string; bgDark: string; bgLight: string; borderDark: string; borderLight: string }> = {
+  active: {
+    dotCls: "bg-emerald-400",
+    textDark: "text-emerald-300",
+    textLight: "text-emerald-700",
+    bgDark: "bg-emerald-500/10",
+    bgLight: "bg-emerald-50",
+    borderDark: "border-emerald-500/25",
+    borderLight: "border-emerald-200/70",
+  },
+  archived: {
+    dotCls: "bg-slate-400",
+    textDark: "text-slate-300",
+    textLight: "text-slate-600",
+    bgDark: "bg-slate-500/10",
+    bgLight: "bg-slate-50",
+    borderDark: "border-slate-500/25",
+    borderLight: "border-slate-200/70",
+  },
 };
 
 const DEAL_TYPE_LABELS: Record<string, string> = {
-  buyout: "Buyout Protocol",
-  growth_equity: "Growth Equity",
-  venture: "Venture Layer",
-  recapitalization: "Recapitization",
-  add_on: "Strategic Add-on",
-  other: "Other Protocol",
+  buyout: "Buyout",
+  growth_equity: "Growth equity",
+  venture: "Venture",
+  recapitalization: "Recapitalization",
+  add_on: "Add-on",
+  other: "Other",
 };
 
 export function DealCard({ deal }: DealCardProps) {
-  const status = STATUS_COLORS[deal.status] ?? STATUS_COLORS.active;
+  const { isDark } = useScribeTheme();
+  const tone = STATUS_TONE[deal.status] ?? STATUS_TONE.active;
 
   return (
-    <div className="group rounded-[2rem] border border-[#1A1A1A]/5 bg-white p-8 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 relative overflow-hidden antialiased h-full flex flex-col justify-between">
-      <div className="absolute top-0 left-0 w-2 h-full bg-primary/10"></div>
-
-      <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1.5 flex-1 min-w-0">
-            <h3 className="font-heading font-extrabold text-lg md:text-xl leading-tight text-primary transition-colors group-hover:text-accent truncate">
+    <div
+      className={cn(
+        "group rounded-2xl border p-5 transition-colors h-full flex flex-col justify-between shadow-sm hover:shadow-lg",
+        isDark
+          ? "border-white/10 bg-[#121212] hover:border-white/20"
+          : "border-black/[0.06] bg-white hover:border-black/15"
+      )}
+    >
+      <div className="flex flex-col gap-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h3
+              className={cn(
+                "text-[18px] leading-tight font-medium tracking-[-0.01em] truncate",
+                isDark ? "text-white/95" : "text-black/90"
+              )}
+            >
               {deal.name}
             </h3>
-            <p className="font-subheading text-sm text-[#1A1A1A]/40 font-medium truncate">
+            <p
+              className={cn(
+                "text-[12px] mt-1 truncate font-mono uppercase tracking-[0.18em]",
+                isDark ? "text-white/40" : "text-black/40"
+              )}
+            >
               {deal.target_company}
             </p>
           </div>
-          <div className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-data font-bold uppercase tracking-wider", status.bg, status.text)}>
-            <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", status.dot)}></div>
+          <div
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-medium border",
+              isDark
+                ? `${tone.bgDark} ${tone.textDark} ${tone.borderDark}`
+                : `${tone.bgLight} ${tone.textLight} ${tone.borderLight}`
+            )}
+          >
+            <span className={cn("w-1.5 h-1.5 rounded-full", tone.dotCls)}></span>
             {DEAL_STATUS_LABELS[deal.status] ?? deal.status}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {deal.deal_type && (
-            <div className="px-3 py-1 bg-[#F2F0E9] rounded-full text-[10px] font-data font-bold text-primary/40 uppercase tracking-widest border border-[#1A1A1A]/5">
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-md text-[10px] font-mono",
+                isDark ? "bg-white/5 text-white/55" : "bg-black/[0.04] text-black/55"
+              )}
+            >
               {DEAL_TYPE_LABELS[deal.deal_type] ?? deal.deal_type}
-            </div>
+            </span>
           )}
           {deal.stage && (
-            <div className="px-3 py-1 bg-[#F2F0E9] rounded-full text-[10px] font-data font-bold text-primary/40 uppercase tracking-widest border border-[#1A1A1A]/5">
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-md text-[10px] font-mono",
+                isDark ? "bg-white/5 text-white/55" : "bg-black/[0.04] text-black/55"
+              )}
+            >
               {deal.stage}
-            </div>
+            </span>
           )}
         </div>
       </div>
 
-      <div className="mt-8 pt-6 border-t border-[#1A1A1A]/5 flex items-center justify-between group-hover:border-accent/10 transition-colors">
-        <span className="font-data text-[10px] text-primary/30 uppercase tracking-[0.2em] font-bold">Priority Status</span>
-        <div className="w-8 h-8 rounded-full bg-[#F2F0E9] flex items-center justify-center transition-all group-hover:bg-accent group-hover:text-white">
-          <ArrowRight className="w-4 h-4" />
-        </div>
+      <div
+        className={cn(
+          "mt-6 pt-4 border-t flex items-center justify-between transition-colors",
+          isDark ? "border-white/5" : "border-black/[0.06]"
+        )}
+      >
+        <span
+          className={cn(
+            "font-mono text-[10px] uppercase tracking-[0.22em]",
+            isDark ? "text-white/35" : "text-black/35"
+          )}
+        >
+          Open deal
+        </span>
+        <ArrowRight
+          className={cn(
+            "w-4 h-4 transition-transform group-hover:translate-x-0.5",
+            isDark ? "text-white/40" : "text-black/40"
+          )}
+        />
       </div>
     </div>
   );
