@@ -16,6 +16,28 @@
     --muted-foreground: #6A6763;
     --border: rgba(26, 26, 26, 0.1);
     --radius: 2rem;
+
+    /* Workspace tokens (used inside the deal workspace shell). The deal
+       layout opts into this palette via [data-workspace] on its root so
+       only the deal pages get the warm-gray treatment. */
+    --ws-bg: #ffffff;
+    --ws-surface: #efeeea;
+    --ws-sub: #f6f5f3;
+    --ws-sub2: #e7e5df;
+    --ws-border: #e5e3de;
+    --ws-border-strong: #d4d1c9;
+    --ws-ink: #1a1a1a;
+    --ws-ink2: #3a3a37;
+    --ws-muted: #6b6862;
+    --ws-faint: #9a978f;
+    --ws-accent: #5b6cff;
+    --ws-accent-soft: rgba(91, 108, 255, 0.08);
+    --ws-ai-tint: #f5f0ff;
+    --ws-ai-ink: #5b48d4;
+    --ws-success: #15803d;
+    --ws-warn: #a16207;
+    --ws-danger: #b91c1c;
+    --ws-live: #dc2626;
   }
 
   * {
@@ -79,4 +101,83 @@
   .link-lift:hover {
     transform: translateY(-2px);
   }
+}
+
+/* Workspace shell: scoped styles for deal pages so the warm-gray surface
+   reads like the design without bleeding into the global app shell. */
+[data-workspace] {
+  background: var(--ws-bg);
+  color: var(--ws-ink);
+  font-family: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-workspace] .ws-mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-workspace] .ws-card {
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+[data-workspace] .ws-card-header {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--ws-border);
+  background: var(--ws-surface);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ws-ink);
+  letter-spacing: -0.005em;
+}
+
+[data-workspace] .ws-eyebrow {
+  font-size: 10.5px;
+  color: var(--ws-muted);
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+@keyframes ws-livepulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+
+@keyframes ws-fadeup {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ws-cursor {
+  from, to { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes ws-wf {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+
+.ws-live-pulse {
+  animation: ws-livepulse 1.4s ease-in-out infinite;
+}
+
+.ws-fadeup {
+  animation: ws-fadeup 0.4s ease-out;
+}
+
+.ws-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 13px;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: ws-cursor 1s steps(2) infinite;
 }
