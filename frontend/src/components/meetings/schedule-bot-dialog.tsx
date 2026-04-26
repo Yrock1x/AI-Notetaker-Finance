@@ -15,6 +15,9 @@ interface ScheduleBotDialogProps {
   open: boolean;
   onClose: () => void;
   dealId?: string;
+  // Optional ISO datetime — prefills the "Scheduled start" picker when the
+  // dialog is opened from a calendar day cell.
+  defaultStart?: string;
 }
 
 function detectPlatform(url: string): BotSession["platform"] | null {
@@ -30,13 +33,14 @@ export function ScheduleBotDialog({
   open,
   onClose,
   dealId: presetDealId,
+  defaultStart,
 }: ScheduleBotDialogProps) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [title, setTitle] = useState("");
   const [titleWasAutofilled, setTitleWasAutofilled] = useState(false);
   const [platform, setPlatform] = useState<BotSession["platform"]>("zoom");
   const [dealId, setDealId] = useState<string>(presetDealId ?? "");
-  const [scheduledStart, setScheduledStart] = useState<string>("");
+  const [scheduledStart, setScheduledStart] = useState<string>(defaultStart ?? "");
   const [matchedMeetingId, setMatchedMeetingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -91,6 +95,12 @@ export function ScheduleBotDialog({
   useEffect(() => {
     if (presetDealId) setDealId(presetDealId);
   }, [presetDealId]);
+
+  // Apply the parent-provided default start whenever it changes (e.g. the
+  // calendar reuses one dialog across day-cell clicks).
+  useEffect(() => {
+    if (defaultStart) setScheduledStart(defaultStart);
+  }, [defaultStart]);
 
   if (!open) return null;
 
