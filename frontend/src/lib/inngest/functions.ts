@@ -27,7 +27,10 @@ function serviceSupabase() {
 // transcribe -> diarize -> parallel(embed, analyze) -> notify
 // ---------------------------------------------------------------------------
 export const processMeeting = inngest.createFunction(
-  { id: "process-meeting", concurrency: { limit: 4 } },
+  // Concurrency: 20 lets a busy 5pm-end-of-day burst drain in <1 min instead
+  // of queueing for 5+. Inngest free tier caps at 5 per function — this
+  // limit is aspirational until the workspace is on a paid plan.
+  { id: "process-meeting", concurrency: { limit: 20 } },
   { event: "meeting/uploaded" },
   async ({ event, step }) => {
     const { meeting_id } = event.data;
@@ -107,7 +110,7 @@ export const processMeeting = inngest.createFunction(
 // document/uploaded — extract + embed.
 // ---------------------------------------------------------------------------
 export const processDocument = inngest.createFunction(
-  { id: "process-document", concurrency: { limit: 4 } },
+  { id: "process-document", concurrency: { limit: 10 } },
   { event: "document/uploaded" },
   async ({ event, step }) => {
     const { document_id } = event.data;
@@ -130,9 +133,10 @@ export const processDocument = inngest.createFunction(
 // bot/scheduled — ask Recall.ai to create a bot for the session.
 // ---------------------------------------------------------------------------
 export const startBotSession = inngest.createFunction(
-  // Inngest free tier caps concurrency at 5 per function. Bump this if you
-  // move to a paid plan and want bot starts to parallelise more aggressively.
-  { id: "start-bot", concurrency: { limit: 5 } },
+  // Inngest free tier caps concurrency at 5 per function; the ceiling here
+  // is aspirational for paid plans where 15 lets a burst of meetings
+  // starting at the same minute spawn bots without queue lag.
+  { id: "start-bot", concurrency: { limit: 15 } },
   { event: "bot/scheduled" },
   async ({ event, step }) => {
     const { session_id } = event.data;
@@ -158,6 +162,12 @@ export const startBotSession = inngest.createFunction(
 // auto-join.
 // ---------------------------------------------------------------------------
 // Cron trigger: sweeps every 5 min for meetings about to start.
+// Fan-out is capped at 500 per tick to stay under Inngest's per-call event
+// batch ceiling. Anything beyond that is picked up by the next 5-min run —
+// a single user/org can't realistically have >500 meetings starting in the
+// same 10-min window.
+const AUTO_SCHEDULE_FANOUT_CAP = 500;
+
 export const autoScheduleDueBots = inngest.createFunction(
   { id: "auto-schedule-due-bots" },
   { cron: "TZ=UTC */5 * * * *" },
@@ -174,14 +184,18 @@ export const autoScheduleDueBots = inngest.createFunction(
       return body.scheduled;
     });
     if (scheduled.length === 0) return { scheduled: 0 };
+    const batch = scheduled.slice(0, AUTO_SCHEDULE_FANOUT_CAP);
     await step.sendEvent(
       "fanout-bot-scheduled",
-      scheduled.map((s) => ({
+      batch.map((s) => ({
         name: "bot/scheduled" as const,
         data: { session_id: s.session_id },
       }))
     );
-    return { scheduled: scheduled.length };
+    return {
+      scheduled: batch.length,
+      deferred: scheduled.length - batch.length,
+    };
   }
 );
 
@@ -205,14 +219,18 @@ export const autoScheduleDueBotsOnDemand = inngest.createFunction(
       return body.scheduled;
     });
     if (scheduled.length === 0) return { scheduled: 0 };
+    const batch = scheduled.slice(0, AUTO_SCHEDULE_FANOUT_CAP);
     await step.sendEvent(
       "fanout-bot-scheduled",
-      scheduled.map((s) => ({
+      batch.map((s) => ({
         name: "bot/scheduled" as const,
         data: { session_id: s.session_id },
       }))
     );
-    return { scheduled: scheduled.length };
+    return {
+      scheduled: batch.length,
+      deferred: scheduled.length - batch.length,
+    };
   }
 );
 
@@ -419,7 +437,14 @@ export const syncCalendarForUser = inngest.createFunction(
 // user so a single button press doesn't re-sync the whole workspace.
 // ---------------------------------------------------------------------------
 export const refreshCalendarForUser = inngest.createFunction(
-  { id: "refresh-calendar-for-user", concurrency: { limit: 4 } },
+  {
+    id: "refresh-calendar-for-user",
+    concurrency: { limit: 8 },
+    // Debounce so a frantic Refresh-button-clicker collapses to one sync
+    // per user every 30s. Without this, 5 clicks fan out to 5 worker calls
+    // and 5 outbound provider hits — wasted quota for zero new data.
+    debounce: { period: "30s", key: "event.data.user_id" },
+  },
   { event: "calendar/refresh.requested" },
   async ({ event, step }) => {
     const { org_id, user_id } = event.data;

@@ -34,4 +34,7 @@ class IDResponse(BaseModel):
 
 
 class BaseSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    # extra="forbid" — reject unknown fields rather than silently dropping
+    # them. Keeps the API contract honest: a frontend that drifted out of
+    # sync with the backend gets a 422 instead of confusing partial writes.
+    model_config = ConfigDict(from_attributes=True, extra="forbid")

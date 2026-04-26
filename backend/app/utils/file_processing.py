@@ -70,7 +70,14 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 async def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text content from a DOCX file using python-docx."""
+    """Extract text content from a DOCX file using python-docx.
+
+    Safety: python-docx >=0.8.11 and the lxml versions it pulls in disable
+    DTD processing + entity expansion by default, so a malicious DOCX with
+    XXE-style external entity references in the embedded XML cannot trigger
+    file/network exfiltration. We pin >=1.1.0 in pyproject.toml so this
+    guarantee holds; do not relax that floor without re-auditing.
+    """
     import asyncio
     import io
 
@@ -85,7 +92,13 @@ async def extract_text_from_docx(file_bytes: bytes) -> str:
 
 
 async def extract_text_from_xlsx(file_bytes: bytes) -> str:
-    """Extract text content from an XLSX file using openpyxl."""
+    """Extract text content from an XLSX file using openpyxl.
+
+    Safety: openpyxl >=3.0 disables external DTD/entity processing by
+    default, so XXE-style attacks via the embedded XLSX XML are not
+    exploitable. We pin >=3.1.0 in pyproject.toml; do not relax that floor
+    without re-auditing.
+    """
     import asyncio
     import io
 

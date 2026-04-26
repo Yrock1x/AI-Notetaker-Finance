@@ -60,8 +60,16 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # Narrow to the verbs + headers the frontend actually sends. Wildcards
+        # work but expose every future route to every method, which makes
+        # CSRF audits harder to reason about.
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Internal-Token",
+            "X-Requested-With",
+        ],
     )
 
     # Per-user rate limiting. Routes opt in via @limiter.limit("...").

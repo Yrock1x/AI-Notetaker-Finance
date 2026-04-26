@@ -79,6 +79,7 @@ export function UploadDialog({ dealId, open, onClose }: UploadDialogProps) {
       const initResult = await initiateUpload.mutateAsync({
         deal_id: dealId,
         filename: file.name,
+        size_bytes: file.size,
         content_type: file.type as
           | "audio/mpeg"
           | "audio/mp3"

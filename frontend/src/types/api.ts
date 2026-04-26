@@ -64,6 +64,9 @@ export interface MeetingUploadInitiate {
   deal_id: string;
   filename: string;
   content_type: string;
+  // file.size from the browser File API. The worker rejects above-cap
+  // requests before consuming a signed-URL slot.
+  size_bytes: number;
 }
 
 export interface MeetingUploadInitiateResponse {

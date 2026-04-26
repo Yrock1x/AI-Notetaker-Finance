@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from supabase import Client
 
+from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.dependencies import (
     AuthUser,
@@ -84,17 +85,22 @@ async def ask_question(
     try:
         result = await qa.ask(deal_id=deal_id, question=payload.question)
     except httpx.HTTPStatusError as exc:
-        # Surface provider errors (e.g. Fireworks 412 "account suspended")
-        # instead of bubbling up as a generic 500 — the frontend relies on
-        # response.data.detail to show what actually went wrong.
-        try:
-            body = exc.response.json()
-            detail = (body.get("error") or {}).get("message") or exc.response.text
-        except Exception:
-            detail = exc.response.text
+        # In development, surface the upstream LLM error verbatim so we can
+        # debug Fireworks/Claude misconfig (e.g. 412 "account suspended").
+        # In production, return a generic message — provider error bodies
+        # can leak internal model names, request ids, and account state.
+        if settings.is_production:
+            detail = "LLM provider unavailable"
+        else:
+            try:
+                body = exc.response.json()
+                detail = (body.get("error") or {}).get("message") or exc.response.text
+            except Exception:
+                detail = exc.response.text
+            detail = f"LLM provider error ({exc.response.status_code}): {detail[:400]}"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error ({exc.response.status_code}): {detail[:400]}",
+            detail=detail,
         ) from exc
 
     citations = [

@@ -18,6 +18,11 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 const DEALS_KEY = "deals";
 
+// Default cap on row payload. With ``count: 'exact'`` the total still
+// reflects the full org size for stat counts; the row payload is bounded
+// so a 500-deal tenant doesn't ship 500 rows on every dashboard view.
+const DEFAULT_DEALS_LIMIT = 50;
+
 export function useDeals(filters?: DealFilters) {
   return useQuery<PaginatedResponse<Deal>>({
     queryKey: [DEALS_KEY, filters],
@@ -37,15 +42,17 @@ export function useDeals(filters?: DealFilters) {
           `name.ilike.%${s}%,target_company.ilike.%${s}%`
         );
       }
-      if (filters?.limit) query = query.limit(filters.limit);
+      query = query.limit(filters?.limit ?? DEFAULT_DEALS_LIMIT);
 
       const { data, error, count } = await query;
       if (error) throw error;
 
+      const items = (data ?? []) as Deal[];
+      const limit = filters?.limit ?? DEFAULT_DEALS_LIMIT;
       return {
-        items: (data ?? []) as Deal[],
+        items,
         cursor: null,
-        has_more: false,
+        has_more: typeof count === "number" ? count > items.length : items.length === limit,
         total: count ?? undefined,
       };
     },

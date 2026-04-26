@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import logging
 import time
+from collections import OrderedDict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -22,6 +23,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 WEBHOOK_TIMESTAMP_TOLERANCE = 300  # 5 minutes
+
+
+# ---------------------------------------------------------------------------
+# Replay protection
+#
+# Without dedupe, a captured webhook can be re-played within the 5-min
+# timestamp tolerance window. Cache the (timestamp, signature) pair after
+# signature verification and reject repeats. Bounded LRU keeps memory
+# constant. Per-process scope is fine for single-worker patterns; with
+# multiple uvicorn workers, replays may slip through to a different worker
+# but the receiver-side semantics (Inngest event idempotency, upserts
+# keyed on provider message ids) absorb the duplicate work.
+# ---------------------------------------------------------------------------
+_SEEN_WEBHOOKS: OrderedDict[str, float] = OrderedDict()
+_SEEN_MAX_SIZE = 10000
+_SEEN_TTL_SECONDS = WEBHOOK_TIMESTAMP_TOLERANCE * 2
+
+
+def _is_replay(provider: str, signature: str, timestamp: str) -> bool:
+    if not signature or not timestamp:
+        return False
+    key = f"{provider}:{timestamp}:{signature}"
+    now = time.time()
+    while _SEEN_WEBHOOKS:
+        oldest_key, oldest_ts = next(iter(_SEEN_WEBHOOKS.items()))
+        if now - oldest_ts > _SEEN_TTL_SECONDS:
+            _SEEN_WEBHOOKS.popitem(last=False)
+        else:
+            break
+    if key in _SEEN_WEBHOOKS:
+        return True
+    if len(_SEEN_WEBHOOKS) >= _SEEN_MAX_SIZE:
+        _SEEN_WEBHOOKS.popitem(last=False)
+    _SEEN_WEBHOOKS[key] = now
+    return False
 
 
 def _verify_zoom_signature(request: Request, raw_body: bytes, settings) -> None:
@@ -48,6 +84,10 @@ def _verify_zoom_signature(request: Request, raw_body: bytes, settings) -> None:
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(status_code=401, detail="Invalid Zoom signature")
 
+    if _is_replay("zoom", signature, timestamp):
+        logger.warning("zoom_webhook_replay_blocked timestamp=%s", timestamp)
+        raise HTTPException(status_code=409, detail="Replay detected")
+
 
 def _verify_slack_signature(request: Request, raw_body: bytes, settings) -> None:
     """Verify Slack webhook request signature using HMAC-SHA256."""
@@ -72,6 +112,10 @@ def _verify_slack_signature(request: Request, raw_body: bytes, settings) -> None
 
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
+
+    if _is_replay("slack", signature, timestamp):
+        logger.warning("slack_webhook_replay_blocked timestamp=%s", timestamp)
+        raise HTTPException(status_code=409, detail="Replay detected")
 
 
 @router.post("/zoom")

@@ -4,6 +4,7 @@
 // signed upload URL, then the frontend writes the meeting row + fires an
 // Inngest event to kick off the pipeline.
 
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Meeting,
@@ -16,6 +17,10 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 const MEETINGS_KEY = "meetings";
 
+// Cap on rows fetched per deal. A 200-meeting deal would otherwise ship
+// every row on every Meetings tab view.
+const DEFAULT_MEETINGS_LIMIT = 100;
+
 export function useMeetings(dealId: string | undefined) {
   return useQuery<PaginatedResponse<Meeting>>({
     queryKey: [MEETINGS_KEY, dealId],
@@ -25,23 +30,36 @@ export function useMeetings(dealId: string | undefined) {
         .from("meetings")
         .select("*")
         .eq("deal_id", dealId!)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(DEFAULT_MEETINGS_LIMIT);
       if (error) throw error;
+      const items = (data ?? []) as Meeting[];
       return {
-        items: (data ?? []) as Meeting[],
+        items,
         cursor: null,
-        has_more: false,
+        has_more: items.length === DEFAULT_MEETINGS_LIMIT,
       };
     },
     enabled: !!dealId,
   });
 }
 
+// Status values that mean "pipeline is running" — used by the polling
+// fallback so the UI eventually reflects state changes if Realtime drops.
+const ACTIVE_PIPELINE_STATUSES = [
+  "transcribing",
+  "diarizing",
+  "analyzing",
+  "uploading",
+];
+
 export function useMeeting(
   dealId: string | undefined,
   meetingId: string | undefined
 ) {
-  return useQuery<Meeting>({
+  const queryClient = useQueryClient();
+
+  const query = useQuery<Meeting>({
     queryKey: [MEETINGS_KEY, dealId, meetingId],
     queryFn: async () => {
       const supabase = getBrowserSupabase();
@@ -54,14 +72,46 @@ export function useMeeting(
       return data as Meeting;
     },
     enabled: !!dealId && !!meetingId,
-    // Poll while the pipeline is running so the UI reflects status changes.
-    refetchInterval: (query) => {
-      const status = (query.state.data as Meeting | undefined)?.status;
-      return status && ["transcribing", "diarizing", "analyzing", "uploading"].includes(status)
-        ? 4000
-        : false;
+    // Slow fallback poll. Realtime (below) is the primary signal; this
+    // catches the edge case where the WS subscription was dropped or the
+    // user's network missed a notification while the page was hidden.
+    refetchInterval: (q) => {
+      const status = (q.state.data as Meeting | undefined)?.status;
+      return status && ACTIVE_PIPELINE_STATUSES.includes(status) ? 30000 : false;
     },
   });
+
+  // Realtime subscription on this meeting's row. Status changes pushed by
+  // the Inngest pipeline arrive in <1s instead of waiting for the next
+  // poll. We update the query cache directly with the new row so listeners
+  // re-render immediately.
+  useEffect(() => {
+    if (!meetingId) return;
+    const supabase = getBrowserSupabase();
+    const channel = supabase
+      .channel(`meeting:${meetingId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "meetings",
+          filter: `id=eq.${meetingId}`,
+        },
+        (payload) => {
+          queryClient.setQueryData<Meeting>(
+            [MEETINGS_KEY, dealId, meetingId],
+            payload.new as Meeting
+          );
+        }
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [dealId, meetingId, queryClient]);
+
+  return query;
 }
 
 export function useUpdateMeeting(dealId: string | undefined) {
@@ -161,6 +211,7 @@ export function useInitiateMeetingUpload() {
           deal_id: payload.deal_id,
           filename: payload.filename,
           content_type: payload.content_type,
+          size_bytes: payload.size_bytes,
         }
       );
       return data;

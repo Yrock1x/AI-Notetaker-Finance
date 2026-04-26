@@ -20,7 +20,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.dependencies import (
     AuthUser,
@@ -34,6 +34,11 @@ router = APIRouter()
 
 RECORDINGS_BUCKET = "meeting-recordings"
 
+# Application-level cap. Supabase Storage enforces a per-bucket ceiling at
+# upload time, but checking here lets us reject obviously-too-large requests
+# before minting a signed URL — and surface a clear error to the client.
+MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
+
 
 class UploadTicketRequest(BaseModel):
     deal_id: str
@@ -43,6 +48,9 @@ class UploadTicketRequest(BaseModel):
         "audio/mp4", "audio/m4a", "audio/webm", "audio/ogg",
         "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
     ]
+    # Browser File API gives us this for free — required so we can reject
+    # over-cap uploads before consuming a signed-URL slot.
+    size_bytes: int = Field(gt=0, le=MAX_UPLOAD_SIZE_BYTES)
 
 
 class UploadTicketResponse(BaseModel):
