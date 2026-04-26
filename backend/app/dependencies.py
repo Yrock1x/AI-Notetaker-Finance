@@ -107,19 +107,21 @@ async def _verify_supabase_jwt(token: str) -> dict:
                 detail="Invalid token",
             ) from exc
 
-    # HS256 fallback
-    secret = settings.supabase_anon_key or settings.supabase_service_role_key
-    if not secret:
+    # HS256 path (Supabase CLI in local dev, or hosted projects pre-JWKS).
+    # Must verify against SUPABASE_JWT_SECRET — the anon key is not a signing
+    # secret, and decoding without signature verification would let any HS256
+    # token impersonate any user.
+    if not settings.supabase_jwt_secret:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No JWT verification key configured",
+            detail="HS256 token rejected: SUPABASE_JWT_SECRET not configured",
         )
     try:
         return jwt.decode(
             token,
-            secret,
+            settings.supabase_jwt_secret,
             algorithms=["HS256"],
-            options={"verify_aud": False, "verify_signature": False},
+            options={"verify_aud": False},
         )
     except JWTError as exc:
         raise HTTPException(

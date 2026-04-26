@@ -20,6 +20,8 @@ import base64
 import hashlib
 import hmac
 import logging
+import time
+from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from supabase import Client
@@ -30,6 +32,39 @@ from app.integrations.inngest import send_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Replay protection
+#
+# Recall's signature window is set by ``webhook-timestamp``; without dedupe,
+# a captured webhook can be re-played within that window. Cache recently
+# observed message-ids and return early on repeats. Bounded LRU so memory
+# is constant. Single-process scope is fine for the worker today; if we
+# scale horizontally, swap this for a Redis/Postgres-backed dedupe.
+# ---------------------------------------------------------------------------
+_SEEN_WEBHOOK_IDS: OrderedDict[str, float] = OrderedDict()
+_SEEN_MAX_SIZE = 10000
+_SEEN_TTL_SECONDS = 600  # 10 min — covers both Recall's 5-min ts tolerance
+
+
+def _is_replay(msg_id: str | None) -> bool:
+    if not msg_id:
+        return False
+    now = time.time()
+    # Evict expired entries from the head of the LRU.
+    while _SEEN_WEBHOOK_IDS:
+        oldest_id, oldest_ts = next(iter(_SEEN_WEBHOOK_IDS.items()))
+        if now - oldest_ts > _SEEN_TTL_SECONDS:
+            _SEEN_WEBHOOK_IDS.popitem(last=False)
+        else:
+            break
+    if msg_id in _SEEN_WEBHOOK_IDS:
+        return True
+    if len(_SEEN_WEBHOOK_IDS) >= _SEEN_MAX_SIZE:
+        _SEEN_WEBHOOK_IDS.popitem(last=False)
+    _SEEN_WEBHOOK_IDS[msg_id] = now
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +207,15 @@ async def recall_webhook(
         svix_timestamp=msg_ts,
         svix_signature=msg_sig,
     )
+
+    # Reject replays of dashboard-signed webhooks (which carry a unique
+    # ``webhook-id``). Returning 200 prevents Recall from retrying. Legacy
+    # ``x-recall-signature`` events have no message-id; those rely on the
+    # idempotent UPSERTs further down (transcript_segments by
+    # recall_segment_id, etc.) so a re-played one is effectively a no-op.
+    if _is_replay(msg_id):
+        logger.warning("recall_webhook_replay_blocked msg_id=%s", msg_id)
+        return {"received": True, "handled": False, "reason": "replay"}
 
     try:
         payload = await request.json()

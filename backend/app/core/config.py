@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
     supabase_jwt_jwks_url: str = ""   # usually {SUPABASE_URL}/auth/v1/.well-known/jwks.json
+    # HS256 signing secret. Set in local dev (Supabase CLI issues HS256 tokens
+    # by default) and as a fallback in prod if JWKS is unavailable. Hosted
+    # Supabase exposes this as the "JWT Secret" in API settings.
+    supabase_jwt_secret: str = ""
 
     # LLM — Fireworks (default)
     fireworks_api_key: str = ""
