@@ -22,6 +22,7 @@ import {
 import { useDeals } from "@/hooks/use-deals";
 import { useMeetings } from "@/hooks/use-meetings";
 import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
+import { warmWorker } from "@/lib/api-client";
 import { LoadingState } from "@/components/shared/loading-state";
 import type { Citation, Deal, Meeting } from "@/types";
 
@@ -89,6 +90,12 @@ function ChatContent() {
   const meetingAsk = useMeetingAskQuestion();
   const isPending = dealAsk.isPending || meetingAsk.isPending;
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Wake the worker on mount so the first QA request doesn't pay the
+  // Railway cold-start penalty. Best-effort; failures are silent.
+  useEffect(() => {
+    warmWorker();
+  }, []);
 
   // Auto-select first deal when none chosen.
   useEffect(() => {
