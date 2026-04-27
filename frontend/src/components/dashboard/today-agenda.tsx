@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ArrowRight, ExternalLink, Mic } from "lucide-react";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
-import { Eyebrow } from "@/components/cogniscribe/primitives";
 import { useTodayMeetings, type TodayMeeting } from "@/hooks/use-today-meetings";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -39,11 +38,20 @@ export function TodayAgenda() {
       }`}
     >
       <div className="flex items-end justify-between mb-5">
-        <div className="flex flex-col gap-1.5">
-          <Eyebrow>Today</Eyebrow>
-          <h2 className="text-[20px] sm:text-[22px] tracking-[-0.01em] font-medium">
-            {todayLabel}
-          </h2>
+        <div className="flex items-center gap-3">
+          <span className="inline-block h-5 w-1 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-600" />
+          <div className="flex flex-col gap-0.5">
+            <span
+              className={`text-[10px] font-medium tracking-[0.22em] uppercase ${
+                isDark ? "text-emerald-300/80" : "text-emerald-600"
+              }`}
+            >
+              Today
+            </span>
+            <h2 className="text-[20px] sm:text-[22px] tracking-[-0.01em] font-medium">
+              {todayLabel}
+            </h2>
+          </div>
         </div>
         <Link
           href="/calendar"
@@ -83,13 +91,23 @@ export function TodayAgenda() {
               <li key={m.id}>
                 <Wrapper>
                   <div
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
-                      isDark ? "hover:bg-white/[0.04]" : "hover:bg-black/[0.03]"
+                    className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
+                      m.isLive
+                        ? isDark
+                          ? "bg-rose-500/[0.07] ring-1 ring-rose-400/20"
+                          : "bg-rose-50 ring-1 ring-rose-200"
+                        : isDark
+                          ? "hover:bg-white/[0.04]"
+                          : "hover:bg-black/[0.03]"
                     }`}
                   >
                     <span
-                      className={`font-data tabular-nums text-[12px] w-14 shrink-0 ${
-                        isDark ? "text-white/45" : "text-black/45"
+                      className={`inline-flex items-center justify-center h-8 w-16 shrink-0 rounded-lg font-data tabular-nums text-[11.5px] font-semibold ${
+                        m.isLive
+                          ? "bg-rose-500 text-white"
+                          : isDark
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : "bg-emerald-50 text-emerald-700"
                       }`}
                     >
                       {formatTime(m.meeting_date)}
@@ -105,9 +123,10 @@ export function TodayAgenda() {
                       </p>
                     </div>
                     {m.isLive && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-500">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" />
                         LIVE
+                        <Mic className="h-2.5 w-2.5" />
                       </span>
                     )}
                     {m.joinUrl && !m.isLive && (
@@ -116,23 +135,14 @@ export function TodayAgenda() {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium ${
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium transition-colors ${
                           isDark
-                            ? "bg-white/[0.06] text-white/75 hover:bg-white/[0.1]"
-                            : "bg-black/[0.05] text-black/75 hover:bg-black/[0.08]"
+                            ? "bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
+                            : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                         }`}
                       >
                         Join <ExternalLink className="h-2.5 w-2.5" />
                       </a>
-                    )}
-                    {m.isLive && href && (
-                      <span
-                        className={`inline-flex items-center gap-1 text-[10.5px] font-medium ${
-                          isDark ? "text-white/55" : "text-black/55"
-                        }`}
-                      >
-                        <Mic className="h-3 w-3" />
-                      </span>
                     )}
                   </div>
                 </Wrapper>

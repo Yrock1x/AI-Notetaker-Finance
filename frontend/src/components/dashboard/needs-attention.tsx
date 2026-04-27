@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { AlertCircle, CalendarClock, Video } from "lucide-react";
+import { CalendarClock, Video } from "lucide-react";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
-import { Eyebrow } from "@/components/cogniscribe/primitives";
 import { useUpcomingUnassigned } from "@/hooks/use-upcoming-unassigned";
 import { useStaleDeals } from "@/hooks/use-stale-deals";
 import { AssignMeetingDialog } from "@/components/meetings/assign-meeting-dialog";
@@ -36,6 +35,7 @@ export function NeedsAttention() {
 
   const isLoading = unassignedLoading || staleLoading;
   const hasNothing = !isLoading && unassigned.length === 0 && staleDeals.length === 0;
+  const totalCount = unassigned.length + staleDeals.length;
 
   return (
     <section
@@ -45,21 +45,47 @@ export function NeedsAttention() {
           : "bg-white border-black/[0.06]"
       }`}
     >
-      <div className="flex items-center gap-2 mb-5">
-        <AlertCircle className={`h-4 w-4 ${isDark ? "text-white/60" : "text-black/60"}`} />
-        <Eyebrow>Needs attention</Eyebrow>
+      <div className="flex items-center gap-3 mb-5">
+        <span className="inline-block h-5 w-1 rounded-full bg-gradient-to-b from-amber-400 to-amber-600" />
+        <span
+          className={`text-[10px] font-medium tracking-[0.22em] uppercase ${
+            isDark ? "text-amber-300/80" : "text-amber-600"
+          }`}
+        >
+          Needs attention
+        </span>
+        {totalCount > 0 && (
+          <span
+            className={`ml-auto inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full text-[10.5px] font-semibold tabular-nums ${
+              isDark
+                ? "bg-amber-500/15 text-amber-300"
+                : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            {totalCount}
+          </span>
+        )}
       </div>
 
       {hasNothing && (
-        <p className={`text-sm ${isDark ? "text-white/40" : "text-black/40"}`}>
-          You&apos;re all clear — no unassigned meetings, no stale deals.
-        </p>
+        <div className="flex flex-col items-center justify-center py-6 text-center">
+          <div
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-full mb-3 ${
+              isDark ? "bg-emerald-500/10 text-emerald-300" : "bg-emerald-50 text-emerald-600"
+            }`}
+          >
+            ✓
+          </div>
+          <p className={`text-sm ${isDark ? "text-white/55" : "text-black/55"}`}>
+            You&apos;re all clear — no unassigned meetings, no stale deals.
+          </p>
+        </div>
       )}
 
       {unassigned.length > 0 && (
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2">
-            <CalendarClock className={`h-3.5 w-3.5 ${isDark ? "text-white/55" : "text-black/55"}`} />
+            <CalendarClock className={`h-3.5 w-3.5 ${isDark ? "text-indigo-300" : "text-indigo-600"}`} />
             <h3 className={`text-[12.5px] font-semibold ${isDark ? "text-white/85" : "text-black/85"}`}>
               {unassigned.length} unassigned {unassigned.length === 1 ? "meeting" : "meetings"}
             </h3>
@@ -70,8 +96,10 @@ export function NeedsAttention() {
                 <button
                   type="button"
                   onClick={() => setActive(m)}
-                  className={`w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
-                    isDark ? "hover:bg-white/[0.04]" : "hover:bg-black/[0.03]"
+                  className={`w-full text-left flex items-center gap-3 rounded-xl px-3 py-2 transition-colors border ${
+                    isDark
+                      ? "border-transparent hover:border-indigo-400/20 hover:bg-indigo-500/[0.05]"
+                      : "border-transparent hover:border-indigo-200 hover:bg-indigo-50/40"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -90,7 +118,7 @@ export function NeedsAttention() {
                   </span>
                   <span
                     className={`text-[11px] font-medium ${
-                      isDark ? "text-white/65" : "text-black/65"
+                      isDark ? "text-indigo-300" : "text-indigo-600"
                     }`}
                   >
                     Assign →
@@ -124,8 +152,10 @@ export function NeedsAttention() {
               <li key={deal.id}>
                 <Link
                   href={`/deals/${deal.id}`}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
-                    isDark ? "hover:bg-white/[0.04]" : "hover:bg-black/[0.03]"
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2 transition-colors border ${
+                    isDark
+                      ? "border-transparent hover:border-amber-400/20 hover:bg-amber-500/[0.05]"
+                      : "border-transparent hover:border-amber-200 hover:bg-amber-50/40"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -137,7 +167,9 @@ export function NeedsAttention() {
                     )}
                   </div>
                   <span
-                    className={`text-[11px] tabular-nums ${isDark ? "text-white/55" : "text-black/55"}`}
+                    className={`text-[11px] tabular-nums font-medium ${
+                      isDark ? "text-amber-300" : "text-amber-600"
+                    }`}
                   >
                     {daysSince === null ? "no meetings" : `${daysSince}d ago`}
                   </span>
