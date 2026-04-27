@@ -18,7 +18,11 @@ interface LiveBannerProps {
   dealId: string;
 }
 
-const ACTIVE_STATUSES = new Set(["scheduled", "joining", "recording"]);
+// "Live" = bot is actually capturing audio. Scheduled means the bot
+// hasn't joined yet, and joining is a short-lived transition with no
+// transcript content yet — neither belongs on the banner. Anything else
+// (completed / failed / cancelled) is also not live.
+const LIVE_STATUSES = new Set(["recording"]);
 
 function formatElapsed(startedAt: string | null | undefined): string {
   if (!startedAt) return "00:00";
@@ -36,22 +40,27 @@ function formatElapsed(startedAt: string | null | undefined): string {
 
 export function LiveBanner({ dealId }: LiveBannerProps) {
   const { data: sessions } = useBotSessions({ deal_id: dealId });
-  const live = (sessions ?? []).find((s) => ACTIVE_STATUSES.has(s.status));
+  const live = (sessions ?? []).find((s) => LIVE_STATUSES.has(s.status));
   if (!live || !live.meeting_id) return null;
-  return <LiveBannerInner dealId={dealId} sessionId={live.id} meetingId={live.meeting_id} startedAt={live.actual_start ?? live.scheduled_start ?? null} status={live.status} />;
+  return (
+    <LiveBannerInner
+      dealId={dealId}
+      sessionId={live.id}
+      meetingId={live.meeting_id}
+      startedAt={live.actual_start ?? live.scheduled_start ?? null}
+    />
+  );
 }
 
 function LiveBannerInner({
   dealId,
   meetingId,
   startedAt,
-  status,
 }: {
   dealId: string;
   sessionId: string;
   meetingId: string;
   startedAt: string | null;
-  status: string;
 }) {
   const { data: meeting } = useMeeting(dealId, meetingId);
   const { segments, isConnected } = useLiveTranscript(meetingId);
@@ -68,8 +77,6 @@ function LiveBannerInner({
   // newest actively-typed line.
   const recent = segments.slice(-3);
   const last = recent[recent.length - 1];
-
-  const isRecording = status === "recording";
 
   return (
     <div
@@ -89,7 +96,7 @@ function LiveBannerInner({
             }}
           >
             <LiveDot />
-            {isRecording ? "Recording" : "Joining"}
+            Recording
           </span>
           <span
             className="text-[14px] font-semibold truncate max-w-[40ch]"
