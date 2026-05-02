@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     app_name: str = "CogniSuite"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
+    # Regex applied to the Origin header in addition to ``cors_origins``.
+    # Lets us cover Vercel preview deployments (each push gets a unique URL
+    # like ``https://app-git-feature-team.vercel.app``) without enumerating
+    # every one. Empty = no regex matching, only the explicit list applies.
+    cors_origin_regex: str = ""
 
     # Supabase
     supabase_url: str = ""

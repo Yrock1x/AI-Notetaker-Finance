@@ -59,6 +59,10 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        # Pattern-based allow for environments where the Origin isn't known
+        # at deploy time (Vercel preview URLs, branch deployments). If unset
+        # the regex is None and only the explicit list applies.
+        allow_origin_regex=settings.cors_origin_regex or None,
         allow_credentials=True,
         # Narrow to the verbs + headers the frontend actually sends. Wildcards
         # work but expose every future route to every method, which makes
