@@ -199,14 +199,22 @@ function ChatContent() {
         message = e.message ?? "";
       }
       // Surface enough to diagnose: HTTP status + server detail when present,
-      // otherwise fall back to the axios error code/message (network errors,
-      // CORS, missing NEXT_PUBLIC_API_URL all land here).
-      const text = detail
-        ? `${status ? `[${status}] ` : ""}${detail}`
-        : status
-          ? `Request failed with HTTP ${status}.`
-          : code === "ERR_NETWORK"
-            ? "Couldn't reach the worker. Check NEXT_PUBLIC_API_URL and that the worker is up."
+      // otherwise fall back to the axios error code/message. Treat Railway
+      // edge failures (502/503/504) the same as ERR_NETWORK — the user-facing
+      // root cause is identical (worker not responding), and the diagnostic
+      // pointer to NEXT_PUBLIC_API_URL is more useful than a bare HTTP code.
+      const workerDown =
+        code === "ERR_NETWORK" ||
+        code === "ECONNABORTED" ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
+      const text = workerDown
+        ? "Couldn't reach the worker. Check NEXT_PUBLIC_API_URL and that the worker is up."
+        : detail
+          ? `${status ? `[${status}] ` : ""}${detail}`
+          : status
+            ? `Request failed with HTTP ${status}.`
             : message || "Sorry, an error occurred while processing your question.";
       setMessages((prev) =>
         prev.map((m) =>
