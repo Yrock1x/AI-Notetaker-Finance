@@ -53,13 +53,13 @@ class FireworksProvider(LLMProvider):
     """Chat-completion provider backed by Fireworks-hosted OSS models.
 
     ``model`` is the full Fireworks model slug, e.g.
-    ``accounts/fireworks/models/llama-v3p3-70b-instruct``.
+    ``accounts/fireworks/models/glm-5p1``.
     """
 
     def __init__(
         self,
         api_key: str,
-        model: str = "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        model: str = "accounts/fireworks/models/glm-5p1",
         timeout: float = 60.0,
     ) -> None:
         self.api_key = api_key

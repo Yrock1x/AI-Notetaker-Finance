@@ -23,7 +23,17 @@ from app.dependencies import (
 )
 from app.schemas.common import PaginatedResponse
 from app.schemas.qa import QAHistoryResponse, QARequest, QAResponse
-from app.services.qa_service import QAService
+from app.services.qa_service import Citation as ServiceCitation, QAService
+
+
+def _to_response_citation(c: ServiceCitation) -> dict:
+    meta = c.metadata or {}
+    return {
+        "source_type": c.source_type,
+        "source_id": c.source_id,
+        "text_excerpt": c.text,
+        "timestamp": meta.get("start_time"),
+    }
 
 router = APIRouter()
 meeting_qa_router = APIRouter()
@@ -130,7 +140,7 @@ async def ask_question(
         deal_id=deal_id,
         question=payload.question,
         answer=result.answer,
-        citations=citations,
+        citations=[_to_response_citation(c) for c in result.citations],
         grounding_score=result.grounding_score,
         model_used=interaction.get("model_used", "llm-router"),
         created_at=interaction["created_at"],
@@ -195,7 +205,7 @@ async def ask_meeting_question(
         deal_id=deal_id,
         question=payload.question,
         answer=result.answer,
-        citations=citations,
+        citations=[_to_response_citation(c) for c in result.citations],
         grounding_score=result.grounding_score,
         model_used=interaction.get("model_used", "llm-router"),
         created_at=interaction["created_at"],

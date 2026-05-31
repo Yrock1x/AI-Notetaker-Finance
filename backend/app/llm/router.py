@@ -3,11 +3,11 @@
 Every LLM call in the app goes through ``LLMRouter.complete(task_type, ...)``.
 The router picks a model based on a task → model table:
 
-    summarization  → fireworks/...llama-v3p3-70b-instruct   (cheap, default)
-    action_items   → fireworks/...llama-v3p3-70b-instruct
-    qa_rag         → fireworks/...deepseek-v3                (stronger reasoning)
-    ic_memo        → fireworks/...deepseek-v3
-    general        → fireworks/...llama-v3p3-70b-instruct
+    summarization  → fireworks/...glm-5p1                    (cheap, default)
+    action_items   → fireworks/...glm-5p1
+    qa_rag         → fireworks/...deepseek-v4-pro             (stronger reasoning)
+    ic_memo        → fireworks/...deepseek-v4-pro
+    general        → fireworks/...glm-5p1
 
 Each row can be overridden at runtime with an env var, e.g.
 ``LLM_MODEL_FOR_IC_MEMO=anthropic:claude-sonnet-4-6``.
@@ -34,16 +34,16 @@ TASK_EMBEDDING = "embedding"
 
 # Defaults. Format: "<provider>:<model>" where provider is "fireworks" or
 # "anthropic". Everything is Fireworks by default.
-_FIREWORKS_LLAMA = "fireworks:accounts/fireworks/models/llama-v3p3-70b-instruct"
-_FIREWORKS_DEEPSEEK = "fireworks:accounts/fireworks/models/deepseek-v3p1"
+_FIREWORKS_GLM = "fireworks:accounts/fireworks/models/glm-5p1"
+_FIREWORKS_DEEPSEEK = "fireworks:accounts/fireworks/models/deepseek-v4-pro"
 _FIREWORKS_NOMIC = "fireworks:nomic-ai/nomic-embed-text-v1.5"
 
 _DEFAULT_TASK_MODEL_MAP: dict[str, str] = {
-    TASK_SUMMARIZATION: _FIREWORKS_LLAMA,
-    TASK_ACTION_ITEMS: _FIREWORKS_LLAMA,
+    TASK_SUMMARIZATION: _FIREWORKS_GLM,
+    TASK_ACTION_ITEMS: _FIREWORKS_GLM,
     TASK_QA_RAG: _FIREWORKS_DEEPSEEK,
     TASK_IC_MEMO: _FIREWORKS_DEEPSEEK,
-    TASK_GENERAL: _FIREWORKS_LLAMA,
+    TASK_GENERAL: _FIREWORKS_GLM,
     TASK_EMBEDDING: _FIREWORKS_NOMIC,
 }
 
