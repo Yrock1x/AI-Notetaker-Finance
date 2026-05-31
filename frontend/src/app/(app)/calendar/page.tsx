@@ -117,11 +117,33 @@ function meetingTimestamp(m: CalendarMeeting): number {
   return new Date(m.meeting_date || m.created_at).getTime();
 }
 
+// A call is treated as "live" only if it's actually happening right now.
+// Without a time-window guard, any meeting whose status got stuck at
+// "recording" (bot crashed, Recall never fired its done webhook, etc.)
+// would show up in the Live Now rail forever, even on days when the
+// calendar is empty.
+const LIVE_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+function isSessionLive(session: BotSession | undefined): boolean {
+  if (!session) return false;
+  if (session.status !== "recording") return false;
+  if (session.actual_end) return false;
+  const startStr = session.actual_start ?? session.scheduled_start;
+  if (!startStr) return false;
+  const startedAt = new Date(startStr).getTime();
+  if (Number.isNaN(startedAt)) return false;
+  return Date.now() - startedAt < LIVE_WINDOW_MS;
+}
+
 function classifyStatus(
   m: CalendarMeeting,
   session: BotSession | undefined,
 ): StatusFilter {
-  if (m.status === "recording" || session?.status === "recording") return "live";
+  if (isSessionLive(session)) return "live";
+  if (m.status === "recording") {
+    const startedAt = meetingTimestamp(m);
+    if (Date.now() - startedAt < LIVE_WINDOW_MS) return "live";
+  }
   const t = meetingTimestamp(m);
   if (t > Date.now()) return "upcoming";
   return "past";
