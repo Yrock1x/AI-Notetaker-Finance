@@ -1,17 +1,26 @@
-# Fly.io deployment config for the CogniSuite worker.
+# Fly.io deployment config for the CogniSuite worker (SQLite-backed).
 #
 # Bootstrap:
 #     cd backend
 #     fly launch --no-deploy --copy-config --name cognisuite-worker --region iad
-#     fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...  # etc.
+#     fly volumes create cogni_data --region iad --size 10   # the SQLite + files volume
+#     fly secrets set SESSION_JWT_SECRET=... STORAGE_SIGNING_KEY=... \
+#         FIREWORKS_API_KEY=... DEEPGRAM_API_KEY=... RECALL_API_KEY=... \
+#         RECALL_WEBHOOK_SECRET=... TOKEN_ENCRYPTION_KEY=... WORKER_INTERNAL_TOKEN=... \
+#         INNGEST_EVENT_KEY=... INNGEST_SIGNING_KEY=... \
+#         GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+#         MICROSOFT_CLIENT_ID=... MICROSOFT_CLIENT_SECRET=... \
+#         LITESTREAM_REPLICA_URL=s3://<bucket>/cogni/app.db \
+#         LITESTREAM_ACCESS_KEY_ID=... LITESTREAM_SECRET_ACCESS_KEY=...
+#     # one-time data import (needs the old Supabase creds present):
+#     fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
 #     fly deploy
+#     fly ssh console -C "/app/scripts/cutover.sh"
 #
-# Scale with:
-#     fly scale count 2           # horizontal
-#     fly scale vm shared-cpu-1x  # size
-#
-# All runtime secrets come from `fly secrets`. Do NOT put secret values
-# here — this file is committed.
+# SCALING: this app is SINGLE-INSTANCE by design — one machine owns the
+# SQLite file + the in-process realtime pub/sub. The single `cogni_data`
+# volume already prevents a second machine from mounting it. Do NOT
+# `fly scale count >1` without moving to distributed SQLite (Turso/LiteFS).
 
 app = "cognisuite-worker"
 primary_region = "iad"
@@ -23,11 +32,20 @@ primary_region = "iad"
   APP_ENV = "production"
   LOG_LEVEL = "INFO"
   PORT = "8000"
+  SQLITE_DB_PATH = "/data/app.db"
+  STORAGE_ROOT = "/data/storage"
+  SESSION_COOKIE_NAME = "cogni_session"
+
+# The SQLite DB + uploaded files live on this persistent volume.
+[mounts]
+  source = "cogni_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = true
+  # Never auto-stop: the machine owns the DB writer + holds SSE connections.
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
@@ -38,13 +56,14 @@ primary_region = "iad"
     hard_limit = 100
 
 [[http_service.checks]]
-  grace_period = "10s"
+  grace_period = "20s"
   interval = "30s"
   method = "GET"
   timeout = "5s"
   path = "/api/v1/health"
 
 [[vm]]
-  memory = "512mb"
+  # SQLite + local file storage + realtime in one process — give it headroom.
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1

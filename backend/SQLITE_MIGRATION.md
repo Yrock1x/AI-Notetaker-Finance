@@ -44,16 +44,32 @@ writer require it).
 
 ## Cutover procedure
 
-1. `cd backend && alembic upgrade head` against the volume DB (creates schema + vec0).
-2. Freeze writes on the Supabase app (maintenance window).
-3. `python -m app.db.migrate_from_supabase` (copies all tables, embeddings→vec0,
-   and storage buckets→`/data/storage`). Re-runnable on failure.
-4. Verify: row counts per table, a sample `POST /partner/v1/deals/{id}/search`,
-   and a spot login (`/api/v1/auth/login/google`).
-5. Point the frontend at the worker (`NEXT_PUBLIC_API_URL`) and deploy; users
-   re-consent OAuth on first login (new cookie).
-6. Keep Supabase read-only for a rollback window. Add **Litestream** backups of
-   the SQLite file to object storage before taking real traffic.
+Most of this is now wired into the deploy (`fly.toml`, `Dockerfile`,
+`scripts/start.sh`, `litestream.yml`). The only manual steps are the ones that
+need your credentials/console.
+
+1. **Provision + secrets** (one-time):
+   ```
+   cd backend
+   fly volumes create cogni_data --region iad --size 10
+   fly secrets set SESSION_JWT_SECRET=... STORAGE_SIGNING_KEY=... \
+       LITESTREAM_REPLICA_URL=s3://<bucket>/cogni/app.db \
+       LITESTREAM_ACCESS_KEY_ID=... LITESTREAM_SECRET_ACCESS_KEY=... \
+       <plus the existing FIREWORKS/DEEPGRAM/RECALL/INNGEST/OAuth/TOKEN_ENCRYPTION_KEY/WORKER_INTERNAL_TOKEN secrets>
+   fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...   # for the one-time import
+   ```
+2. **Deploy** → `fly deploy`. On boot, `start.sh` restores-from-backup-if-needed,
+   runs `alembic upgrade head` (creates schema + vec0 on the volume), and starts a
+   single worker under Litestream (continuous backup ON).
+3. **Freeze writes** on the Supabase app (maintenance window).
+4. **Import data** → `fly ssh console -C "/app/scripts/cutover.sh"` (copies all
+   tables, embeddings→vec0, storage buckets→`/data/storage`; re-runnable).
+5. **Verify** → per-table row counts (logged), a `POST /partner/v1/deals/{id}/search`,
+   and `GET /api/v1/auth/login/google`.
+6. **Flip the frontend** → set Vercel `NEXT_PUBLIC_API_URL` to the worker and
+   redeploy; users re-consent OAuth on first login (new cookie).
+7. **Rollback window** → keep Supabase read-only for a while. Backups are already
+   running via Litestream (step 2).
 
 ## WS8 service-layer cutover — DONE
 

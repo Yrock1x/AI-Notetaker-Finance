@@ -1,0 +1,17 @@
+# Litestream — continuous replication of the SQLite DB to object storage.
+# Env vars are expanded at runtime (set them via `fly secrets`):
+#   SQLITE_DB_PATH        e.g. /data/app.db   (set in fly.toml [env])
+#   LITESTREAM_REPLICA_URL  e.g. s3://my-bucket/cogni/app.db
+#   plus the replica's credentials, e.g. LITESTREAM_ACCESS_KEY_ID /
+#   LITESTREAM_SECRET_ACCESS_KEY (Litestream reads these automatically), or
+#   AWS_*/S3-compatible equivalents for R2/Backblaze/etc.
+#
+# If LITESTREAM_REPLICA_URL is unset, scripts/start.sh skips Litestream
+# entirely and runs uvicorn directly (fine for local/dev; NOT for prod).
+dbs:
+  - path: ${SQLITE_DB_PATH}
+    replicas:
+      - url: ${LITESTREAM_REPLICA_URL}
+        # Keep 24h of point-in-time restore granularity.
+        retention: 72h
+        snapshot-interval: 6h
