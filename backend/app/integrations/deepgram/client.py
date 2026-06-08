@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import structlog
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 from deepgram import AsyncDeepgramClient as DGClient
 
 from app.integrations.deepgram.config import DEEPGRAM_CONFIG
@@ -166,9 +163,3 @@ class DeepgramClient:
                 error=str(exc),
             )
             raise
-
-    async def transcribe_stream(
-        self, audio_stream, config: dict | None = None
-    ) -> AsyncIterator[dict]:
-        """Transcribe a live audio stream using Deepgram."""
-        raise NotImplementedError

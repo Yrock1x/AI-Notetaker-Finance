@@ -1,0 +1,96 @@
+"""Storage endpoints: signed upload tickets + signed PUT/GET of objects.
+
+Replaces Supabase Storage. The frontend asks for an upload ticket (scoped to a
+deal it can access), then PUTs the file straight at the signed URL. Downloads
+use the same signature scheme. The HMAC signature is the capability — the
+PUT/GET handlers need no principal because a valid signature already proves the
+caller was granted access when the URL was issued.
+"""
+
+from __future__ import annotations
+
+from pathlib import PurePosixPath
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy.orm import Session
+
+from app.api.v1.store._common import get_db, get_principal, scoped_deal_or_404
+from app.db.scope import Principal
+from app.schemas.common import BaseSchema
+from app.storage import local
+
+router = APIRouter()
+
+# Buckets the frontend is allowed to upload into directly. ``deliverables`` are
+# produced server-side, so they are not in this set.
+UPLOADABLE_BUCKETS = {"deal-documents", "meeting-recordings"}
+
+
+class UploadTicketRequest(BaseSchema):
+    bucket: str
+    deal_id: str
+    filename: str
+
+
+@router.post("/storage/upload-ticket")
+def create_upload_ticket(
+    payload: UploadTicketRequest,
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+) -> dict:
+    if payload.bucket not in local.BUCKETS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown bucket"
+        )
+    if payload.bucket not in UPLOADABLE_BUCKETS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploads not allowed for this bucket",
+        )
+    scoped_deal_or_404(session, principal, payload.deal_id)
+
+    ext = PurePosixPath(payload.filename).suffix
+    key = f"{payload.deal_id}/{uuid4()}{ext}"
+    return {
+        "bucket": payload.bucket,
+        "key": key,
+        "upload_url": local.make_signed_url(payload.bucket, key),
+        "method": "PUT",
+    }
+
+
+@router.put("/storage/{bucket}/{key:path}")
+async def put_object(
+    bucket: str,
+    key: str,
+    request: Request,
+    expires: int = Query(...),
+    sig: str = Query(...),
+) -> dict:
+    if not local.verify(bucket, key, expires, sig):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature"
+        )
+    data = await request.body()
+    local.save_bytes(bucket, key, data)
+    return {"ok": True, "key": key}
+
+
+@router.get("/storage/{bucket}/{key:path}")
+def get_object(
+    bucket: str,
+    key: str,
+    expires: int = Query(...),
+    sig: str = Query(...),
+) -> Response:
+    if not local.verify(bucket, key, expires, sig):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature"
+        )
+    if not local.exists(bucket, key):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return Response(
+        content=local.read_bytes(bucket, key),
+        media_type="application/octet-stream",
+    )

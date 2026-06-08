@@ -3,11 +3,22 @@
 Processes incoming Slack events (messages, interactions) and routes slash
 commands to the appropriate sub-handlers.  Message content is intentionally
 **not** logged to avoid leaking sensitive deal information.
+
+Slash-command sub-handlers query Supabase for live data when the handler
+is constructed with a service-role client + a resolved org_id (the caller
+is responsible for mapping the Slack team_id to a CogniSuite org via the
+``integration_credentials`` table). Without those, the handler returns an
+honest "not configured" message instead of fabricating empty data.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
+
+if TYPE_CHECKING:
+    from supabase import Client
 
 logger = structlog.get_logger(__name__)
 
@@ -19,9 +30,28 @@ HELP_TEXT = (
     "`/cognisuite meetings` - List recent meetings\n"
 )
 
+_NOT_CONFIGURED = (
+    "*Slack integration not finished*\n"
+    "Slash commands need a connected CogniSuite workspace. Ask an admin to "
+    "finish the Slack connection from the *Integrations* page in the app."
+)
+
+_PROCESSING_STATUSES = ("uploaded", "transcribing", "diarizing", "analyzing")
+
 
 class SlackEventHandler:
     """Handles incoming Slack events and slash commands."""
+
+    def __init__(
+        self,
+        supabase: "Client | None" = None,
+        org_id: str | None = None,
+    ) -> None:
+        # When both are supplied the slash-command sub-handlers run real
+        # Supabase queries (RLS bypassed via the service-role key the caller
+        # injected). When either is missing they return _NOT_CONFIGURED.
+        self._supabase = supabase
+        self._org_id = org_id
 
     # ------------------------------------------------------------------
     # Event handling
@@ -92,33 +122,83 @@ class SlackEventHandler:
         }
 
     async def _handle_status(self, args: str, payload: dict) -> dict:
-        """Return the current processing status.
+        """Return the current processing status."""
+        if not self._supabase or not self._org_id:
+            return {"response_type": "ephemeral", "text": _NOT_CONFIGURED}
 
-        In a full implementation this would query the database for active
-        processing jobs. For now it returns a placeholder.
-        """
-        return {
-            "response_type": "ephemeral",
-            "text": (
-                "*Processing Status*\n"
-                "No meetings are currently being processed.\n"
-                "Use `/cognisuite meetings` to see recent meetings."
-            ),
-        }
+        try:
+            rows = (
+                self._supabase.table("meetings")
+                .select("id, title, status")
+                .eq("org_id", self._org_id)
+                .in_("status", list(_PROCESSING_STATUSES))
+                .order("created_at", desc=True)
+                .limit(10)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            logger.exception("slack_status_query_failed")
+            return {
+                "response_type": "ephemeral",
+                "text": "Couldn't reach the meeting database. Try again shortly.",
+            }
+
+        if not rows:
+            return {
+                "response_type": "ephemeral",
+                "text": (
+                    "*Processing Status*\n"
+                    "No meetings are currently being processed.\n"
+                    "Use `/cognisuite meetings` to see recent meetings."
+                ),
+            }
+
+        lines = ["*Processing Status*"]
+        for r in rows:
+            title = r.get("title") or "Untitled meeting"
+            lines.append(f"• `{r['status']}` — {title}")
+        return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
     async def _handle_meetings(self, args: str, payload: dict) -> dict:
-        """Return a list of recent meetings.
+        """Return a list of recent meetings."""
+        if not self._supabase or not self._org_id:
+            return {"response_type": "ephemeral", "text": _NOT_CONFIGURED}
 
-        In a full implementation this would query the database for the
-        org's recent meetings. For now it returns a placeholder.
-        """
-        return {
-            "response_type": "ephemeral",
-            "text": (
-                "*Recent Meetings*\n"
-                "No meetings found. Upload a recording or schedule a bot to get started."
-            ),
-        }
+        try:
+            rows = (
+                self._supabase.table("meetings")
+                .select("id, title, status, meeting_date, created_at")
+                .eq("org_id", self._org_id)
+                .order("created_at", desc=True)
+                .limit(10)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            logger.exception("slack_meetings_query_failed")
+            return {
+                "response_type": "ephemeral",
+                "text": "Couldn't reach the meeting database. Try again shortly.",
+            }
+
+        if not rows:
+            return {
+                "response_type": "ephemeral",
+                "text": (
+                    "*Recent Meetings*\n"
+                    "No meetings found. Upload a recording or schedule a bot to get started."
+                ),
+            }
+
+        lines = ["*Recent Meetings*"]
+        for r in rows:
+            title = r.get("title") or "Untitled meeting"
+            when = r.get("meeting_date") or r.get("created_at") or ""
+            lines.append(f"• {title} — `{r.get('status', '?')}` ({when[:10]})")
+        return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
     # Map of subcommand names to handler methods
     _SUBCOMMAND_MAP: dict = {

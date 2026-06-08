@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from pydantic import ConfigDict
+
 from app.schemas.common import BaseSchema
 
 
@@ -13,6 +15,10 @@ class AnalysisRequest(BaseSchema):
 
 
 class AnalysisResponse(BaseSchema):
+    # Output model: the service returns a superset dict (incl. org_id); ignore
+    # extras rather than 422 on serialization.
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
     id: UUID
     meeting_id: UUID
     call_type: str

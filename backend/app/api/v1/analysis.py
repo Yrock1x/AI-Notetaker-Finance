@@ -1,7 +1,7 @@
-"""Analysis endpoints — list / run / re-run, Supabase-backed.
+"""Analysis endpoints — list / run / re-run, SQLite-backed.
 
-Access is enforced by Supabase RLS: ``analyses`` rows are visible only to
-members of the owning org. We don't do app-level RBAC checks here.
+Org scoping is enforced in app code (app/db/scope.py); the org for a write is
+derived from the meeting via ``meeting_org_id``.
 """
 
 from __future__ import annotations
@@ -9,14 +9,15 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from supabase import Client
+from sqlalchemy.orm import Session
 
 from app.core.rate_limit import limiter
+from app.db.deps import get_db, get_principal
+from app.db.scope import Principal, meeting_org_id
 from app.dependencies import (
     AuthUser,
     get_current_user,
     get_llm_router,
-    get_user_supabase,
 )
 from app.schemas.analysis import AnalysisRequest, AnalysisResponse
 from app.services.analysis_service import AnalysisService
@@ -28,29 +29,24 @@ router = APIRouter()
 ANALYSIS_RATE_LIMIT = "5/minute"
 
 
-def _meeting_org(supabase: Client, meeting_id: UUID) -> UUID:
-    rows = (
-        supabase.table("meetings")
-        .select("org_id")
-        .eq("id", str(meeting_id))
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not rows:
+def _require_meeting_org(session: Session, principal: Principal, meeting_id: UUID) -> UUID:
+    """Resolve the meeting's org and 404 unless the caller is a member."""
+    org_id = meeting_org_id(session, str(meeting_id))
+    if org_id is None or not principal.in_org(org_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found"
         )
-    return UUID(rows[0]["org_id"])
+    return UUID(org_id)
 
 
 @router.get("", response_model=list[AnalysisResponse])
 async def list_analyses(
     meeting_id: UUID,
-    supabase: Client = Depends(get_user_supabase),
-    _user: AuthUser = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> list[AnalysisResponse]:
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    _require_meeting_org(session, principal, meeting_id)
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     rows = await svc.list_analyses(meeting_id)
     return [AnalysisResponse.model_validate(r) for r in rows]
 
@@ -62,7 +58,8 @@ async def run_analysis(
     meeting_id: UUID,
     payload: AnalysisRequest,
     current_user: AuthUser = Depends(get_current_user),
-    supabase: Client = Depends(get_user_supabase),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
 ) -> AnalysisResponse:
     """Run an analysis synchronously and return the resulting row.
 
@@ -70,8 +67,8 @@ async def run_analysis(
     inline so the caller gets a finished analysis back. Inngest path is
     added by the frontend's ``meeting/uploaded`` event.
     """
-    org_id = _meeting_org(supabase, meeting_id)
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    org_id = _require_meeting_org(session, principal, meeting_id)
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     row = await svc.run_analysis(
         meeting_id=meeting_id,
         org_id=org_id,
@@ -84,10 +81,11 @@ async def run_analysis(
 @router.get("/latest", response_model=AnalysisResponse)
 async def get_latest_analysis(
     meeting_id: UUID,
-    supabase: Client = Depends(get_user_supabase),
-    _user: AuthUser = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    _require_meeting_org(session, principal, meeting_id)
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     rows = await svc.list_analyses(meeting_id)
     if not rows:
         raise HTTPException(status_code=404, detail="No analyses found")
@@ -98,10 +96,11 @@ async def get_latest_analysis(
 async def get_analysis(
     meeting_id: UUID,
     analysis_id: UUID,
-    supabase: Client = Depends(get_user_supabase),
-    _user: AuthUser = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    _require_meeting_org(session, principal, meeting_id)
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     try:
         row = await svc.get_analysis(analysis_id)
     except LookupError as exc:
@@ -115,10 +114,11 @@ async def get_analysis(
 async def rerun_analysis(
     meeting_id: UUID,
     analysis_id: UUID,
-    supabase: Client = Depends(get_user_supabase),
-    current_user: AuthUser = Depends(get_current_user),  # noqa: ARG001 - reserved
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> AnalysisResponse:
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    _require_meeting_org(session, principal, meeting_id)
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     try:
         row = await svc.rerun_analysis(analysis_id)
     except LookupError as exc:

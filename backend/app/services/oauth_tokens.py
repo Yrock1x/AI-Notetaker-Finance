@@ -1,5 +1,5 @@
 """Shared OAuth primitives: Fernet token encryption, signed state tokens, and
-credential storage against ``integration_credentials`` in Supabase.
+credential storage against ``integration_credentials`` (SQLite via SQLAlchemy).
 
 Platform-specific authorize-URL / code-exchange / refresh logic lives under
 ``app.integrations.<platform>.oauth``. This module is the common layer each
@@ -17,9 +17,11 @@ from uuid import UUID
 import structlog
 from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError, jwt
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.models import IntegrationCredential
 
 logger = structlog.get_logger(__name__)
 
@@ -109,7 +111,7 @@ def redirect_uri_for(platform: Platform) -> str:
 
 
 def save_credentials(
-    sb: Client,
+    session: Session,
     *,
     org_id: UUID,
     user_id: UUID,
@@ -119,84 +121,100 @@ def save_credentials(
     expires_in_seconds: int | None,
     scopes: str | None,
 ) -> None:
-    """Upsert an ``integration_credentials`` row. Expects the service-role
-    client — the row is keyed on (org_id, user_id, platform)."""
+    """Upsert an ``integration_credentials`` row keyed on
+    (org_id, user_id, platform). Does not commit — the caller's ``get_db``
+    dependency commits on success."""
     expires_at = (
         (datetime.now(UTC) + timedelta(seconds=int(expires_in_seconds))).isoformat()
         if expires_in_seconds
         else None
     )
-    row = {
-        "org_id": str(org_id),
-        "user_id": str(user_id),
-        "platform": platform,
-        "access_token_encrypted": encrypt_token(access_token),
-        "refresh_token_encrypted": (
-            encrypt_token(refresh_token) if refresh_token else None
-        ),
-        "token_expires_at": expires_at,
-        "scopes": scopes,
-        "is_active": True,
-    }
-    sb.table("integration_credentials").upsert(
-        row, on_conflict="org_id,user_id,platform"
-    ).execute()
+    access_encrypted = encrypt_token(access_token)
+    refresh_encrypted = encrypt_token(refresh_token) if refresh_token else None
+
+    existing = session.scalar(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.org_id == str(org_id))
+        .where(IntegrationCredential.user_id == str(user_id))
+        .where(IntegrationCredential.platform == platform)
+        .limit(1)
+    )
+    if existing is not None:
+        existing.access_token_encrypted = access_encrypted
+        existing.refresh_token_encrypted = refresh_encrypted
+        existing.token_expires_at = expires_at
+        existing.scopes = scopes
+        existing.is_active = True
+    else:
+        session.add(
+            IntegrationCredential(
+                org_id=str(org_id),
+                user_id=str(user_id),
+                platform=platform,
+                access_token_encrypted=access_encrypted,
+                refresh_token_encrypted=refresh_encrypted,
+                token_expires_at=expires_at,
+                scopes=scopes,
+                is_active=True,
+            )
+        )
+    session.flush()
     logger.info(
         "oauth_credentials_saved", platform=platform, user_id=str(user_id)
     )
 
 
 def deactivate_credentials(
-    sb: Client, *, org_id: UUID, user_id: UUID, platform: Platform
+    session: Session, *, org_id: UUID, user_id: UUID, platform: Platform
 ) -> None:
-    sb.table("integration_credentials").update({"is_active": False}).eq(
-        "org_id", str(org_id)
-    ).eq("user_id", str(user_id)).eq("platform", platform).execute()
+    rows = session.scalars(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.org_id == str(org_id))
+        .where(IntegrationCredential.user_id == str(user_id))
+        .where(IntegrationCredential.platform == platform)
+    ).all()
+    for row in rows:
+        row.is_active = False
+    session.flush()
 
 
-def list_user_integrations(sb: Client, *, user_id: UUID) -> list[dict]:
+def list_user_integrations(session: Session, *, user_id: UUID) -> list[dict]:
     """Return a JSON-serialisable list of the user's active integrations."""
-    resp = (
-        sb.table("integration_credentials")
-        .select("platform,is_active,scopes,created_at,token_expires_at")
-        .eq("user_id", str(user_id))
-        .eq("is_active", True)
-        .execute()
-    )
+    rows = session.scalars(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.user_id == str(user_id))
+        .where(IntegrationCredential.is_active.is_(True))
+    ).all()
     return [
         {
-            "platform": r["platform"],
-            "is_active": r["is_active"],
-            "scopes": r.get("scopes"),
-            "connected_at": r["created_at"],
-            "token_expires_at": r.get("token_expires_at"),
+            "platform": r.platform,
+            "is_active": r.is_active,
+            "scopes": r.scopes,
+            "connected_at": r.created_at,
+            "token_expires_at": r.token_expires_at,
         }
-        for r in (resp.data or [])
+        for r in rows
     ]
 
 
 async def get_valid_access_token(
-    sb: Client, *, org_id: UUID, user_id: UUID, platform: Platform
+    session: Session, *, org_id: UUID, user_id: UUID, platform: Platform
 ) -> str:
     """Fetch the user's access token, refreshing via the platform helper if
     the current one is within 60s of expiry."""
-    resp = (
-        sb.table("integration_credentials")
-        .select("*")
-        .eq("org_id", str(org_id))
-        .eq("user_id", str(user_id))
-        .eq("platform", platform)
-        .eq("is_active", True)
+    row = session.scalar(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.org_id == str(org_id))
+        .where(IntegrationCredential.user_id == str(user_id))
+        .where(IntegrationCredential.platform == platform)
+        .where(IntegrationCredential.is_active.is_(True))
         .limit(1)
-        .execute()
     )
-    rows = resp.data or []
-    if not rows:
+    if row is None:
         raise RuntimeError(f"No active {platform} credentials for user {user_id}")
-    row = rows[0]
 
-    access = decrypt_token(row["access_token_encrypted"])
-    expires_at_iso = row.get("token_expires_at")
+    access = decrypt_token(row.access_token_encrypted)
+    expires_at_iso = row.token_expires_at
     needs_refresh = False
     if expires_at_iso:
         expires_at = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
@@ -205,11 +223,11 @@ async def get_valid_access_token(
     if not needs_refresh:
         return access
 
-    if not row.get("refresh_token_encrypted"):
+    if not row.refresh_token_encrypted:
         raise RuntimeError(
             f"{platform} access token is expired and no refresh token is stored"
         )
-    refresh = decrypt_token(row["refresh_token_encrypted"])
+    refresh = decrypt_token(row.refresh_token_encrypted)
 
     # Dispatch to the platform helper.
     from app.integrations.google.oauth import refresh_google
@@ -226,7 +244,7 @@ async def get_valid_access_token(
         raise RuntimeError(f"No refresh flow implemented for platform={platform}")
 
     save_credentials(
-        sb,
+        session,
         org_id=org_id,
         user_id=user_id,
         platform=platform,
@@ -235,6 +253,6 @@ async def get_valid_access_token(
         # call — fall back to the existing one so we never wipe it.
         refresh_token=new_tokens.get("refresh_token") or refresh,
         expires_in_seconds=new_tokens.get("expires_in"),
-        scopes=new_tokens.get("scope") or row.get("scopes"),
+        scopes=new_tokens.get("scope") or row.scopes,
     )
     return new_tokens["access_token"]

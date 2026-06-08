@@ -83,9 +83,35 @@ def create_app() -> FastAPI:
     app.add_middleware(SlowAPIMiddleware)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    # Session middleware — used by Authlib to hold the OAuth state between
+    # /auth/login and /auth/callback. Secret reuses a configured signing key.
+    from starlette.middleware.sessions import SessionMiddleware
+
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=(
+            settings.session_jwt_secret
+            or settings.worker_internal_token
+            or "dev-only-session-secret"
+        ),
+        same_site="lax",
+        https_only=settings.is_production,
+    )
+
     register_exception_handlers(app)
+
+    # App-layer tenant-scope violations (store routers) → 403.
+    from app.api.v1.store._common import access_denied_handler
+    from app.db.scope import AccessDenied
+
+    app.add_exception_handler(AccessDenied, access_denied_handler)
 
     from app.api.v1.router import api_router
 
     app.include_router(api_router, prefix="/api/v1")
+
+    # CogniVault partner API (M2M, separate /partner/v1 namespace).
+    from app.api.v1.partner.router import router as partner_router
+
+    app.include_router(partner_router, tags=["Partner (CogniVault)"])
     return app

@@ -137,14 +137,32 @@ async def get_current_user(
     request: Request,
     authorization: str | None = Header(None),
 ) -> AuthUser:
-    if not authorization or not authorization.startswith("Bearer "):
+    """Resolve the caller from (in order): a Bearer token, then the session cookie.
+
+    A Bearer token is tried first as a self-issued session JWT, then as a Supabase
+    JWT (transition compatibility). The session cookie is our self-issued token.
+    """
+    from app.auth.tokens import verify_session_token
+
+    claims: dict | None = None
+    token: str | None = None
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        claims = verify_session_token(token)  # self-issued?
+        if claims is None:
+            claims = await _verify_supabase_jwt(token)  # else Supabase (transition)
+    else:
+        cookie = request.cookies.get(settings.session_cookie_name)
+        if cookie:
+            claims = verify_session_token(cookie)
+
+    if not claims:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
+            detail="Missing or invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = authorization.removeprefix("Bearer ").strip()
-    claims = await _verify_supabase_jwt(token)
 
     sub = claims.get("sub")
     if not sub:
@@ -152,8 +170,9 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing sub"
         )
 
-    # Stash the raw token so dependent clients can reuse it.
-    request.state.supabase_access_token = token
+    # Stash the raw token so dependent (Supabase) clients can reuse it.
+    if token:
+        request.state.supabase_access_token = token
     # Stash user_id so the rate limiter can key per-user (vs per-IP).
     request.state.user_id = sub
     return AuthUser(id=UUID(sub), email=claims.get("email"), raw_claims=claims)

@@ -19,15 +19,30 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.dependencies import get_llm_router, get_service_supabase
+from app.db.deps import get_db
+from app.db.models import (
+    Document,
+    Embedding,
+    GraphSubscription,
+    IntegrationCredential,
+    Meeting,
+    MeetingBotSession,
+    MeetingParticipant,
+    Transcript,
+    TranscriptSegment,
+)
+from app.db.vectors import delete_vectors, upsert_vector
+from app.dependencies import get_llm_router
 from app.integrations.deepgram.client import DeepgramClient
 from app.integrations.deepgram.processor import DiarizationProcessor
 from app.integrations.recall.client import RecallClient
 from app.llm.chunking import DocumentChunker, TranscriptChunker
 from app.services.analysis_service import AnalysisService
+from app.storage import local as storage
 from app.utils.file_processing import (
     extract_text_from_docx,
     extract_text_from_pdf,
@@ -63,9 +78,27 @@ def require_internal_token(
 MEETINGS_BUCKET = "meeting-recordings"
 DOCUMENTS_BUCKET = "deal-documents"
 
+# Map a meeting recording's file extension to a Deepgram-friendly mimetype.
+_EXT_MIMETYPES: dict[str, str] = {
+    "mp4": "audio/mp4",
+    "m4a": "audio/mp4",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "webm": "audio/webm",
+    "ogg": "audio/ogg",
+    "flac": "audio/flac",
+    "aac": "audio/aac",
+}
+
+
+def _mimetype_for_key(file_key: str) -> str:
+    """Pick an audio mimetype from a storage key's extension (default mp4)."""
+    ext = file_key.rsplit(".", 1)[-1].lower() if "." in file_key else ""
+    return _EXT_MIMETYPES.get(ext, "audio/mp4")
+
 
 def _dedupe_zoom_google_rows(
-    supabase: Client,
+    session: Session,
     org_id: Any,
     dates: list[str],
 ) -> None:
@@ -86,21 +119,18 @@ def _dedupe_zoom_google_rows(
     if not dates:
         return
     rows = (
-        supabase.table("meetings")
-        .select(
-            "id, external_provider, source, source_url, deal_id, bot_enabled, meeting_date"
-        )
-        .eq("org_id", str(org_id))
-        .in_("meeting_date", list(set(dates)))
-        .execute()
-        .data
-    ) or []
+        session.scalars(
+            select(Meeting)
+            .where(Meeting.org_id == str(org_id))
+            .where(Meeting.meeting_date.in_(list(set(dates))))
+        ).all()
+    )
 
     # Group by meeting_date — a Zoom meeting + its Google shadow share the
     # same start time down to the second, so that's a stable join key.
-    by_date: dict[str, list[dict]] = {}
+    by_date: dict[str, list[Meeting]] = {}
     for r in rows:
-        by_date.setdefault(r["meeting_date"], []).append(r)
+        by_date.setdefault(r.meeting_date, []).append(r)
 
     for date_rows in by_date.values():
         if len(date_rows) < 2:
@@ -115,52 +145,42 @@ def _dedupe_zoom_google_rows(
             (
                 r
                 for r in date_rows
-                if r.get("source") == "zoom"
-                and r.get("external_provider") == "zoom"
+                if r.source == "zoom" and r.external_provider == "zoom"
             ),
             None,
         )
         if not zoom_row:
             zoom_row = next(
-                (r for r in date_rows if r.get("source") == "zoom"),
+                (r for r in date_rows if r.source == "zoom"),
                 None,
             )
         if not zoom_row:
             continue
-        zoom_id = extract_zoom_meeting_id(zoom_row.get("source_url") or "")
+        zoom_id = extract_zoom_meeting_id(zoom_row.source_url or "")
 
         for other in date_rows:
-            if other["id"] == zoom_row["id"]:
+            if other.id == zoom_row.id:
                 continue
             # Two rows for the SAME provider at the same second — don't
             # merge; that would be destroying two real back-to-back
             # meetings (vanishingly rare but possible).
-            if other.get("external_provider") == zoom_row.get(
-                "external_provider"
-            ):
+            if other.external_provider == zoom_row.external_provider:
                 continue
             # Confirm the other row points at the same Zoom meeting
             # before deleting. If we can extract a meeting id from its
             # source_url and it doesn't match, leave both alone — they
             # really are different calls.
-            other_zoom_id = extract_zoom_meeting_id(
-                other.get("source_url") or ""
-            )
+            other_zoom_id = extract_zoom_meeting_id(other.source_url or "")
             if zoom_id and other_zoom_id and other_zoom_id != zoom_id:
                 continue
             # Merge user-set fields onto the surviving Zoom row.
-            patch: dict[str, Any] = {}
-            if not zoom_row.get("deal_id") and other.get("deal_id"):
-                patch["deal_id"] = other["deal_id"]
+            if not zoom_row.deal_id and other.deal_id:
+                zoom_row.deal_id = other.deal_id
             # bot_enabled: prefer an explicit off (user opt-out) over on.
-            if other.get("bot_enabled") is False:
-                patch["bot_enabled"] = False
-            if patch:
-                supabase.table("meetings").update(patch).eq(
-                    "id", zoom_row["id"]
-                ).execute()
-                zoom_row.update(patch)
-            supabase.table("meetings").delete().eq("id", other["id"]).execute()
+            if other.bot_enabled is False:
+                zoom_row.bot_enabled = False
+            session.delete(other)
+    session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -182,41 +202,34 @@ class TranscribeResponse(BaseModel):
 )
 async def transcribe_meeting(
     body: TranscribeRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> TranscribeResponse:
     """Call Deepgram on the meeting's uploaded audio file, write transcript +
     segments, return counts."""
-    meeting_rows = (
-        supabase.table("meetings")
-        .select("id, org_id, file_key, status")
-        .eq("id", body.meeting_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not meeting_rows:
+    meeting = session.get(Meeting, body.meeting_id)
+    if meeting is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    meeting = meeting_rows[0]
-    file_key = meeting.get("file_key")
+    file_key = meeting.file_key
     if not file_key:
         raise HTTPException(status_code=400, detail="Meeting has no file_key")
 
-    # Signed URL for Deepgram to pull the file. One hour is plenty.
-    signed = supabase.storage.from_(MEETINGS_BUCKET).create_signed_url(
-        file_key, expires_in=3600
-    )
-    audio_url = signed.get("signedURL") or signed.get("signed_url")
-    if not audio_url:
+    # Read the recording from local object storage and hand the bytes to
+    # Deepgram directly (no signed URL — the file lives on the worker disk).
+    try:
+        audio_bytes = storage.read_bytes(MEETINGS_BUCKET, file_key)
+    except FileNotFoundError as exc:
         raise HTTPException(
-            status_code=502, detail="Could not sign meeting storage URL"
-        )
+            status_code=404, detail="Meeting recording not found in storage"
+        ) from exc
 
     if not settings.deepgram_api_key:
         raise HTTPException(
             status_code=500, detail="DEEPGRAM_API_KEY is not configured"
         )
     dg = DeepgramClient(api_key=settings.deepgram_api_key)
-    deepgram_response = await dg.transcribe_file(audio_url)
+    deepgram_response = await dg.transcribe_bytes(
+        audio_bytes, mimetype=_mimetype_for_key(file_key)
+    )
 
     processor = DiarizationProcessor()
     segments = processor.process_response(deepgram_response)
@@ -233,50 +246,52 @@ async def transcribe_meeting(
             conf_sum += float(seg["confidence"])
             conf_n += 1
 
-    transcript_row = {
-        "org_id": meeting["org_id"],
-        "meeting_id": meeting["id"],
-        "full_text": " ".join(full_text_parts),
-        "language": "en",
-        "deepgram_response": deepgram_response,
-        "word_count": word_count,
-        "confidence_score": (conf_sum / conf_n) if conf_n else None,
-    }
-    transcript = (
-        supabase.table("transcripts")
-        .upsert(transcript_row, on_conflict="meeting_id")
-        .execute()
-        .data[0]
+    # Upsert the transcript row keyed on meeting_id.
+    transcript = session.scalar(
+        select(Transcript).where(Transcript.meeting_id == meeting.id)
     )
+    if transcript is None:
+        transcript = Transcript(org_id=meeting.org_id, meeting_id=meeting.id)
+        session.add(transcript)
+    transcript.full_text = " ".join(full_text_parts)
+    transcript.language = "en"
+    transcript.deepgram_response = deepgram_response
+    transcript.word_count = word_count
+    transcript.confidence_score = (conf_sum / conf_n) if conf_n else None
+    session.flush()
 
     # Insert segment rows. Delete any prior finalized segments first so a
     # re-run doesn't duplicate; live-streamed partials are untouched and
     # will be replaced by matching recall_segment_id upserts when the bot
     # finishes.
-    supabase.table("transcript_segments").delete().eq(
-        "meeting_id", meeting["id"]
-    ).eq("is_partial", False).execute()
+    existing_finalized = session.scalars(
+        select(TranscriptSegment)
+        .where(TranscriptSegment.meeting_id == meeting.id)
+        .where(TranscriptSegment.is_partial.is_(False))
+    ).all()
+    for old in existing_finalized:
+        session.delete(old)
+    session.flush()
 
-    if segments:
-        segment_rows = [
-            {
-                "transcript_id": transcript["id"],
-                "meeting_id": meeting["id"],
-                "speaker_label": seg.get("speaker_label") or "Speaker",
-                "speaker_name": seg.get("speaker_name"),
-                "text": seg.get("text", ""),
-                "start_time": float(seg.get("start_time") or 0),
-                "end_time": float(seg.get("end_time") or 0),
-                "confidence": seg.get("confidence"),
-                "segment_index": int(seg.get("segment_index") or i),
-                "is_partial": False,
-            }
-            for i, seg in enumerate(segments)
-        ]
-        supabase.table("transcript_segments").insert(segment_rows).execute()
+    for i, seg in enumerate(segments):
+        session.add(
+            TranscriptSegment(
+                transcript_id=transcript.id,
+                meeting_id=meeting.id,
+                speaker_label=seg.get("speaker_label") or "Speaker",
+                speaker_name=seg.get("speaker_name"),
+                text=seg.get("text", ""),
+                start_time=float(seg.get("start_time") or 0),
+                end_time=float(seg.get("end_time") or 0),
+                confidence=seg.get("confidence"),
+                segment_index=int(seg.get("segment_index") or i),
+                is_partial=False,
+            )
+        )
+    session.flush()
 
     return TranscribeResponse(
-        transcript_id=transcript["id"], segment_count=len(segments)
+        transcript_id=transcript.id, segment_count=len(segments)
     )
 
 
@@ -298,34 +313,36 @@ class EmbedResponse(BaseModel):
 )
 async def embed_meeting(
     body: EmbedRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> EmbedResponse:
     """Chunk the meeting's finalized transcript segments, embed with
     Fireworks, and upsert into the ``embeddings`` table."""
-    meeting_rows = (
-        supabase.table("meetings")
-        .select("id, org_id, deal_id")
-        .eq("id", body.meeting_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not meeting_rows:
+    meeting = session.get(Meeting, body.meeting_id)
+    if meeting is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    meeting = meeting_rows[0]
+    if not meeting.deal_id:
+        raise HTTPException(status_code=400, detail="Meeting has no deal_id")
 
-    segments = (
-        supabase.table("transcript_segments")
-        .select("id, speaker_label, speaker_name, text, start_time, end_time")
-        .eq("meeting_id", meeting["id"])
-        .eq("is_partial", False)
-        .order("start_time")
-        .execute()
-        .data
-        or []
-    )
-    if not segments:
+    seg_rows = session.scalars(
+        select(TranscriptSegment)
+        .where(TranscriptSegment.meeting_id == meeting.id)
+        .where(TranscriptSegment.is_partial.is_(False))
+        .order_by(TranscriptSegment.start_time)
+    ).all()
+    if not seg_rows:
         return EmbedResponse(count=0)
+
+    segments = [
+        {
+            "id": s.id,
+            "speaker_label": s.speaker_label,
+            "speaker_name": s.speaker_name,
+            "text": s.text,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+        }
+        for s in seg_rows
+    ]
 
     chunker = TranscriptChunker()
     chunks = chunker.chunk_segments(segments)
@@ -335,29 +352,38 @@ async def embed_meeting(
     llm = get_llm_router()
     vectors = await llm.embed_batch([c.text for c in chunks])
 
-    rows: list[dict[str, Any]] = []
-    for chunk, vec in zip(chunks, vectors, strict=False):
-        rows.append(
-            {
-                "org_id": meeting["org_id"],
-                "deal_id": meeting["deal_id"],
-                "source_type": "transcript_segment",
-                "source_id": chunk.source_id or meeting["id"],
-                "chunk_text": chunk.text,
-                "chunk_index": chunk.index,
-                "embedding": vec,
-                "metadata": chunk.metadata,
-            }
-        )
-
-    # Clear prior embeddings for this meeting's segments, then insert fresh.
+    # Clear prior embeddings for this meeting's segments (rows + vectors).
     segment_ids = [s["id"] for s in segments]
-    supabase.table("embeddings").delete().in_(
-        "source_id", segment_ids
-    ).eq("source_type", "transcript_segment").execute()
-    supabase.table("embeddings").insert(rows).execute()
+    prior = session.scalars(
+        select(Embedding)
+        .where(Embedding.source_type == "transcript_segment")
+        .where(Embedding.source_id.in_(segment_ids))
+    ).all()
+    if prior:
+        delete_vectors(session, [e.id for e in prior])
+        for e in prior:
+            session.delete(e)
+        session.flush()
 
-    return EmbedResponse(count=len(rows))
+    count = 0
+    for chunk, vec in zip(chunks, vectors, strict=False):
+        emb = Embedding(
+            org_id=meeting.org_id,
+            deal_id=meeting.deal_id,
+            source_type="transcript_segment",
+            source_id=chunk.source_id or meeting.id,
+            chunk_text=chunk.text,
+            chunk_index=chunk.index,
+            metadata_json=chunk.metadata,
+        )
+        session.add(emb)
+        session.flush()
+        upsert_vector(
+            session, embedding_id=emb.id, deal_id=meeting.deal_id, vector=vec
+        )
+        count += 1
+
+    return EmbedResponse(count=count)
 
 
 # ---------------------------------------------------------------------------
@@ -381,24 +407,16 @@ class AnalyzeResponse(BaseModel):
 )
 async def analyze_meeting(
     body: AnalyzeRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> AnalyzeResponse:
-    meeting_rows = (
-        supabase.table("meetings")
-        .select("id, org_id")
-        .eq("id", body.meeting_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not meeting_rows:
+    meeting = session.get(Meeting, body.meeting_id)
+    if meeting is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    meeting = meeting_rows[0]
 
-    svc = AnalysisService(supabase=supabase, llm_router=get_llm_router())
+    svc = AnalysisService(session=session, llm_router=get_llm_router())
     result = await svc.run_analysis(
-        meeting_id=uuid.UUID(meeting["id"]),
-        org_id=uuid.UUID(meeting["org_id"]),
+        meeting_id=uuid.UUID(meeting.id),
+        org_id=uuid.UUID(meeting.org_id),
         call_type=body.call_type,
         requested_by=uuid.UUID(body.requested_by) if body.requested_by else None,
     )
@@ -423,26 +441,22 @@ class ProcessDocumentResponse(BaseModel):
 )
 async def process_document(
     body: ProcessDocumentRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> ProcessDocumentResponse:
-    """Download a deal document from Supabase Storage, extract text, chunk,
-    embed, and upsert into ``embeddings``."""
-    doc_rows = (
-        supabase.table("documents")
-        .select("id, org_id, deal_id, file_key, document_type")
-        .eq("id", body.document_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not doc_rows:
+    """Read a deal document from local storage, extract text, chunk, embed,
+    and upsert into ``embeddings``."""
+    doc = session.get(Document, body.document_id)
+    if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    doc = doc_rows[0]
 
-    download = supabase.storage.from_(DOCUMENTS_BUCKET).download(doc["file_key"])
-    file_bytes = bytes(download)
+    try:
+        file_bytes = storage.read_bytes(DOCUMENTS_BUCKET, doc.file_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="Document not found in storage"
+        ) from exc
 
-    dtype = (doc.get("document_type") or "").lower()
+    dtype = (doc.document_type or "").lower()
     if dtype == "pdf":
         extracted = await extract_text_from_pdf(file_bytes)
     elif dtype in ("docx", "doc"):
@@ -456,43 +470,52 @@ async def process_document(
             extracted = ""
 
     if not extracted.strip():
-        supabase.table("documents").update({"extracted_text": ""}).eq(
-            "id", doc["id"]
-        ).execute()
+        doc.extracted_text = ""
+        session.flush()
         return ProcessDocumentResponse(embedding_count=0)
 
-    supabase.table("documents").update({"extracted_text": extracted}).eq(
-        "id", doc["id"]
-    ).execute()
+    doc.extracted_text = extracted
+    session.flush()
 
     chunker = DocumentChunker()
-    chunks = chunker.chunk_text(extracted, source_id=doc["id"])
+    chunks = chunker.chunk_text(extracted, source_id=doc.id)
     if not chunks:
         return ProcessDocumentResponse(embedding_count=0)
 
     llm = get_llm_router()
     vectors = await llm.embed_batch([c.text for c in chunks])
 
-    # Wipe any prior embeddings for this document first.
-    supabase.table("embeddings").delete().eq("source_type", "document_chunk").eq(
-        "source_id", doc["id"]
-    ).execute()
+    # Wipe any prior embeddings for this document first (rows + vectors).
+    prior = session.scalars(
+        select(Embedding)
+        .where(Embedding.source_type == "document_chunk")
+        .where(Embedding.source_id == doc.id)
+    ).all()
+    if prior:
+        delete_vectors(session, [e.id for e in prior])
+        for e in prior:
+            session.delete(e)
+        session.flush()
 
-    rows = [
-        {
-            "org_id": doc["org_id"],
-            "deal_id": doc["deal_id"],
-            "source_type": "document_chunk",
-            "source_id": doc["id"],
-            "chunk_text": c.text,
-            "chunk_index": c.index,
-            "embedding": v,
-            "metadata": c.metadata,
-        }
-        for c, v in zip(chunks, vectors, strict=False)
-    ]
-    supabase.table("embeddings").insert(rows).execute()
-    return ProcessDocumentResponse(embedding_count=len(rows))
+    count = 0
+    for c, v in zip(chunks, vectors, strict=False):
+        emb = Embedding(
+            org_id=doc.org_id,
+            deal_id=doc.deal_id,
+            source_type="document_chunk",
+            source_id=doc.id,
+            chunk_text=c.text,
+            chunk_index=c.index,
+            metadata_json=c.metadata,
+        )
+        session.add(emb)
+        session.flush()
+        upsert_vector(
+            session, embedding_id=emb.id, deal_id=doc.deal_id, vector=v
+        )
+        count += 1
+
+    return ProcessDocumentResponse(embedding_count=count)
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +538,7 @@ class BotResponse(BaseModel):
 )
 async def bot_start(
     body: BotRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> BotResponse:
     # Fail fast before touching the DB — if the Recall key is missing, the
     # call can never succeed and Inngest would otherwise keep retrying while
@@ -523,23 +546,15 @@ async def bot_start(
     if not settings.recall_api_key:
         raise HTTPException(status_code=500, detail="RECALL_API_KEY not configured")
 
-    sess_rows = (
-        supabase.table("meeting_bot_sessions")
-        .select("*")
-        .eq("id", body.session_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not sess_rows:
+    bot_session = session.get(MeetingBotSession, body.session_id)
+    if bot_session is None:
         raise HTTPException(status_code=404, detail="Bot session not found")
-    session = sess_rows[0]
 
     # Ensure a meetings row exists — without one, live-transcript writes have
     # nowhere to land and the Live panel can't subscribe. Leave status as
     # 'scheduled'; the Recall status webhook flips it to 'recording' only
     # once the bot is actually in-call.
-    meeting_id = session.get("meeting_id")
+    meeting_id = bot_session.meeting_id
     if not meeting_id:
         platform_source_map = {
             "zoom": "zoom",
@@ -558,31 +573,23 @@ async def bot_start(
         now = datetime.now(UTC)
         date_label = now.strftime("%b %-d, %-I:%M %p")
         fallback_title = (
-            f"{platform_label_map.get(session['platform'], 'Live meeting')}"
+            f"{platform_label_map.get(bot_session.platform, 'Live meeting')}"
             f" — {date_label}"
         )
-        new_meeting = (
-            supabase.table("meetings")
-            .insert(
-                {
-                    "org_id": session["org_id"],
-                    "deal_id": session["deal_id"],
-                    "title": fallback_title,
-                    "source": platform_source_map.get(
-                        session["platform"], "upload"
-                    ),
-                    "source_url": session["meeting_url"],
-                    "status": "scheduled",
-                    "created_by": session["created_by"],
-                }
-            )
-            .execute()
-            .data[0]
+        new_meeting = Meeting(
+            org_id=bot_session.org_id,
+            deal_id=bot_session.deal_id,
+            title=fallback_title,
+            source=platform_source_map.get(bot_session.platform, "upload"),
+            source_url=bot_session.meeting_url,
+            status="scheduled",
+            created_by=bot_session.created_by,
         )
-        meeting_id = new_meeting["id"]
-        supabase.table("meeting_bot_sessions").update(
-            {"meeting_id": meeting_id}
-        ).eq("id", session["id"]).execute()
+        session.add(new_meeting)
+        session.flush()
+        meeting_id = new_meeting.id
+        bot_session.meeting_id = meeting_id
+        session.flush()
 
     recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
 
@@ -604,7 +611,7 @@ async def bot_start(
 
     try:
         bot_data = await recall.create_bot(
-            meeting_url=session["meeting_url"],
+            meeting_url=bot_session.meeting_url,
             bot_name="CogniSuite Notetaker",
             recording_config={
                 "transcript": {"provider": {"deepgram_streaming": {}}},
@@ -626,9 +633,9 @@ async def bot_start(
                 ],
             },
             metadata={
-                "session_id": session["id"],
-                "org_id": session["org_id"],
-                "deal_id": session["deal_id"],
+                "session_id": bot_session.id,
+                "org_id": bot_session.org_id,
+                "deal_id": bot_session.deal_id,
                 "meeting_id": meeting_id,
             },
         )
@@ -636,35 +643,32 @@ async def bot_start(
         detail = exc.response.text[:500]
         logger.error(
             "recall_create_bot_failed session_id=%s status=%s body=%s",
-            session["id"],
+            bot_session.id,
             exc.response.status_code,
             detail,
         )
-        supabase.table("meeting_bot_sessions").update({"status": "failed"}).eq(
-            "id", session["id"]
-        ).execute()
+        bot_session.status = "failed"
+        # Persist the failed state now — get_db rolls back on the raise below,
+        # which would otherwise discard it and leave a half-populated session.
+        session.commit()
         raise HTTPException(
             status_code=502,
             detail=f"Recall.ai rejected bot create ({exc.response.status_code}): {detail}",
         ) from exc
     except Exception as exc:
-        logger.exception("recall_create_bot_error session_id=%s", session["id"])
-        supabase.table("meeting_bot_sessions").update({"status": "failed"}).eq(
-            "id", session["id"]
-        ).execute()
+        logger.exception("recall_create_bot_error session_id=%s", bot_session.id)
+        bot_session.status = "failed"
+        session.commit()
         raise HTTPException(status_code=502, detail=f"Recall.ai call failed: {exc}") from exc
 
     recall_bot_id = bot_data.get("id")
-    supabase.table("meeting_bot_sessions").update(
-        {
-            "status": "joining",
-            "recall_bot_id": recall_bot_id,
-            "live_transcript_channel": f"transcripts:{meeting_id}",
-        }
-    ).eq("id", session["id"]).execute()
+    bot_session.status = "joining"
+    bot_session.recall_bot_id = recall_bot_id
+    bot_session.live_transcript_channel = f"transcripts:{meeting_id}"
+    session.flush()
 
     return BotResponse(
-        session_id=session["id"], status="joining", recall_bot_id=recall_bot_id
+        session_id=bot_session.id, status="joining", recall_bot_id=recall_bot_id
     )
 
 
@@ -675,36 +679,31 @@ async def bot_start(
 )
 async def bot_stop(
     body: BotRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> BotResponse:
-    sess_rows = (
-        supabase.table("meeting_bot_sessions")
-        .select("*")
-        .eq("id", body.session_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not sess_rows:
+    bot_session = session.get(MeetingBotSession, body.session_id)
+    if bot_session is None:
         raise HTTPException(status_code=404, detail="Bot session not found")
-    session = sess_rows[0]
 
-    if settings.recall_api_key and session.get("recall_bot_id"):
+    if settings.recall_api_key and bot_session.recall_bot_id:
         try:
             recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
-            await recall.leave_bot(session["recall_bot_id"])
+            await recall.leave_bot(bot_session.recall_bot_id)
         except Exception:
-            logger.exception("recall_leave_failed bot_id=%s", session["recall_bot_id"])
+            logger.exception("recall_leave_failed bot_id=%s", bot_session.recall_bot_id)
 
-    new_status = "cancelled" if session["status"] in ("scheduled", "joining") else "completed"
-    supabase.table("meeting_bot_sessions").update({"status": new_status}).eq(
-        "id", session["id"]
-    ).execute()
+    new_status = (
+        "cancelled"
+        if bot_session.status in ("scheduled", "joining")
+        else "completed"
+    )
+    bot_session.status = new_status
+    session.flush()
 
     return BotResponse(
-        session_id=session["id"],
+        session_id=bot_session.id,
         status=new_status,
-        recall_bot_id=session.get("recall_bot_id"),
+        recall_bot_id=bot_session.recall_bot_id,
     )
 
 
@@ -734,7 +733,7 @@ _SOURCE_TO_PLATFORM: dict[str, str] = {
     dependencies=[Depends(require_internal_token)],
 )
 async def bot_auto_schedule_due(
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> AutoScheduleDueResponse:
     now = datetime.now(UTC)
     # Grace window at the front edge: cover meetings that started up to
@@ -744,64 +743,55 @@ async def bot_auto_schedule_due(
     window_start = now - timedelta(minutes=15)
     window_end = now + timedelta(minutes=10)
 
-    candidates = (
-        supabase.table("meetings")
-        .select("id, org_id, deal_id, source, source_url, meeting_date, created_by")
-        .eq("bot_enabled", True)
-        .eq("status", "uploading")
-        .not_.is_("deal_id", "null")
-        .not_.is_("source_url", "null")
-        .gte("meeting_date", window_start.isoformat())
-        .lte("meeting_date", window_end.isoformat())
-        .execute()
-        .data
-    ) or []
+    candidates = session.scalars(
+        select(Meeting)
+        .where(Meeting.bot_enabled.is_(True))
+        .where(Meeting.status == "uploading")
+        .where(Meeting.deal_id.is_not(None))
+        .where(Meeting.source_url.is_not(None))
+        .where(Meeting.meeting_date >= window_start.isoformat())
+        .where(Meeting.meeting_date <= window_end.isoformat())
+    ).all()
 
     scheduled: list[dict] = []
     for m in candidates:
-        platform = _SOURCE_TO_PLATFORM.get((m.get("source") or "").lower())
+        platform = _SOURCE_TO_PLATFORM.get((m.source or "").lower())
         if not platform:
             # Upload-only / unrecognised source — nothing to do.
             continue
 
         # Dedupe: skip if any live session already exists for this meeting.
         # Active statuses are the ones a cron rerun shouldn't clobber.
-        existing = (
-            supabase.table("meeting_bot_sessions")
-            .select("id")
-            .eq("meeting_id", m["id"])
-            .in_("status", ["scheduled", "joining", "recording", "completed"])
+        existing = session.scalar(
+            select(MeetingBotSession.id)
+            .where(MeetingBotSession.meeting_id == m.id)
+            .where(
+                MeetingBotSession.status.in_(
+                    ["scheduled", "joining", "recording", "completed"]
+                )
+            )
             .limit(1)
-            .execute()
-            .data
         )
         if existing:
             continue
 
-        session_row = (
-            supabase.table("meeting_bot_sessions")
-            .insert(
-                {
-                    "org_id": m["org_id"],
-                    "deal_id": m["deal_id"],
-                    "meeting_id": m["id"],
-                    "platform": platform,
-                    "meeting_url": m["source_url"],
-                    "status": "scheduled",
-                    "scheduled_start": m["meeting_date"],
-                    "created_by": m["created_by"],
-                }
-            )
-            .execute()
-            .data
+        session_row = MeetingBotSession(
+            org_id=m.org_id,
+            deal_id=m.deal_id,
+            meeting_id=m.id,
+            platform=platform,
+            meeting_url=m.source_url,
+            status="scheduled",
+            scheduled_start=m.meeting_date,
+            created_by=m.created_by,
         )
-        if not session_row:
-            continue
+        session.add(session_row)
+        session.flush()
         scheduled.append(
             {
-                "session_id": session_row[0]["id"],
-                "meeting_id": m["id"],
-                "deal_id": m["deal_id"],
+                "session_id": session_row.id,
+                "meeting_id": m.id,
+                "deal_id": m.deal_id,
             }
         )
 
@@ -836,24 +826,16 @@ class FinalizeBotResponse(BaseModel):
 )
 async def bot_finalize(
     body: FinalizeBotRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> FinalizeBotResponse:
-    sess_rows = (
-        supabase.table("meeting_bot_sessions")
-        .select("id, org_id, deal_id, meeting_id, recall_bot_id")
-        .eq("id", body.session_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not sess_rows:
+    bot_session = session.get(MeetingBotSession, body.session_id)
+    if bot_session is None:
         raise HTTPException(status_code=404, detail="Bot session not found")
-    session = sess_rows[0]
-    if not session.get("recall_bot_id"):
+    if not bot_session.recall_bot_id:
         raise HTTPException(status_code=400, detail="Session has no recall_bot_id")
-    if not session.get("meeting_id"):
+    if not bot_session.meeting_id:
         raise HTTPException(status_code=400, detail="Session has no meeting_id")
-    meeting_id = session["meeting_id"]
+    meeting_id = bot_session.meeting_id
 
     if not settings.recall_api_key:
         raise HTTPException(status_code=500, detail="RECALL_API_KEY not configured")
@@ -861,10 +843,10 @@ async def bot_finalize(
     recall = RecallClient(
         api_key=settings.recall_api_key, region=settings.recall_region
     )
-    bot = await recall.get_bot(session["recall_bot_id"])
+    bot = await recall.get_bot(bot_session.recall_bot_id)
     recordings = bot.get("recordings") or []
     if not recordings:
-        logger.warning("bot_finalize_no_recording session_id=%s", session["id"])
+        logger.warning("bot_finalize_no_recording session_id=%s", bot_session.id)
         return FinalizeBotResponse(
             meeting_id=meeting_id,
             transcript_id=None,
@@ -916,31 +898,35 @@ async def bot_finalize(
         )
 
     if segment_rows:
-        transcript = (
-            supabase.table("transcripts")
-            .upsert(
-                {
-                    "org_id": session["org_id"],
-                    "meeting_id": meeting_id,
-                    "full_text": " ".join(full_text_parts),
-                    "language": "en",
-                    "word_count": sum(len(p.split()) for p in full_text_parts),
-                },
-                on_conflict="meeting_id",
-            )
-            .execute()
-            .data[0]
+        transcript = session.scalar(
+            select(Transcript).where(Transcript.meeting_id == meeting_id)
         )
-        transcript_id = transcript["id"]
+        if transcript is None:
+            transcript = Transcript(
+                org_id=bot_session.org_id, meeting_id=meeting_id
+            )
+            session.add(transcript)
+        transcript.full_text = " ".join(full_text_parts)
+        transcript.language = "en"
+        transcript.word_count = sum(len(p.split()) for p in full_text_parts)
+        session.flush()
+        transcript_id = transcript.id
         # Drop any finalized segments written by a prior run, then insert fresh.
         # Live partials (is_partial=true) are left alone for the diff; they get
         # replaced by the upsert below when recall_segment_id matches.
-        supabase.table("transcript_segments").delete().eq(
-            "meeting_id", meeting_id
-        ).eq("is_partial", False).execute()
+        old_finalized = session.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.meeting_id == meeting_id)
+            .where(TranscriptSegment.is_partial.is_(False))
+        ).all()
+        for old in old_finalized:
+            session.delete(old)
+        session.flush()
         for row in segment_rows:
-            row["transcript_id"] = transcript_id
-        supabase.table("transcript_segments").insert(segment_rows).execute()
+            session.add(
+                TranscriptSegment(transcript_id=transcript_id, **row)
+            )
+        session.flush()
         segments_written = len(segment_rows)
 
     # --- Participants --------------------------------------------------------
@@ -963,15 +949,19 @@ async def bot_finalize(
     participant_count = 0
     if participants_by_id:
         # meeting_participants has a *partial* unique index on
-        # (meeting_id, recall_participant_id) which PostgREST can't pick up
-        # as an on_conflict target. Rebuild the recall-sourced rows instead
+        # (meeting_id, recall_participant_id). Rebuild the recall-sourced rows
         # — safe because /bot/finalize is the authoritative post-call pull.
-        supabase.table("meeting_participants").delete().eq(
-            "meeting_id", meeting_id
-        ).not_.is_("recall_participant_id", "null").execute()
-        supabase.table("meeting_participants").insert(
-            list(participants_by_id.values())
-        ).execute()
+        old_participants = session.scalars(
+            select(MeetingParticipant)
+            .where(MeetingParticipant.meeting_id == meeting_id)
+            .where(MeetingParticipant.recall_participant_id.is_not(None))
+        ).all()
+        for old in old_participants:
+            session.delete(old)
+        session.flush()
+        for prow in participants_by_id.values():
+            session.add(MeetingParticipant(**prow))
+        session.flush()
         participant_count = len(participants_by_id)
 
     # --- Meeting metadata (title) -------------------------------------------
@@ -988,32 +978,25 @@ async def bot_finalize(
             if real_title:
                 # Only overwrite auto-generated placeholders — never the user's
                 # chosen title. Placeholders all start with a known prefix.
-                current = (
-                    supabase.table("meetings")
-                    .select("title")
-                    .eq("id", meeting_id)
-                    .limit(1)
-                    .execute()
-                    .data
-                )
-                cur_title = (current[0].get("title") if current else "") or ""
-                if (
+                current_meeting = session.get(Meeting, meeting_id)
+                cur_title = (current_meeting.title if current_meeting else "") or ""
+                if current_meeting is not None and (
                     cur_title.startswith("Bot meeting — ")
                     or cur_title.startswith("Live meeting — ")
                     or cur_title.startswith("Zoom call — ")
                     or cur_title.startswith("Teams meeting — ")
                     or cur_title.startswith("Google Meet — ")
                 ):
-                    supabase.table("meetings").update({"title": real_title}).eq(
-                        "id", meeting_id
-                    ).execute()
+                    current_meeting.title = real_title
+                    session.flush()
         except Exception:
-            logger.exception("bot_finalize_meta_failed session_id=%s", session["id"])
+            logger.exception("bot_finalize_meta_failed session_id=%s", bot_session.id)
 
     # --- Flip meeting to 'uploaded' so downstream pipelines treat it as ready
-    supabase.table("meetings").update({"status": "uploaded"}).eq(
-        "id", meeting_id
-    ).execute()
+    meeting_row = session.get(Meeting, meeting_id)
+    if meeting_row is not None:
+        meeting_row.status = "uploaded"
+        session.flush()
 
     return FinalizeBotResponse(
         meeting_id=meeting_id,
@@ -1044,7 +1027,7 @@ class ZoomIngestResponse(BaseModel):
 )
 async def zoom_ingest(
     body: ZoomIngestRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> ZoomIngestResponse:
     """Handle a ``recording.completed`` Zoom webhook.
 
@@ -1053,7 +1036,7 @@ async def zoom_ingest(
          (match on ``external_provider='zoom'`` + ``external_event_id``).
       2. If none, create an unassigned ``meetings`` row so the user can
          associate it with a deal from the calendar page.
-      3. Download the recording into Supabase Storage using any active
+      3. Download the recording into local object storage using any active
          Zoom OAuth credential in the org (best-effort).
       4. Fire ``meeting/uploaded`` so the post-meeting pipeline runs.
     """
@@ -1062,78 +1045,61 @@ async def zoom_ingest(
     zoom_meeting_id = str(body.zoom_meeting_id)
 
     # 1) Attribution: find an existing meetings row for this external event.
-    match = (
-        supabase.table("meetings")
-        .select("id, org_id, deal_id")
-        .eq("external_provider", "zoom")
-        .eq("external_event_id", zoom_meeting_id)
+    match = session.scalar(
+        select(Meeting)
+        .where(Meeting.external_provider == "zoom")
+        .where(Meeting.external_event_id == zoom_meeting_id)
         .limit(1)
-        .execute()
-        .data
-        or []
     )
 
-    if match:
-        meeting = match[0]
-        meeting_id = meeting["id"]
-        org_id = meeting["org_id"]
-        deal_id = meeting.get("deal_id") or ""
+    if match is not None:
+        meeting = match
+        meeting_id = meeting.id
+        org_id = meeting.org_id
+        deal_id = meeting.deal_id or ""
     else:
         # Create an unassigned meeting. Pick any org with an active zoom
         # credential; if we can't find one, we have nothing to bind to.
-        cred_rows = (
-            supabase.table("integration_credentials")
-            .select("org_id, user_id")
-            .eq("platform", "zoom")
-            .eq("is_active", True)
+        cred = session.scalar(
+            select(IntegrationCredential)
+            .where(IntegrationCredential.platform == "zoom")
+            .where(IntegrationCredential.is_active.is_(True))
             .limit(1)
-            .execute()
-            .data
-            or []
         )
-        if not cred_rows:
+        if cred is None:
             logger.warning(
                 "zoom_ingest_no_credential zoom_meeting_id=%s", zoom_meeting_id
             )
             return ZoomIngestResponse(meeting_id=None, status="no_credential")
-        org_id = cred_rows[0]["org_id"]
-        created_by = cred_rows[0]["user_id"]
-        new_meeting = (
-            supabase.table("meetings")
-            .insert(
-                {
-                    "org_id": org_id,
-                    "deal_id": None,
-                    "title": body.topic or "Zoom recording",
-                    "source": "zoom",
-                    "external_provider": "zoom",
-                    "external_event_id": zoom_meeting_id,
-                    "status": "uploading",
-                    "created_by": created_by,
-                }
-            )
-            .execute()
-            .data[0]
+        org_id = cred.org_id
+        created_by = cred.user_id
+        new_meeting = Meeting(
+            org_id=org_id,
+            deal_id=None,
+            title=body.topic or "Zoom recording",
+            source="zoom",
+            external_provider="zoom",
+            external_event_id=zoom_meeting_id,
+            status="uploading",
+            created_by=created_by,
         )
-        meeting_id = new_meeting["id"]
+        session.add(new_meeting)
+        session.flush()
+        meeting_id = new_meeting.id
         deal_id = ""
 
     # 2) Look up any active zoom credential (prefer one in the matched org).
-    cred_rows = (
-        supabase.table("integration_credentials")
-        .select("access_token_encrypted")
-        .eq("platform", "zoom")
-        .eq("is_active", True)
-        .eq("org_id", org_id)
+    cred_for_org = session.scalar(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.platform == "zoom")
+        .where(IntegrationCredential.is_active.is_(True))
+        .where(IntegrationCredential.org_id == org_id)
         .limit(1)
-        .execute()
-        .data
-        or []
     )
     auth_header: dict[str, str] = {}
-    if cred_rows and cred_rows[0].get("access_token_encrypted"):
+    if cred_for_org and cred_for_org.access_token_encrypted:
         try:
-            zoom_access = decrypt_token(cred_rows[0]["access_token_encrypted"])
+            zoom_access = decrypt_token(cred_for_org.access_token_encrypted)
             auth_header = {"Authorization": f"Bearer {zoom_access}"}
         except Exception:
             logger.exception("zoom_ingest_decrypt_failed")
@@ -1155,18 +1121,15 @@ async def zoom_ingest(
         ) from exc
 
     file_key = f"zoom/{meeting_id}.mp4"
-    supabase.storage.from_(MEETINGS_BUCKET).upload(
-        file_key, file_bytes, {"content-type": "video/mp4", "upsert": "true"}
-    )
+    storage.save_bytes(MEETINGS_BUCKET, file_key, file_bytes)
 
     # 4) Flip status + fire the post-meeting pipeline.
-    supabase.table("meetings").update(
-        {
-            "file_key": file_key,
-            "status": "uploaded",
-            "source_url": body.download_url,
-        }
-    ).eq("id", meeting_id).execute()
+    meeting_to_update = session.get(Meeting, meeting_id)
+    if meeting_to_update is not None:
+        meeting_to_update.file_key = file_key
+        meeting_to_update.status = "uploaded"
+        meeting_to_update.source_url = body.download_url
+        session.flush()
 
     from app.integrations.inngest import send_event
 
@@ -1203,7 +1166,7 @@ class TeamsIngestResponse(BaseModel):
 )
 async def teams_ingest_call_record(
     body: TeamsIngestRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> TeamsIngestResponse:
     """Fetch a Teams call record via Graph API and log its structure.
 
@@ -1217,17 +1180,13 @@ async def teams_ingest_call_record(
     from app.services.oauth_tokens import get_valid_access_token
 
     # Accept both the new unified 'microsoft' platform and the legacy 'teams'.
-    cred_rows = (
-        supabase.table("integration_credentials")
-        .select("org_id, user_id, platform")
-        .in_("platform", ["microsoft", "teams"])
-        .eq("is_active", True)
+    cred = session.scalar(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.platform.in_(["microsoft", "teams"]))
+        .where(IntegrationCredential.is_active.is_(True))
         .limit(1)
-        .execute()
-        .data
-        or []
     )
-    if not cred_rows:
+    if cred is None:
         logger.warning(
             "teams_ingest_no_credential call_record_id=%s", body.call_record_id
         )
@@ -1238,13 +1197,17 @@ async def teams_ingest_call_record(
             handled=False,
         )
 
-    cred = cred_rows[0]
+    cred_org_id = cred.org_id
+    cred_user_id = cred.user_id
+    # Legacy rows may carry platform="teams"; the refresh dispatch only knows
+    # "microsoft" (one OAuth app backs Teams/Outlook/Calendar).
+    cred_platform = "microsoft" if cred.platform == "teams" else cred.platform
     try:
         access_token = await get_valid_access_token(
-            supabase,
-            org_id=UUID(cred["org_id"]),
-            user_id=UUID(cred["user_id"]),
-            platform=cred["platform"],  # type: ignore[arg-type]
+            session,
+            org_id=UUID(cred_org_id),
+            user_id=UUID(cred_user_id),
+            platform=cred_platform,  # type: ignore[arg-type]
         )
     except Exception:
         logger.exception("teams_ingest_token_resolve_failed")
@@ -1280,54 +1243,98 @@ async def teams_ingest_call_record(
     # time to the nearest upcoming event for the organizer (best-effort).
     sessions = record.get("sessions", []) or []
     start_times = [s.get("startDateTime") for s in sessions if s.get("startDateTime")]
-    meeting_row: dict | None = None
+    matched_meeting: Meeting | None = None
     if start_times:
         probe = start_times[0]
         # Find a 'microsoft' synced meeting in the same org within ±30 min.
-        candidate = (
-            supabase.table("meetings")
-            .select("id, deal_id")
-            .eq("org_id", cred["org_id"])
-            .eq("external_provider", "microsoft")
-            .gte("meeting_date", probe)
-            .lte("meeting_date", probe)  # best-effort exact match
+        matched_meeting = session.scalar(
+            select(Meeting)
+            .where(Meeting.org_id == cred_org_id)
+            .where(Meeting.external_provider == "microsoft")
+            .where(Meeting.meeting_date >= probe)
+            .where(Meeting.meeting_date <= probe)  # best-effort exact match
             .limit(1)
-            .execute()
-            .data
-            or []
         )
-        meeting_row = candidate[0] if candidate else None
 
-    if meeting_row is None:
-        inserted = (
-            supabase.table("meetings")
-            .insert(
-                {
-                    "org_id": cred["org_id"],
-                    "deal_id": None,
-                    "title": organizer and f"Teams call w/ {organizer}" or "Teams call",
-                    "source": "teams",
-                    "external_provider": "microsoft",
-                    "external_event_id": body.call_record_id,
-                    "status": "uploaded",
-                    "created_by": cred["user_id"],
-                }
-            )
-            .execute()
-            .data[0]
+    if matched_meeting is None:
+        new_meeting = Meeting(
+            org_id=cred_org_id,
+            deal_id=None,
+            title=organizer and f"Teams call w/ {organizer}" or "Teams call",
+            source="teams",
+            external_provider="microsoft",
+            external_event_id=body.call_record_id,
+            status="uploaded",
+            created_by=cred_user_id,
         )
-        meeting_id = inserted["id"]
+        session.add(new_meeting)
+        session.flush()
+        meeting_id = new_meeting.id
     else:
-        meeting_id = meeting_row["id"]
-        supabase.table("meetings").update({"status": "uploaded"}).eq(
-            "id", meeting_id
-        ).execute()
+        meeting_id = matched_meeting.id
+        matched_meeting.status = "uploaded"
+        session.flush()
+
+    # Persist participants. Graph returns either the legacy `participants`
+    # list or `participants_v2`; both shapes carry user.displayName and an
+    # identifying id we reuse as the upsert key on
+    # (meeting_id, recall_participant_id) so retries are idempotent.
+    persisted = 0
+    for p in participants:
+        identity = (p.get("user") or {}) if isinstance(p, dict) else {}
+        display_name = identity.get("displayName") or p.get("displayName") if isinstance(p, dict) else None
+        upn = (
+            identity.get("userPrincipalName")
+            or (p.get("userPrincipalName") if isinstance(p, dict) else None)
+        )
+        external_id = (
+            (p.get("id") if isinstance(p, dict) else None)
+            or identity.get("id")
+        )
+        if not external_id and not display_name:
+            continue
+        try:
+            existing_part = None
+            if external_id is not None:
+                existing_part = session.scalar(
+                    select(MeetingParticipant)
+                    .where(MeetingParticipant.meeting_id == meeting_id)
+                    .where(
+                        MeetingParticipant.recall_participant_id == str(external_id)
+                    )
+                    .limit(1)
+                )
+            speaker_label = display_name or upn or external_id or "Unknown"
+            if existing_part is not None:
+                existing_part.speaker_label = speaker_label
+                existing_part.speaker_name = display_name
+                existing_part.email_address = upn
+            else:
+                session.add(
+                    MeetingParticipant(
+                        meeting_id=meeting_id,
+                        speaker_label=speaker_label,
+                        speaker_name=display_name,
+                        email_address=upn,
+                        recall_participant_id=(
+                            str(external_id) if external_id is not None else None
+                        ),
+                    )
+                )
+            session.flush()
+            persisted += 1
+        except Exception:
+            logger.exception(
+                "teams_ingest_participant_persist_failed meeting_id=%s",
+                meeting_id,
+            )
 
     logger.info(
-        "teams_call_record_fetched call_record_id=%s organizer=%s participants=%d meeting_id=%s",
+        "teams_call_record_fetched call_record_id=%s organizer=%s participants=%d persisted=%d meeting_id=%s",
         body.call_record_id,
         organizer,
         len(participants),
+        persisted,
         meeting_id,
     )
     return TeamsIngestResponse(
@@ -1361,7 +1368,7 @@ class CalendarSyncResponse(BaseModel):
 )
 async def calendar_sync(
     body: CalendarSyncRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> CalendarSyncResponse:
     """Pull upcoming events from the user's connected calendar and upsert
     them into ``meetings`` keyed on (org_id, external_provider, external_event_id).
@@ -1373,7 +1380,7 @@ async def calendar_sync(
     from datetime import UTC, datetime, timedelta
     from uuid import UUID
 
-    from app.services.oauth_tokens import Platform, get_valid_access_token
+    from app.services.oauth_tokens import get_valid_access_token
 
     if body.platform not in {"zoom", "microsoft", "google"}:
         raise HTTPException(400, f"Unsupported platform {body.platform}")
@@ -1384,7 +1391,7 @@ async def calendar_sync(
     time_max = now + timedelta(days=body.lookahead_days)
 
     access_token = await get_valid_access_token(
-        supabase,
+        session,
         org_id=org_uuid,
         user_id=user_uuid,
         platform=body.platform,  # type: ignore[arg-type]
@@ -1498,37 +1505,30 @@ async def calendar_sync(
     upserted = 0
     # meetings has a PARTIAL unique index
     #   (org_id, external_provider, external_event_id) WHERE external_event_id
-    # IS NOT NULL — PostgREST can't target a partial index via on_conflict
-    # (returns 42P10), so we select-then-insert-or-update per row instead.
+    # IS NOT NULL — select-then-insert-or-update per row to honour it.
     for row in rows:
-        existing = (
-            supabase.table("meetings")
-            .select("id")
-            .eq("org_id", row["org_id"])
-            .eq("external_provider", row["external_provider"])
-            .eq("external_event_id", row["external_event_id"])
+        existing = session.scalar(
+            select(Meeting)
+            .where(Meeting.org_id == row["org_id"])
+            .where(Meeting.external_provider == row["external_provider"])
+            .where(Meeting.external_event_id == row["external_event_id"])
             .limit(1)
-            .execute()
-            .data
         )
-        if existing:
+        if existing is not None:
             # Preserve user-set state that the provider would otherwise
             # clobber on every re-sync:
             #   bot_enabled — user's on/off toggle
             #   deal_id     — user's assignment via AssignMeetingDialog
             # Everything else (title, meeting_date, source_url, status)
             # is safe to refresh from the provider.
-            patch = {
-                k: v
-                for k, v in row.items()
-                if k not in ("bot_enabled", "deal_id")
-            }
-            supabase.table("meetings").update(patch).eq(
-                "id", existing[0]["id"]
-            ).execute()
+            for k, v in row.items():
+                if k in ("bot_enabled", "deal_id"):
+                    continue
+                setattr(existing, k, v)
         else:
-            supabase.table("meetings").insert(row).execute()
+            session.add(Meeting(**row))
         upserted += 1
+    session.flush()
 
     # Dedupe pass. When a user has both Google Calendar sync and Zoom sync
     # active, the same Zoom meeting shows up as two rows: one from Zoom
@@ -1537,7 +1537,7 @@ async def calendar_sync(
     # authoritative join URL — and collapse any duplicate into it.
     #
     # We only look at the dates we just touched to keep the query bounded.
-    _dedupe_zoom_google_rows(supabase, org_uuid, [r["meeting_date"] for r in rows])
+    _dedupe_zoom_google_rows(session, org_uuid, [r["meeting_date"] for r in rows])
 
     logger.info(
         "calendar_sync_complete platform=%s user=%s events=%d upserted=%d",
@@ -1582,7 +1582,7 @@ class EnsureSubscriptionResponse(BaseModel):
 )
 async def ensure_microsoft_subscription(
     body: EnsureSubscriptionRequest,
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> EnsureSubscriptionResponse:
     """Idempotent — creates a subscription if none exists for this user/resource
     or renews one that's within 24h of expiring.
@@ -1603,22 +1603,18 @@ async def ensure_microsoft_subscription(
     renewal_threshold = now + timedelta(hours=24)
 
     access_token = await get_valid_access_token(
-        supabase,
+        session,
         org_id=org_uuid,
         user_id=user_uuid,
         platform="microsoft",
     )
 
-    existing = (
-        supabase.table("graph_subscriptions")
-        .select("*")
-        .eq("user_id", str(user_uuid))
-        .eq("resource", body.resource)
-        .eq("is_active", True)
+    existing = session.scalar(
+        select(GraphSubscription)
+        .where(GraphSubscription.user_id == str(user_uuid))
+        .where(GraphSubscription.resource == body.resource)
+        .where(GraphSubscription.is_active.is_(True))
         .limit(1)
-        .execute()
-        .data
-        or []
     )
 
     notification_url = (
@@ -1628,35 +1624,31 @@ async def ensure_microsoft_subscription(
 
     graph = GraphAPIClient()
 
-    if existing:
-        row = existing[0]
-        expiration_iso = row["expiration"]
+    if existing is not None:
+        expiration_iso = existing.expiration
         expiration_dt = datetime.fromisoformat(expiration_iso.replace("Z", "+00:00"))
         if expiration_dt > renewal_threshold:
             return EnsureSubscriptionResponse(
-                subscription_id=row["id"],
+                subscription_id=existing.id,
                 expiration=expiration_iso,
                 action="noop",
             )
         try:
             renewed = await graph.renew_subscription(
-                access_token, row["id"], expiration_minutes=4230
+                access_token, existing.id, expiration_minutes=4230
             )
-            supabase.table("graph_subscriptions").update(
-                {"expiration": renewed["expirationDateTime"]}
-            ).eq("id", row["id"]).execute()
+            existing.expiration = renewed["expirationDateTime"]
+            session.flush()
             return EnsureSubscriptionResponse(
-                subscription_id=row["id"],
+                subscription_id=existing.id,
                 expiration=renewed["expirationDateTime"],
                 action="renewed",
             )
         except Exception as exc:
-            logger.exception("graph_subscription_renew_failed id=%s", row["id"])
+            logger.exception("graph_subscription_renew_failed id=%s", existing.id)
             # Deactivate so the next run re-creates.
-            supabase.table("graph_subscriptions").update(
-                {"is_active": False}
-            ).eq("id", row["id"]).execute()
-            existing = []
+            existing.is_active = False
+            session.flush()
             del exc  # flow through to create
 
     created = await graph.subscribe_to_call_records(
@@ -1664,21 +1656,32 @@ async def ensure_microsoft_subscription(
         notification_url=notification_url,
         client_state=client_state,
     )
-    supabase.table("graph_subscriptions").upsert(
-        {
-            "id": created["id"],
-            "org_id": str(org_uuid),
-            "user_id": str(user_uuid),
-            "resource": body.resource,
-            "client_state": client_state,
-            "notification_url": notification_url,
-            "expiration": created["expirationDateTime"],
-            "is_active": True,
-        },
-        on_conflict="id",
-    ).execute()
+    created_id = created["id"]
+    sub = session.get(GraphSubscription, created_id)
+    if sub is not None:
+        sub.org_id = str(org_uuid)
+        sub.user_id = str(user_uuid)
+        sub.resource = body.resource
+        sub.client_state = client_state
+        sub.notification_url = notification_url
+        sub.expiration = created["expirationDateTime"]
+        sub.is_active = True
+    else:
+        session.add(
+            GraphSubscription(
+                id=created_id,
+                org_id=str(org_uuid),
+                user_id=str(user_uuid),
+                resource=body.resource,
+                client_state=client_state,
+                notification_url=notification_url,
+                expiration=created["expirationDateTime"],
+                is_active=True,
+            )
+        )
+    session.flush()
     return EnsureSubscriptionResponse(
-        subscription_id=created["id"],
+        subscription_id=created_id,
         expiration=created["expirationDateTime"],
         action="created",
     )
@@ -1690,16 +1693,58 @@ async def ensure_microsoft_subscription(
     dependencies=[Depends(require_internal_token)],
 )
 async def list_active_integrations(
-    supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> ListActiveIntegrationsResponse:
     """Return every active ``(org_id, user_id, platform)`` tuple so the
     Inngest cron can fan out one sync event per connection.
     """
-    resp = (
-        supabase.table("integration_credentials")
-        .select("org_id, user_id, platform")
-        .eq("is_active", True)
-        .in_("platform", ["zoom", "microsoft", "google"])
-        .execute()
+    rows = session.scalars(
+        select(IntegrationCredential)
+        .where(IntegrationCredential.is_active.is_(True))
+        .where(
+            IntegrationCredential.platform.in_(["zoom", "microsoft", "google"])
+        )
+    ).all()
+    return ListActiveIntegrationsResponse(
+        integrations=[
+            {
+                "org_id": r.org_id,
+                "user_id": r.user_id,
+                "platform": r.platform,
+            }
+            for r in rows
+        ]
     )
-    return ListActiveIntegrationsResponse(integrations=resp.data or [])
+
+
+# ---------------------------------------------------------------------------
+# /internal/meeting-status — let Inngest functions flip a meeting's status
+# (and record an error) as a pipeline progresses or fails.
+# ---------------------------------------------------------------------------
+class MeetingStatusRequest(BaseModel):
+    meeting_id: str
+    status: str
+    error_message: str | None = None
+
+
+class MeetingStatusResponse(BaseModel):
+    ok: bool
+
+
+@router.post(
+    "/meeting-status",
+    response_model=MeetingStatusResponse,
+    dependencies=[Depends(require_internal_token)],
+)
+async def set_meeting_status(
+    body: MeetingStatusRequest,
+    session: Session = Depends(get_db),
+) -> MeetingStatusResponse:
+    meeting = session.get(Meeting, body.meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    meeting.status = body.status
+    if body.error_message is not None:
+        meeting.error_message = body.error_message
+    session.flush()
+    return MeetingStatusResponse(ok=True)

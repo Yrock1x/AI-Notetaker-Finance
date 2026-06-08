@@ -1,11 +1,10 @@
-"""Deliverable endpoints — Supabase + LLM-router, no S3, no mocks.
+"""Deliverable endpoints — SQLite + local storage + LLM-router, no S3, no mocks.
 
-The frontend lists prior deliverables directly from a Supabase table (a
-future ``deliverables`` table, TBD — the current schema doesn't persist
-them; we return just the freshly-generated ones). ``POST /generate`` runs
-synchronously via ``DeliverableService`` and returns a signed Supabase
-Storage URL. ``POST /chat`` is a simple LLM wrapper for the "refine this"
-side-panel.
+The frontend lists prior deliverables directly (a future ``deliverables``
+table, TBD — the current schema doesn't persist them; we return just the
+freshly-generated ones). ``POST /generate`` runs synchronously via
+``DeliverableService`` and returns an HMAC-signed local-storage download URL.
+``POST /chat`` is a simple LLM wrapper for the "refine this" side-panel.
 """
 
 from __future__ import annotations
@@ -17,14 +16,13 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from supabase import Client
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.db.deps import get_db, get_principal
+from app.db.scope import Principal, deal_org_id
 from app.dependencies import (
-    AuthUser,
-    get_current_user,
     get_llm_router,
-    get_user_supabase,
 )
 from app.llm.router import TASK_GENERAL
 from app.services.deliverable_service import DeliverableService
@@ -32,6 +30,12 @@ from app.services.deliverable_service import DeliverableService
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _require_deal_access(session: Session, principal: Principal, deal_id: str) -> None:
+    org_id = deal_org_id(session, deal_id)
+    if org_id is None or not principal.in_org(org_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found")
 
 
 class GenerateRequest(BaseModel):
@@ -53,8 +57,8 @@ TYPE_LABELS = {
 async def generate_deliverable(
     deal_id: str,
     payload: GenerateRequest,
-    supabase: Client = Depends(get_user_supabase),
-    _user: AuthUser = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> dict:
     if payload.type not in TYPE_LABELS:
         raise HTTPException(
@@ -68,9 +72,10 @@ async def generate_deliverable(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid deal_id",
         ) from exc
+    _require_deal_access(session, principal, deal_id)
 
     service = DeliverableService(
-        supabase=supabase,
+        session=session,
         settings=get_settings(),
         llm_router=get_llm_router(),
     )
@@ -78,23 +83,17 @@ async def generate_deliverable(
         return await service.generate(
             deal_id=deal_uuid, deliverable_type=payload.type
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "deliverable_generate_failed", deal_id=deal_id, type=payload.type
         )
-        return {
-            "id": str(uuid.uuid4()),
-            "deal_id": deal_id,
-            "title": (
-                f"{TYPE_LABELS[payload.type]} - Generated "
-                "(placeholder — generation failed)"
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Failed to generate {TYPE_LABELS[payload.type]}. "
+                "The LLM or storage upload errored — try again in a moment."
             ),
-            "deliverable_type": payload.type,
-            "file_format": "docx",
-            "status": "failed",
-            "download_url": "#",
-            "created_at": datetime.now(UTC).isoformat(),
-        }
+        ) from exc
 
 
 _DELIVERABLE_SYSTEM_PROMPT = (
@@ -116,8 +115,10 @@ _DELIVERABLE_SYSTEM_PROMPT = (
 async def deliverable_chat(
     deal_id: str,
     payload: ChatRequest,
-    _user: AuthUser = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> dict:
+    _require_deal_access(session, principal, deal_id)
     llm_router = get_llm_router()
     try:
         response = await llm_router.complete(

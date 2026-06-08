@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     analysis,
     auth,
+    auth_native,
     deliverables,
     health,
     integrations,
@@ -20,6 +21,8 @@ api_router = APIRouter()
 # directly from the frontend. The worker just verifies the JWT.
 api_router.include_router(health.router, prefix="/health", tags=["Health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+# Self-hosted OAuth login + session (replaces Supabase Auth).
+api_router.include_router(auth_native.router, prefix="/auth", tags=["Authentication"])
 
 # Server-mediated actions (need secret API keys or service-role writes).
 api_router.include_router(
@@ -54,6 +57,14 @@ api_router.include_router(
     prefix="/webhooks/recall",
     tags=["Webhooks", "Live Transcription"],
 )
+
+# Store endpoints — REST over the worker-owned SQLite DB (replaces the
+# frontend's former direct-to-Supabase reads/writes). Additive during migration.
+from app.api.v1.store.router import store_router  # noqa: E402
+from app.realtime.sse import router as sse_router  # noqa: E402
+
+api_router.include_router(store_router)
+api_router.include_router(sse_router, tags=["Realtime"])
 
 # Service-to-service endpoints — Inngest calls these with X-Internal-Token.
 api_router.include_router(internal.router, prefix="/internal", tags=["Internal"])

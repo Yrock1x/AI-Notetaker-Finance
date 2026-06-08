@@ -6,6 +6,7 @@ The router picks a model based on a task → model table:
     summarization  → fireworks/...glm-5p1                    (cheap, default)
     action_items   → fireworks/...glm-5p1
     qa_rag         → fireworks/...deepseek-v4-pro             (stronger reasoning)
+    qa_meeting     → fireworks/...glm-5p1                     (cheap, full transcript)
     ic_memo        → fireworks/...deepseek-v4-pro
     general        → fireworks/...glm-5p1
 
@@ -28,6 +29,9 @@ from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 TASK_SUMMARIZATION = "summarization"
 TASK_ACTION_ITEMS = "action_items"
 TASK_QA_RAG = "qa_rag"
+# Single-meeting Q&A: stuff the whole transcript into a cheap model instead of
+# RAG retrieval. No embeddings/chunk-boundary failure modes, and far cheaper.
+TASK_QA_MEETING = "qa_meeting"
 TASK_IC_MEMO = "ic_memo"
 TASK_GENERAL = "general"
 TASK_EMBEDDING = "embedding"
@@ -42,6 +46,7 @@ _DEFAULT_TASK_MODEL_MAP: dict[str, str] = {
     TASK_SUMMARIZATION: _FIREWORKS_GLM,
     TASK_ACTION_ITEMS: _FIREWORKS_GLM,
     TASK_QA_RAG: _FIREWORKS_DEEPSEEK,
+    TASK_QA_MEETING: _FIREWORKS_GLM,
     TASK_IC_MEMO: _FIREWORKS_DEEPSEEK,
     TASK_GENERAL: _FIREWORKS_GLM,
     TASK_EMBEDDING: _FIREWORKS_NOMIC,
@@ -51,6 +56,7 @@ _ENV_OVERRIDE_KEYS: dict[str, str] = {
     TASK_SUMMARIZATION: "LLM_MODEL_FOR_SUMMARIZATION",
     TASK_ACTION_ITEMS: "LLM_MODEL_FOR_ACTION_ITEMS",
     TASK_QA_RAG: "LLM_MODEL_FOR_QA_RAG",
+    TASK_QA_MEETING: "LLM_MODEL_FOR_QA_MEETING",
     TASK_IC_MEMO: "LLM_MODEL_FOR_IC_MEMO",
     TASK_GENERAL: "LLM_MODEL_FOR_GENERAL",
     TASK_EMBEDDING: "LLM_MODEL_FOR_EMBEDDING",
