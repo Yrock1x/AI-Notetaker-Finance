@@ -13,8 +13,15 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.9",
 
-    # Supabase (Postgres + Auth + Storage)
+    # Supabase (Postgres + Auth + Storage) — being migrated out; kept until cutover
     "supabase>=2.8.0",
+
+    # SQLite data layer (migration target: worker-owned DB)
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "sqlite-vec>=0.1.6",        # vec0 virtual table + server-side KNN
+    "authlib>=1.3.0",           # OAuth (Google/Microsoft) for self-hosted auth
+    "itsdangerous>=2.2.0",      # Starlette SessionMiddleware (OAuth state)
 
     # Auth / crypto
     "python-jose[cryptography]>=3.3.0",

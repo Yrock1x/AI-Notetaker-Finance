@@ -99,6 +99,19 @@ class Settings(BaseSettings):
     # Fernet key for integration_credentials.access_token_encrypted
     token_encryption_key: str = ""
 
+    # ---- SQLite migration (worker-owned data layer) ----
+    # Path to the SQLite database file. On Fly.io this is on the attached volume.
+    sqlite_db_path: str = "/data/app.db"
+    # Filesystem root for object storage (replaces Supabase Storage buckets).
+    storage_root: str = "/data/storage"
+    # HMAC key for signing storage upload/download URLs. Falls back to
+    # worker_internal_token if unset (see storage module).
+    storage_signing_key: str = ""
+    # Secret used to sign self-issued session JWTs (replaces Supabase Auth).
+    session_jwt_secret: str = ""
+    # Cookie name for the self-issued session token.
+    session_cookie_name: str = "cogni_session"
+
     # Shared secret between Inngest functions (on Vercel) and the worker.
     # Every /api/v1/internal/* request must include this in X-Internal-Token.
     worker_internal_token: str = ""
