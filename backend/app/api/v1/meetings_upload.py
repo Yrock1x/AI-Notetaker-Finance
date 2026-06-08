@@ -1,17 +1,15 @@
-"""Meeting upload ticket — returns a Supabase Storage signed upload URL.
+"""Meeting upload ticket — returns a worker-signed local-storage upload URL.
 
-Rationale: the frontend needs to PUT a multi-hundred-MB video/audio file
-straight to storage without round-tripping through the worker. Supabase
-Storage supports "resumable upload URLs" that work exactly like S3 presigned
-PUTs. We mint the URL here (server-side, so the service-role key never
-leaves the worker) and return it along with the resulting ``file_key``.
+The frontend needs to PUT a multi-hundred-MB video/audio file to storage
+without round-tripping the body through application logic. We mint a
+short-lived HMAC-signed PUT URL into the ``meeting-recordings`` bucket (served
+by app/api/v1/store/files.py) and return it with the resulting ``file_key``.
 
-The frontend then:
-  1. PUT the file at the returned URL
-  2. Insert a ``meetings`` row with the ``file_key`` (RLS allows this
-     because the user is a member of the target deal's org)
-  3. Fire the ``meeting/uploaded`` Inngest event which kicks off the
-     post-meeting pipeline.
+The frontend then PUTs the file at the URL, creates the ``meetings`` row via
+``POST /deals/{id}/meetings``, and fires ``meeting/uploaded`` into Inngest.
+
+(The generic ``POST /storage/upload-ticket`` covers the same need; this
+endpoint is kept for the meeting-specific contract.)
 """
 
 from __future__ import annotations
@@ -21,22 +19,19 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from app.dependencies import (
-    AuthUser,
-    get_current_user,
-    get_service_supabase,
-    get_user_supabase,
-)
-from supabase import Client
+from app.api.v1.store._common import get_db, get_principal, scoped_deal_or_404
+from app.core.config import settings
+from app.db.scope import Principal
+from app.storage.local import make_signed_url
 
 router = APIRouter()
 
 RECORDINGS_BUCKET = "meeting-recordings"
 
-# Application-level cap. Supabase Storage enforces a per-bucket ceiling at
-# upload time, but checking here lets us reject obviously-too-large requests
-# before minting a signed URL — and surface a clear error to the client.
+# Application-level cap, checked before minting a URL so we reject obviously
+# too-large requests with a clear error.
 MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 
 
@@ -48,70 +43,36 @@ class UploadTicketRequest(BaseModel):
         "audio/mp4", "audio/m4a", "audio/webm", "audio/ogg",
         "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
     ]
-    # Browser File API gives us this for free — required so we can reject
-    # over-cap uploads before consuming a signed-URL slot.
     size_bytes: int = Field(gt=0, le=MAX_UPLOAD_SIZE_BYTES)
 
 
 class UploadTicketResponse(BaseModel):
     file_key: str
     upload_url: str
-    token: str
+    method: str = "PUT"
 
 
 @router.post("/upload-ticket", response_model=UploadTicketResponse)
 async def create_upload_ticket(
     body: UploadTicketRequest,
-    current_user: AuthUser = Depends(get_current_user),
-    user_supabase: Client = Depends(get_user_supabase),
-    service_supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> UploadTicketResponse:
-    """Mint a signed upload URL for Supabase Storage.
+    """Mint a signed PUT URL into the meeting-recordings bucket for a deal.
 
-    The resulting ``upload_url`` is a single-use PUT target. After a
-    successful upload, the client creates the ``meetings`` row pointing at
-    ``file_key`` and fires ``meeting/uploaded`` into Inngest.
+    Org-scoped: the caller must be a member of the deal's org (404 otherwise),
+    so signed URLs can't be minted into another tenant's storage tree.
     """
-    # Confirm the caller can see this deal before minting a Storage path
-    # under it. The user-scoped client respects RLS, so a returned row IS
-    # the membership proof — without this, anyone could enumerate deal IDs
-    # and obtain valid signed PUT URLs into another tenant's storage tree.
-    deal_rows = (
-        user_supabase.table("deals")
-        .select("id")
-        .eq("id", body.deal_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not deal_rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deal not found",
-        )
+    scoped_deal_or_404(session, principal, body.deal_id)
 
     ext = ("." + body.filename.rsplit(".", 1)[1]) if "." in body.filename else ""
     file_key = f"{body.deal_id}/{uuid.uuid4()}{ext}"
-
-    try:
-        result = service_supabase.storage.from_(RECORDINGS_BUCKET).create_signed_upload_url(
-            file_key
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not create upload URL: {exc}",
-        ) from exc
-
-    # supabase-py returns {'signedURL': ..., 'token': ..., 'path': ...}
-    upload_url = result.get("signedURL") or result.get("signed_url") or ""
-    token = result.get("token", "")
+    upload_url = settings.public_api_url.rstrip("/") + make_signed_url(
+        RECORDINGS_BUCKET, file_key
+    )
     if not upload_url:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Upload URL missing from Supabase response",
+            detail="Could not create upload URL",
         )
-
-    return UploadTicketResponse(
-        file_key=file_key, upload_url=upload_url, token=token
-    )
+    return UploadTicketResponse(file_key=file_key, upload_url=upload_url)

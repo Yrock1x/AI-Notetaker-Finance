@@ -4,9 +4,9 @@ Processes incoming Slack events (messages, interactions) and routes slash
 commands to the appropriate sub-handlers.  Message content is intentionally
 **not** logged to avoid leaking sensitive deal information.
 
-Slash-command sub-handlers query Supabase for live data when the handler
-is constructed with a service-role client + a resolved org_id (the caller
-is responsible for mapping the Slack team_id to a CogniSuite org via the
+Slash-command sub-handlers query the SQLite store for live data when the
+handler is constructed with a DB session + a resolved org_id (the caller is
+responsible for mapping the Slack team_id to a CogniSuite org via the
 ``integration_credentials`` table). Without those, the handler returns an
 honest "not configured" message instead of fabricating empty data.
 """
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from supabase import Client
+    from sqlalchemy.orm import Session
 
 logger = structlog.get_logger(__name__)
 
@@ -44,13 +44,13 @@ class SlackEventHandler:
 
     def __init__(
         self,
-        supabase: "Client | None" = None,
+        session: "Session | None" = None,
         org_id: str | None = None,
     ) -> None:
         # When both are supplied the slash-command sub-handlers run real
-        # Supabase queries (RLS bypassed via the service-role key the caller
-        # injected). When either is missing they return _NOT_CONFIGURED.
-        self._supabase = supabase
+        # queries against the SQLite store (scoped to org_id here). When
+        # either is missing they return _NOT_CONFIGURED.
+        self._session = session
         self._org_id = org_id
 
     # ------------------------------------------------------------------
@@ -123,21 +123,21 @@ class SlackEventHandler:
 
     async def _handle_status(self, args: str, payload: dict) -> dict:
         """Return the current processing status."""
-        if not self._supabase or not self._org_id:
+        if not self._session or not self._org_id:
             return {"response_type": "ephemeral", "text": _NOT_CONFIGURED}
 
         try:
-            rows = (
-                self._supabase.table("meetings")
-                .select("id, title, status")
-                .eq("org_id", self._org_id)
-                .in_("status", list(_PROCESSING_STATUSES))
-                .order("created_at", desc=True)
+            from sqlalchemy import select
+
+            from app.db.models import Meeting
+
+            rows = self._session.scalars(
+                select(Meeting)
+                .where(Meeting.org_id == self._org_id)
+                .where(Meeting.status.in_(list(_PROCESSING_STATUSES)))
+                .order_by(Meeting.created_at.desc())
                 .limit(10)
-                .execute()
-                .data
-                or []
-            )
+            ).all()
         except Exception:
             logger.exception("slack_status_query_failed")
             return {
@@ -157,26 +157,26 @@ class SlackEventHandler:
 
         lines = ["*Processing Status*"]
         for r in rows:
-            title = r.get("title") or "Untitled meeting"
-            lines.append(f"• `{r['status']}` — {title}")
+            title = r.title or "Untitled meeting"
+            lines.append(f"• `{r.status}` — {title}")
         return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
     async def _handle_meetings(self, args: str, payload: dict) -> dict:
         """Return a list of recent meetings."""
-        if not self._supabase or not self._org_id:
+        if not self._session or not self._org_id:
             return {"response_type": "ephemeral", "text": _NOT_CONFIGURED}
 
         try:
-            rows = (
-                self._supabase.table("meetings")
-                .select("id, title, status, meeting_date, created_at")
-                .eq("org_id", self._org_id)
-                .order("created_at", desc=True)
+            from sqlalchemy import select
+
+            from app.db.models import Meeting
+
+            rows = self._session.scalars(
+                select(Meeting)
+                .where(Meeting.org_id == self._org_id)
+                .order_by(Meeting.created_at.desc())
                 .limit(10)
-                .execute()
-                .data
-                or []
-            )
+            ).all()
         except Exception:
             logger.exception("slack_meetings_query_failed")
             return {
@@ -195,9 +195,9 @@ class SlackEventHandler:
 
         lines = ["*Recent Meetings*"]
         for r in rows:
-            title = r.get("title") or "Untitled meeting"
-            when = r.get("meeting_date") or r.get("created_at") or ""
-            lines.append(f"• {title} — `{r.get('status', '?')}` ({when[:10]})")
+            title = r.title or "Untitled meeting"
+            when = r.meeting_date or r.created_at or ""
+            lines.append(f"• {title} — `{r.status or '?'}` ({when[:10]})")
         return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
     # Map of subcommand names to handler methods

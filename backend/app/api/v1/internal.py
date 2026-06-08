@@ -1246,13 +1246,22 @@ async def teams_ingest_call_record(
     matched_meeting: Meeting | None = None
     if start_times:
         probe = start_times[0]
-        # Find a 'microsoft' synced meeting in the same org within ±30 min.
+        # Find a 'microsoft' synced meeting in the same org within ±30 min of
+        # the session start. ISO-8601 UTC timestamps sort lexically, so a
+        # string window works as long as both sides are UTC ISO strings.
+        try:
+            probe_dt = datetime.fromisoformat(str(probe).replace("Z", "+00:00"))
+            window_start = (probe_dt - timedelta(minutes=30)).isoformat()
+            window_end = (probe_dt + timedelta(minutes=30)).isoformat()
+        except ValueError:
+            window_start = window_end = probe  # unparseable → exact-match fallback
         matched_meeting = session.scalar(
             select(Meeting)
             .where(Meeting.org_id == cred_org_id)
             .where(Meeting.external_provider == "microsoft")
-            .where(Meeting.meeting_date >= probe)
-            .where(Meeting.meeting_date <= probe)  # best-effort exact match
+            .where(Meeting.meeting_date >= window_start)
+            .where(Meeting.meeting_date <= window_end)
+            .order_by(Meeting.meeting_date)
             .limit(1)
         )
 

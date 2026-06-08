@@ -1,8 +1,8 @@
 """Deal / meeting scoped Q&A endpoints.
 
-Access control is delegated to Supabase RLS — the user can only insert/
-select ``qa_interactions`` rows for deals they belong to. Fireworks (or
-Claude if opted in) produces the answer via the LLM router.
+Access control is enforced in app code (app/db/scope.py): the caller may only
+read/write ``qa_interactions`` for deals in an org they belong to. Fireworks
+(or Claude if opted in) produces the answer via the LLM router.
 """
 
 from __future__ import annotations
