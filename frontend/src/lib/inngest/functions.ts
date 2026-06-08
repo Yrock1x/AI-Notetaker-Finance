@@ -1,25 +1,38 @@
 import "server-only";
 
-// Inngest orchestration. step.run blocks are small HTTP calls: either to the
-// Python worker (Deepgram, LLM routing, docx rendering) or straight to
-// Supabase via the service-role client for status updates.
+// Inngest orchestration. step.run blocks are small HTTP calls to the Python
+// worker (Deepgram, LLM routing, docx rendering, and meeting-status writes).
+// All meeting-status updates now go through the worker's internal API instead
+// of a direct service-role Supabase write, so this runtime no longer needs the
+// Supabase service-role key.
 
-import { createClient } from "@supabase/supabase-js";
 import { inngest } from "./client";
 
 const WORKER_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
-function serviceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Inngest functions"
-    );
-  }
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
+// Push a meeting's pipeline status to the worker, which owns the DB write.
+// Replaces the former `serviceSupabase().from("meetings").update(...)` calls.
+//
+// TODO(backend): add POST /api/v1/internal/meeting-status accepting
+//   { meeting_id, status, error_message? } and authenticated by X-Internal-Token,
+//   writing meetings.status (+ error_message). Until that endpoint ships these
+//   calls will 404 and the surrounding step.run will retry — the status write is
+//   NOT silently dropped.
+async function setMeetingStatus(
+  meetingId: string,
+  status: string,
+  errorMessage?: string
+): Promise<void> {
+  const r = await fetch(`${WORKER_URL}/api/v1/internal/meeting-status`, {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({
+      meeting_id: meetingId,
+      status,
+      error_message: errorMessage ?? null,
+    }),
   });
+  if (!r.ok) throw new Error(`meeting-status (${status}) failed: ${r.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -34,13 +47,9 @@ export const processMeeting = inngest.createFunction(
   { event: "meeting/uploaded" },
   async ({ event, step }) => {
     const { meeting_id } = event.data;
-    const sb = serviceSupabase();
 
     await step.run("mark-transcribing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "transcribing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "transcribing");
     });
 
     // Deepgram call lives on the Python worker — too much SDK ergonomics
@@ -57,10 +66,7 @@ export const processMeeting = inngest.createFunction(
     });
 
     await step.run("mark-diarizing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "diarizing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "diarizing");
     });
 
     // Diarization is part of Deepgram's response; the worker parses it in
@@ -70,10 +76,7 @@ export const processMeeting = inngest.createFunction(
 
     // Parallel fan-out: embed + analyze.
     await step.run("mark-analyzing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzing");
     });
 
     await Promise.all([
@@ -96,10 +99,7 @@ export const processMeeting = inngest.createFunction(
     ]);
 
     await step.run("mark-analyzed", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzed" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzed");
     });
 
     return { meeting_id, status: "analyzed" };
@@ -255,12 +255,8 @@ export const processBotMeeting = inngest.createFunction(
       if (!r.ok) throw new Error(`bot finalize failed: ${r.status}`);
     });
 
-    const sb = serviceSupabase();
     await step.run("mark-analyzing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzing");
     });
 
     await Promise.all([
@@ -283,10 +279,7 @@ export const processBotMeeting = inngest.createFunction(
     ]);
 
     await step.run("mark-analyzed", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzed" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzed");
     });
 
     return { meeting_id, status: "analyzed" };

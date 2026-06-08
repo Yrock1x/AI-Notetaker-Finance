@@ -6,7 +6,8 @@
 // returns and doesn't require a new API route.
 
 import { useQuery } from "@tanstack/react-query";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet } from "@/lib/worker-api";
+import type { Meeting } from "@/types";
 import { useDealExtractions } from "./use-deal-extractions";
 
 export interface DealStats {
@@ -36,13 +37,13 @@ export function useDealStats(dealId: string | undefined): {
     enabled: !!dealId,
     staleTime: 30_000,
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data, error } = await supabase
-        .from("meetings")
-        .select("id, meeting_date, duration_seconds, created_at")
-        .eq("deal_id", dealId!);
-      if (error) throw error;
-      return (data ?? []) as MeetingStat[];
+      const rows = await apiGet<Meeting[]>(`/deals/${dealId}/meetings`);
+      return rows.map((m) => ({
+        id: m.id,
+        meeting_date: m.meeting_date ?? null,
+        duration_seconds: m.duration_seconds ?? null,
+        created_at: m.created_at,
+      })) as MeetingStat[];
     },
   });
 

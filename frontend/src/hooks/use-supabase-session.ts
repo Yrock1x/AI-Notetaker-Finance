@@ -1,67 +1,74 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { useQueryClient } from "@tanstack/react-query";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+// Session hook — now backed by the worker's GET /auth/session endpoint
+// (cookie-authenticated) instead of supabase.auth. Kept under the original
+// filename + export name so consumers don't change.
+//
+// TODO: remove once all consumers migrated — this file no longer touches
+// src/lib/supabase/*.
+
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiGet, ApiError } from "@/lib/worker-api";
+import { signOut as workerSignOut } from "@/lib/auth";
+
+// Shape returned by GET /api/v1/auth/session.
+export interface SessionUser {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+}
 
 export interface SupabaseSessionState {
-  user: User | null;
-  session: Session | null;
+  user: SessionUser | null;
+  // Retained for source compatibility; the worker session is cookie-based so
+  // there's no client-visible session object anymore.
+  session: null;
   isLoading: boolean;
   isAuthenticated: boolean;
   signOut: () => Promise<void>;
 }
 
-export function userDisplayName(user: User | null): string {
+const SESSION_KEY = ["auth", "session"];
+
+export function userDisplayName(user: SessionUser | null): string {
   if (!user) return "";
-  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-  const full = (meta.full_name as string) || (meta.name as string);
-  if (full) return full;
+  if (user.full_name && user.full_name.trim()) return user.full_name.trim();
   return user.email ? user.email.split("@")[0] : "";
 }
 
 export function useSupabaseSession(): SupabaseSessionState {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const supabase = getBrowserSupabase();
-    let mounted = true;
-
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      setIsLoading(false);
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      if (event === "SIGNED_OUT") {
-        localStorage.removeItem("org_id");
-        queryClient.clear();
+  const query = useQuery<SessionUser | null>({
+    queryKey: SESSION_KEY,
+    queryFn: async () => {
+      try {
+        return await apiGet<SessionUser>("/auth/session");
+      } catch (e) {
+        // 401 = not signed in: treat as null rather than an error so the
+        // AuthGuard can redirect cleanly.
+        if (e instanceof ApiError && e.status === 401) return null;
+        throw e;
       }
-    });
-
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
-  }, [queryClient]);
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
   const signOut = useCallback(async () => {
-    const supabase = getBrowserSupabase();
-    await supabase.auth.signOut();
-  }, []);
+    await workerSignOut();
+    queryClient.setQueryData(SESSION_KEY, null);
+    queryClient.clear();
+  }, [queryClient]);
+
+  const user = query.data ?? null;
 
   return {
     user,
-    session,
-    isLoading,
+    session: null,
+    isLoading: query.isLoading,
     isAuthenticated: user !== null,
     signOut,
   };

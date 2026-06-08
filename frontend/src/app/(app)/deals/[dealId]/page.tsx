@@ -24,6 +24,10 @@ import { useDeal } from "@/hooks/use-deals";
 import { useMeetings } from "@/hooks/use-meetings";
 import { useDealStats } from "@/hooks/use-deal-stats";
 import { useDealExtractions } from "@/hooks/use-deal-extractions";
+import {
+  useActionItemCompletions,
+  useToggleActionItem,
+} from "@/hooks/use-action-item-completions";
 import { useBotSessions } from "@/hooks/use-bot-sessions";
 import { LoadingState } from "@/components/shared/loading-state";
 import {
@@ -553,6 +557,8 @@ function ActionsCard({
   dealId: string;
 }) {
   const items = actions.slice(0, 5);
+  const { data: completions } = useActionItemCompletions(dealId);
+  const toggle = useToggleActionItem();
   return (
     <WSCard
       title="Action items extracted by AI"
@@ -569,6 +575,7 @@ function ActionsCard({
       ) : (
         items.map((a, i) => {
           const ownerInitials = a.owner ? initialsOf(a.owner) : null;
+          const isDone = completions?.has(a.id) || a.status === "done";
           const stColor =
             a.status === "open"
               ? "var(--ws-warn)"
@@ -589,8 +596,15 @@ function ActionsCard({
                 type="checkbox"
                 className="mt-1"
                 style={{ accentColor: "var(--ws-accent)" }}
-                onChange={() => {
-                  /* TODO: persist completion to backend */
+                checked={isDone}
+                onChange={(e) => {
+                  toggle.mutate({
+                    dealId,
+                    actionKey: a.id,
+                    actionText: a.text,
+                    analysisId: a.analysisId,
+                    completed: e.target.checked,
+                  });
                 }}
               />
               <div className="min-w-0">

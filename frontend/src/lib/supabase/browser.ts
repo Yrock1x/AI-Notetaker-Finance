@@ -1,5 +1,9 @@
 "use client";
 
+// TODO: remove once all consumers migrated — the data hooks + auth now use the
+// worker REST API (src/lib/worker-api.ts). A few not-yet-migrated areas (qa,
+// analysis, deliverables, admin, integrations) may still import this.
+//
 // Browser-side Supabase client. Safe to import from any Client Component.
 // Uses httpOnly cookies via @supabase/ssr so the session is shared with
 // Server Components + Route Handlers without any JS-accessible refresh token.

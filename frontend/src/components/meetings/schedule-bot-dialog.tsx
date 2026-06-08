@@ -9,7 +9,7 @@ import { useState, useEffect } from "react";
 import { X, Bot, Sparkles } from "lucide-react";
 import { useScheduleBot, type BotSession } from "@/hooks/use-bot-sessions";
 import { useDeals } from "@/hooks/use-deals";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { useCalendarMeetings } from "@/hooks/use-calendar";
 
 interface ScheduleBotDialogProps {
   open: boolean;
@@ -46,6 +46,7 @@ export function ScheduleBotDialog({
   const [submitting, setSubmitting] = useState(false);
 
   const { data: deals } = useDeals(presetDealId ? undefined : { limit: 100 });
+  const { meetings: calendarMeetings } = useCalendarMeetings();
   const scheduleBot = useScheduleBot();
 
   // Auto-pick platform when the user pastes a URL.
@@ -55,23 +56,18 @@ export function ScheduleBotDialog({
   }, [meetingUrl]);
 
   // Auto-fill the title (and reuse the meeting_id) when the pasted URL
-  // matches a calendar-synced meeting we already have. Debounced so we
-  // don't hit Supabase on every keystroke. Only overrides the title when
-  // the user hasn't typed one of their own.
+  // matches a calendar-synced meeting we already have. The calendar meetings
+  // (all meetings in the user's org, via the worker) are already loaded, so
+  // we match against them in-memory instead of hitting the DB per keystroke.
+  // Only overrides the title when the user hasn't typed one of their own.
   useEffect(() => {
     if (!meetingUrl) {
       setMatchedMeetingId(null);
       if (titleWasAutofilled) setTitle("");
       return;
     }
-    const handle = setTimeout(async () => {
-      const supabase = getBrowserSupabase();
-      const { data } = await supabase
-        .from("meetings")
-        .select("id, title")
-        .eq("source_url", meetingUrl)
-        .limit(1);
-      const hit = data?.[0];
+    const handle = setTimeout(() => {
+      const hit = calendarMeetings.find((m) => m.source_url === meetingUrl);
       if (hit) {
         setMatchedMeetingId(hit.id);
         if (!title || titleWasAutofilled) {
@@ -88,7 +84,7 @@ export function ScheduleBotDialog({
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetingUrl]);
+  }, [meetingUrl, calendarMeetings]);
 
   // When the parent-provided dealId changes (e.g. dialog reused across deals),
   // reset the local value so we don't carry stale state across opens.

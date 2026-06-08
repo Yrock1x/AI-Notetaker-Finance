@@ -1,7 +1,11 @@
 "use client";
 
+// Recent activity feed via the worker GET /dashboard/activity endpoint. The
+// worker returns a flat shape ({actor_name, deal_name, ...}); we re-nest it
+// into the existing ActivityRow shape so the dashboard component is unchanged.
+
 import { useQuery } from "@tanstack/react-query";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet } from "@/lib/worker-api";
 
 export interface ActivityRow {
   id: string;
@@ -22,24 +26,39 @@ export interface ActivityRow {
   } | null;
 }
 
+interface ActivityResponse {
+  id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  deal_id: string | null;
+  deal_name: string | null;
+  actor_name: string | null;
+  created_at: string;
+  details: Record<string, unknown> | null;
+}
+
 export function useRecentActivity(limit = 15) {
   return useQuery<ActivityRow[]>({
     queryKey: ["dashboard", "recent-activity", limit],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data, error } = await supabase
-        .from("audit_logs")
-        .select(
-          "id, action, resource_type, resource_id, deal_id, details, created_at, user:profiles(id, full_name, email), deal:deals(id, name)"
-        )
-        .order("created_at", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
-        ...row,
-        user: Array.isArray(row.user) ? row.user[0] ?? null : row.user,
-        deal: Array.isArray(row.deal) ? row.deal[0] ?? null : row.deal,
-      })) as ActivityRow[];
+      const rows = await apiGet<ActivityResponse[]>("/dashboard/activity");
+      return rows.slice(0, limit).map((r) => ({
+        id: r.id,
+        action: r.action,
+        resource_type: r.resource_type,
+        resource_id: r.resource_id,
+        deal_id: r.deal_id,
+        details: r.details,
+        created_at: r.created_at,
+        user: r.actor_name
+          ? { id: "", full_name: r.actor_name, email: "" }
+          : null,
+        deal:
+          r.deal_id && r.deal_name
+            ? { id: r.deal_id, name: r.deal_name }
+            : null,
+      }));
     },
     staleTime: 30 * 1000,
   });

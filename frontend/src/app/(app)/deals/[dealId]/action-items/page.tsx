@@ -2,9 +2,7 @@
 
 // Action Items tab — kanban + by-owner views over the AI-extracted action
 // items pulled from analyses.structured_output. Decisions + open questions
-// trail below as cards. Read-only for now; checkbox toggles are visual
-// only until the worker exposes a write endpoint for the extraction
-// store.
+// trail below as cards. Checkbox toggles persist to action_item_completions.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -19,6 +17,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useDealExtractions, type ExtractedAction } from "@/hooks/use-deal-extractions";
+import {
+  useActionItemCompletions,
+  useToggleActionItem,
+} from "@/hooks/use-action-item-completions";
 import {
   Avatar,
   PillButton,
@@ -334,6 +336,9 @@ function KanbanColumn({
 
 function ActionCard({ dealId, a }: { dealId: string; a: ExtractedAction }) {
   const ownerInitials = a.owner ? initialsOf(a.owner) : null;
+  const { data: completions } = useActionItemCompletions(dealId);
+  const toggle = useToggleActionItem();
+  const isDone = completions?.has(a.id) || a.status === "done";
   return (
     <div
       className="rounded-md p-2.5 flex flex-col gap-1.5"
@@ -348,10 +353,24 @@ function ActionCard({ dealId, a }: { dealId: string; a: ExtractedAction }) {
           type="checkbox"
           className="mt-0.5"
           style={{ accentColor: "var(--ws-accent)" }}
+          checked={isDone}
+          onChange={(e) => {
+            toggle.mutate({
+              dealId,
+              actionKey: a.id,
+              actionText: a.text,
+              analysisId: a.analysisId,
+              completed: e.target.checked,
+            });
+          }}
         />
         <span
           className="flex-1 text-[12.5px] font-medium leading-snug"
-          style={{ color: "var(--ws-ink)" }}
+          style={{
+            color: "var(--ws-ink)",
+            textDecoration: isDone ? "line-through" : undefined,
+            opacity: isDone ? 0.6 : 1,
+          }}
         >
           {a.text}
         </span>

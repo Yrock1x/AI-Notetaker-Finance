@@ -5,14 +5,14 @@
 // assign" widget and from clicking an Unassigned card on the Calendar.
 //
 // - Auto-suggests a deal when the meeting title clearly points at one.
-// - PATCHes meetings row directly via the browser Supabase client —
-//   meetings_member_all RLS permits UPDATE inside the user's org.
+// - PATCHes the meeting via the worker REST API (PATCH /meetings/{id}),
+//   which enforces org scoping server-side.
 
 import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, Bot, Sparkles, CalendarClock } from "lucide-react";
 import { useDeals } from "@/hooks/use-deals";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { useUpdateMeeting } from "@/hooks/use-meetings";
 import { suggestDealForMeeting } from "@/lib/deal-matcher";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import type { Meeting } from "@/types";
@@ -31,6 +31,7 @@ export function AssignMeetingDialog({
   const queryClient = useQueryClient();
   const { data: dealsPage } = useDeals({ limit: 100 });
   const deals = useMemo(() => dealsPage?.items ?? [], [dealsPage]);
+  const updateMeeting = useUpdateMeeting(undefined);
 
   const suggestion = useMemo(
     () => (meeting ? suggestDealForMeeting(meeting, deals) : null),
@@ -54,12 +55,10 @@ export function AssignMeetingDialog({
     mutationFn: async () => {
       if (!meeting) throw new Error("no meeting");
       if (!dealId) throw new Error("Please pick a deal.");
-      const supabase = getBrowserSupabase();
-      const { error: updErr } = await supabase
-        .from("meetings")
-        .update({ deal_id: dealId, bot_enabled: botEnabled })
-        .eq("id", meeting.id);
-      if (updErr) throw updErr;
+      await updateMeeting.mutateAsync({
+        meetingId: meeting.id,
+        patch: { deal_id: dealId, bot_enabled: botEnabled },
+      });
 
       // Kick auto-schedule immediately so the bot spawns in seconds.
       // Without this nudge we'd wait for the next 5-min cron tick,

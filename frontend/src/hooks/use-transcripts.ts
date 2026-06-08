@@ -1,7 +1,7 @@
 "use client";
 
-// Transcript reads go direct to Supabase. RLS scopes rows to the user's
-// orgs automatically.
+// Transcript reads via the worker REST API (cookie-authenticated). The worker
+// scopes rows by the parent meeting's org.
 
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -10,7 +10,7 @@ import type {
   TranscriptSegmentFilters,
   PaginatedResponse,
 } from "@/types";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet, ApiError, buildQuery } from "@/lib/worker-api";
 
 const TRANSCRIPTS_KEY = "transcripts";
 
@@ -18,14 +18,13 @@ export function useTranscript(meetingId: string | undefined) {
   return useQuery<Transcript | null>({
     queryKey: [TRANSCRIPTS_KEY, meetingId],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data, error } = await supabase
-        .from("transcripts")
-        .select("*")
-        .eq("meeting_id", meetingId!)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as Transcript) ?? null;
+      try {
+        return await apiGet<Transcript>(`/meetings/${meetingId}/transcript`);
+      } catch (e) {
+        // No transcript yet → worker 404s; surface as null like maybeSingle().
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
     },
     enabled: !!meetingId,
   });
@@ -38,19 +37,15 @@ export function useTranscriptSegments(
   return useQuery<PaginatedResponse<TranscriptSegment>>({
     queryKey: [TRANSCRIPTS_KEY, meetingId, "segments", filters],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      let query = supabase
-        .from("transcript_segments")
-        .select("*")
-        .eq("meeting_id", meetingId!)
-        .eq("is_partial", false)
-        .order("start_time", { ascending: true });
-      if (filters?.speaker_label) query = query.eq("speaker_label", filters.speaker_label);
-      if (filters?.page_size) query = query.limit(filters.page_size);
-      const { data, error } = await query;
-      if (error) throw error;
+      const qs = buildQuery({
+        speaker: filters?.speaker_label,
+        limit: filters?.page_size,
+      });
+      const items = await apiGet<TranscriptSegment[]>(
+        `/meetings/${meetingId}/transcript-segments${qs}`
+      );
       return {
-        items: (data ?? []) as TranscriptSegment[],
+        items,
         cursor: null,
         has_more: false,
       };
@@ -66,18 +61,10 @@ export function useSearchTranscript(
   return useQuery<TranscriptSegment[]>({
     queryKey: [TRANSCRIPTS_KEY, meetingId, "search", query],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const safe = query.replace(/[%_]/g, (c) => `\\${c}`);
-      const { data, error } = await supabase
-        .from("transcript_segments")
-        .select("*")
-        .eq("meeting_id", meetingId!)
-        .eq("is_partial", false)
-        .ilike("text", `%${safe}%`)
-        .order("start_time", { ascending: true })
-        .limit(200);
-      if (error) throw error;
-      return (data ?? []) as TranscriptSegment[];
+      const qs = buildQuery({ q: query, limit: 200 });
+      return apiGet<TranscriptSegment[]>(
+        `/meetings/${meetingId}/transcript-segments${qs}`
+      );
     },
     enabled: !!meetingId && query.length > 0,
   });

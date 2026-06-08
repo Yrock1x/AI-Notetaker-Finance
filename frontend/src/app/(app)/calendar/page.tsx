@@ -16,7 +16,8 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
 import { AssignMeetingDialog } from "@/components/meetings/assign-meeting-dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { useOrg } from "@/hooks/use-org";
+import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -251,6 +252,8 @@ export default function CalendarPage() {
   const { data: botSessions = [] } = useBotSessions();
   const queryClient = useQueryClient();
   const toggleBotMutation = useToggleMeetingBot(undefined);
+  const { currentOrg } = useOrg();
+  const { user } = useSupabaseSession();
 
   const today = new Date();
   const [view, setView] = useState<View>("month");
@@ -277,22 +280,16 @@ export default function CalendarPage() {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      const supabase = getBrowserSupabase();
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) throw new Error("not authed");
-      const { data: memberships } = await supabase
-        .from("org_memberships")
-        .select("org_id")
-        .eq("user_id", auth.user.id)
-        .limit(1);
-      const orgId = memberships?.[0]?.org_id;
+      const orgId = currentOrg?.id;
+      const userId = user?.id;
+      if (!userId) throw new Error("not authed");
       if (!orgId) throw new Error("no org");
       await fetch("/api/inngest/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: "calendar/refresh.requested",
-          data: { org_id: orgId, user_id: auth.user.id },
+          data: { org_id: orgId, user_id: userId },
         }),
       });
       await new Promise((r) => setTimeout(r, 4000));
