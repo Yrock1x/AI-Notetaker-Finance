@@ -8,6 +8,8 @@ The rest of the app reads that cookie via get_current_user.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -66,6 +68,13 @@ def _client(provider: str):
     return client
 
 
+def _cookie_samesite() -> "Literal['lax', 'none']":
+    # Frontend (vercel.app) and worker (fly.dev) are cross-site, so the session
+    # cookie must be SameSite=None (+Secure) to ride the frontend's credentialed
+    # fetches. Locally (http) fall back to lax since None requires Secure/https.
+    return "none" if settings.is_production else "lax"
+
+
 def _set_session_cookie(response, token: str) -> None:
     response.set_cookie(
         settings.session_cookie_name,
@@ -73,7 +82,7 @@ def _set_session_cookie(response, token: str) -> None:
         max_age=DEFAULT_TTL_SECONDS,
         httponly=True,
         secure=settings.is_production,
-        samesite="lax",
+        samesite=_cookie_samesite(),
         path="/",
     )
 
@@ -132,5 +141,10 @@ def get_session(
 @router.post("/signout")
 def signout() -> JSONResponse:
     response = JSONResponse({"ok": True})
-    response.delete_cookie(settings.session_cookie_name, path="/")
+    response.delete_cookie(
+        settings.session_cookie_name,
+        path="/",
+        samesite=_cookie_samesite(),
+        secure=settings.is_production,
+    )
     return response
