@@ -146,7 +146,16 @@ def migrate_table(supabase, session, table: str) -> int:
     from app.db.vectors import upsert_vector
 
     model = _model_for(table)
-    rows = _fetch_all(supabase, table)
+    try:
+        rows = _fetch_all(supabase, table)
+    except Exception as exc:  # noqa: BLE001
+        # A source table that doesn't exist in Supabase (e.g. a feature table
+        # that was never applied there) has nothing to migrate — skip it.
+        msg = str(exc)
+        if "PGRST205" in msg or "Could not find the table" in msg:
+            logger.warning("source_table_missing_skipped", table=table)
+            return 0
+        raise
     count = 0
     for row in rows:
         kwargs = row_to_model_kwargs(table, row)
