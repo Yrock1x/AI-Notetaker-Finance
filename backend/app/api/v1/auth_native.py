@@ -107,14 +107,21 @@ async def login(provider: str, request: Request, next: str = "/dashboard"):
 @router.get("/callback/{provider}")
 async def callback(provider: str, request: Request, session: Session = Depends(get_db)):
     client = _client(provider)
+    # Microsoft's `common` OIDC metadata declares a templated issuer
+    # (https://login.microsoftonline.com/{tenantid}/v2.0), so exact id_token
+    # issuer validation fails. Suppress ONLY the iss check for Microsoft —
+    # signature, audience (client_id), expiry, and nonce are still enforced.
+    extra = {"claims_options": {"iss": {}}} if provider == "microsoft" else {}
     try:
-        token = await client.authorize_access_token(request)
+        token = await client.authorize_access_token(request, **extra)
     except OAuthError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth failed")
     userinfo = token.get("userinfo")
     if not userinfo:
         userinfo = await client.userinfo(token=token)
-    email = userinfo.get("email")
+    # Microsoft id_tokens frequently omit `email`; the UPN in
+    # `preferred_username` is the user's email in practice.
+    email = userinfo.get("email") or userinfo.get("preferred_username")
     if not email:
         raise HTTPException(status_code=400, detail="Provider returned no email")
 
