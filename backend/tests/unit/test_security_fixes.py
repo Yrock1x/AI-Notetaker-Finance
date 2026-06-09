@@ -19,15 +19,13 @@ from fastapi import HTTPException
 from jose import jwt as jose_jwt
 from pydantic import ValidationError
 
-from app.api.v1.meetings_upload import MAX_UPLOAD_SIZE_BYTES, UploadTicketRequest
 from app.api.v1.recall_webhooks import (
     _SEEN_TTL_SECONDS,
     _SEEN_WEBHOOK_IDS,
     _is_replay,
 )
-from app.dependencies import _verify_supabase_jwt
 from app.core.config import settings
-
+from app.dependencies import _verify_supabase_jwt
 
 # =============================================================================
 # P0 #1 — JWT signature verification (regression for verify_signature=False)
@@ -152,54 +150,9 @@ class TestRecallReplayDedupe:
         assert "old" not in _SEEN_WEBHOOK_IDS
 
 
-# =============================================================================
-# P2 — meetings_upload size cap + Pydantic schema discipline
-# =============================================================================
-
-
-class TestUploadTicketSizeCap:
-    """Guard the 5GB application-level cap on meeting uploads."""
-
-    def _payload(self, size: int) -> dict:
-        return {
-            "deal_id": str(uuid.uuid4()),
-            "filename": "video.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": size,
-        }
-
-    def test_accepts_under_cap(self):
-        body = UploadTicketRequest(**self._payload(100_000_000))
-        assert body.size_bytes == 100_000_000
-
-    def test_accepts_at_cap(self):
-        body = UploadTicketRequest(**self._payload(MAX_UPLOAD_SIZE_BYTES))
-        assert body.size_bytes == MAX_UPLOAD_SIZE_BYTES
-
-    def test_rejects_above_cap(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(MAX_UPLOAD_SIZE_BYTES + 1))
-
-    def test_rejects_zero_size(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(0))
-
-    def test_rejects_negative_size(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(-1))
-
-    def test_size_required(self):
-        """size_bytes was added as a required field — omitting it must
-        fail loudly so callers can't bypass the cap.
-        """
-        body_without_size = {
-            "deal_id": str(uuid.uuid4()),
-            "filename": "video.mp4",
-            "content_type": "video/mp4",
-        }
-        with pytest.raises(ValidationError) as exc:
-            UploadTicketRequest(**body_without_size)
-        assert "size_bytes" in str(exc.value)
+# NOTE: the upload size cap moved from the (removed) /meetings/upload-ticket
+# endpoint to the signed PUT handler — the real ingress point. Its regression
+# test now lives in tests/unit/test_storage/test_files_api.py.
 
 
 # =============================================================================

@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # by default) and as a fallback in prod if JWKS is unavailable. Hosted
     # Supabase exposes this as the "JWT Secret" in API settings.
     supabase_jwt_secret: str = ""
+    # Transitional: accept Supabase-issued bearer JWTs in get_current_user
+    # (alongside the self-issued session token) during the migration's rollback
+    # window. Set to false once the SQLite cutover is confirmed; the Supabase
+    # JWT-verification path then becomes dead code and the SUPABASE_* secrets
+    # are no longer required in production.
+    legacy_supabase_auth_enabled: bool = True
 
     # LLM — Fireworks (default)
     fireworks_api_key: str = ""
@@ -159,10 +165,14 @@ class Settings(BaseSettings):
             return self
 
         missing: list[str] = []
-        if not self.supabase_url:
-            missing.append("SUPABASE_URL")
-        if not self.supabase_service_role_key:
-            missing.append("SUPABASE_SERVICE_ROLE_KEY")
+        # Supabase secrets are only required while the legacy auth fallback is
+        # live (i.e. during the migration's rollback window). Post-cutover the
+        # worker runs entirely on the SQLite stack and these can be unset.
+        if self.legacy_supabase_auth_enabled:
+            if not self.supabase_url:
+                missing.append("SUPABASE_URL")
+            if not self.supabase_service_role_key:
+                missing.append("SUPABASE_SERVICE_ROLE_KEY")
         if not self.token_encryption_key:
             missing.append("TOKEN_ENCRYPTION_KEY")
         if not self.fireworks_api_key:

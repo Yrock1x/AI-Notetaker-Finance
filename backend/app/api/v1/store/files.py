@@ -26,6 +26,11 @@ router = APIRouter()
 # produced server-side, so they are not in this set.
 UPLOADABLE_BUCKETS = {"deal-documents", "meeting-recordings"}
 
+# Application-level cap on a single uploaded object (recordings are the large
+# case). Enforced at the PUT handler — the real ingress point — so a holder of a
+# valid signed URL can't stream an unbounded body into memory/disk.
+MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
+
 
 class UploadTicketRequest(BaseSchema):
     bucket: str
@@ -72,7 +77,21 @@ async def put_object(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature"
         )
+
+    # Reject oversize uploads up front via Content-Length so we don't buffer a
+    # huge body. Re-check the materialised length in case the header lied.
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,  # Content Too Large
+            detail="Upload exceeds maximum allowed size",
+        )
     data = await request.body()
+    if len(data) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,  # Content Too Large
+            detail="Upload exceeds maximum allowed size",
+        )
     local.save_bytes(bucket, key, data)
     return {"ok": True, "key": key}
 

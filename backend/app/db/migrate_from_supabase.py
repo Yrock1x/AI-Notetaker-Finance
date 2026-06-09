@@ -22,7 +22,20 @@ import json
 
 import structlog
 
+from app.core.config import settings
+
 logger = structlog.get_logger(__name__)
+
+
+def get_service_supabase():
+    """Service-role Supabase client — bypasses RLS. Used only by this one-shot
+    import script (the live request path no longer touches Supabase). Imported
+    lazily so the Supabase SDK isn't a runtime dependency of the worker."""
+    from supabase import create_client
+
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 # FK-dependency order: parents before children.
 TABLE_ORDER = [
@@ -199,7 +212,6 @@ def migrate_storage(supabase) -> int:
 
 
 def run(tables: list[str] | None = None, skip_storage: bool = False) -> dict:
-    from app.dependencies import get_service_supabase
     from app.db.engine import get_session_factory
 
     supabase = get_service_supabase()

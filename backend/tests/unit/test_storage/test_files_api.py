@@ -100,3 +100,23 @@ def test_get_with_bad_sig_403(make_client, seed):
     good = local.make_signed_url("deal-documents", ticket["key"])
     resp = c.get(_route(good) + "TAMPER")
     assert resp.status_code == 403, resp.text
+
+
+def test_put_rejects_oversize_upload(make_client, seed, monkeypatch):
+    """Regression: the per-object size cap is enforced at the PUT ingress point
+    (it used to live on the now-removed /meetings/upload-ticket endpoint, where
+    the real upload path never hit it). A valid signature must not let a holder
+    stream an unbounded body in."""
+    monkeypatch.setattr(files, "MAX_UPLOAD_SIZE_BYTES", 8, raising=True)
+    c = _client(make_client, seed.user_a)
+    ticket = c.post(
+        "/storage/upload-ticket",
+        json={"bucket": "meeting-recordings", "deal_id": seed.deal_a, "filename": "big.mp4"},
+    ).json()
+
+    resp = c.put(_route(ticket["upload_url"]), content=b"way too many bytes")
+    assert resp.status_code == 413, resp.text
+
+    # An at-or-under-cap body still succeeds with the same (valid) signature.
+    ok = c.put(_route(ticket["upload_url"]), content=b"smol")
+    assert ok.status_code == 200, ok.text

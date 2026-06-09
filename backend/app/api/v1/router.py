@@ -2,13 +2,11 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     analysis,
-    auth,
     auth_native,
     deliverables,
     health,
     integrations,
     internal,
-    meetings_upload,
     qa,
     recall_webhooks,
     webhooks,
@@ -17,19 +15,14 @@ from app.api.v1.qa import meeting_qa_router
 
 api_router = APIRouter()
 
-# Identity — only /me and /logout remain; sign-in is handled by Supabase Auth
-# directly from the frontend. The worker just verifies the JWT.
+# Identity — self-hosted OAuth login, session introspection, and signout.
+# (Replaces Supabase Auth; the old Supabase-only /auth router was removed.)
 api_router.include_router(health.router, prefix="/health", tags=["Health"])
-api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
-# Self-hosted OAuth login + session (replaces Supabase Auth).
 api_router.include_router(auth_native.router, prefix="/auth", tags=["Authentication"])
 
 # Server-mediated actions (need secret API keys or service-role writes).
-api_router.include_router(
-    meetings_upload.router,
-    prefix="/meetings",
-    tags=["Meetings"],
-)
+# Meeting/document uploads use the generic POST /storage/upload-ticket
+# (app/api/v1/store/files.py); the old /meetings/upload-ticket was removed.
 api_router.include_router(
     analysis.router,
     prefix="/meetings/{meeting_id}/analyses",
