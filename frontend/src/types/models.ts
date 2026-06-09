@@ -104,10 +104,14 @@ export interface Analysis {
   analysis_type: CallType;
   call_type: CallType;
   status: MeetingStatus;
+  // The worker returns `structured_output` + `model_used`; `result`/
+  // `model_version` are kept optional for backward compatibility.
+  structured_output?: Record<string, unknown>;
   result?: Record<string, unknown>;
-  model_version: string;
+  model_used?: string;
+  model_version?: string;
   processing_time_ms?: number;
-  created_by: string;
+  created_by?: string;
   created_at: string;
   updated_at: string;
 }
