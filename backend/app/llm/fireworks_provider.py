@@ -23,6 +23,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.core.config import settings
 from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 
 logger = structlog.get_logger(__name__)
@@ -32,10 +33,10 @@ FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 # Module-level concurrency cap on outbound Fireworks calls. Without this, a
 # burst of QA requests can hit Fireworks faster than its rate limiter
 # allows, producing a stampede of 429s and amplifying the original spike.
-# 20 is a sane default for a single worker process; multiplied across
-# uvicorn workers (WEB_CONCURRENCY=4) we cap at ~80 in-flight, well under
-# Fireworks' per-account RPM ceilings.
-_FIREWORKS_SEMAPHORE = asyncio.Semaphore(20)
+# The default (20) is a sane single-process cap; multiplied across uvicorn
+# workers (WEB_CONCURRENCY=4) that's ~80 in-flight, well under Fireworks'
+# per-account RPM ceilings. Override via FIREWORKS_MAX_CONCURRENCY.
+_FIREWORKS_SEMAPHORE = asyncio.Semaphore(settings.fireworks_max_concurrency)
 
 
 def _is_retryable_http(exc: BaseException) -> bool:

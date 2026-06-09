@@ -98,6 +98,31 @@ class LLMRouter:
     ) -> None:
         self._embedding_providers[name] = provider
 
+    def validate_routing(self) -> None:
+        """Fail fast if any routed task resolves to an unregistered provider or
+        a malformed model spec. Call at startup so a misconfigured deploy dies
+        immediately instead of 500ing on the first request that hits the task.
+
+        Anthropic-routed tasks are skipped while ``PREMIUM_LLM_ENABLED`` is off
+        — they're allowed to be absent until something actually routes to them
+        (``complete`` raises a clear error then).
+        """
+        for task in _DEFAULT_TASK_MODEL_MAP:
+            provider_name, _ = _resolve_model(task)  # raises on a malformed spec
+            if provider_name == "anthropic" and not _premium_llm_enabled():
+                continue
+            registry = (
+                self._embedding_providers
+                if task == TASK_EMBEDDING
+                else self._providers
+            )
+            if provider_name not in registry:
+                raise RuntimeError(
+                    f"LLM task '{task}' routes to provider '{provider_name}', "
+                    "which is not registered. Check the provider API keys "
+                    "(and PREMIUM_LLM_ENABLED for Anthropic)."
+                )
+
     async def complete(
         self,
         task_type: str,

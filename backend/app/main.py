@@ -37,14 +37,22 @@ def _init_sentry() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
     _init_sentry()
+    # Fail fast on a misconfigured LLM routing table (missing provider keys,
+    # malformed model override). Prod-only: dev/test run without provider keys
+    # and shouldn't crash on boot — a task with no provider raises clearly on
+    # first use instead.
+    if settings.is_production:
+        from app.dependencies import get_llm_router
+
+        get_llm_router().validate_routing()
     yield
 
 
 def create_app() -> FastAPI:
     """FastAPI factory — slim LLM + webhook worker.
 
-    No database session middleware: all DB access goes through Supabase
-    clients obtained via DI in ``app.dependencies``.
+    Data access is owned by the SQLAlchemy layer (``app.db``); request auth and
+    the shared LLM router are provided via DI in ``app.dependencies``.
     """
     app = FastAPI(
         title=settings.app_name,

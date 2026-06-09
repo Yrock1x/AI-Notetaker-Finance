@@ -53,6 +53,9 @@ class Settings(BaseSettings):
 
     # LLM — Fireworks (default)
     fireworks_api_key: str = ""
+    # Cap on concurrent outbound Fireworks calls per worker process — prevents a
+    # request burst from stampeding Fireworks' rate limiter into 429s.
+    fireworks_max_concurrency: int = 20
 
     # LLM — Anthropic (opt-in, gated by PREMIUM_LLM_ENABLED)
     premium_llm_enabled: bool = False
