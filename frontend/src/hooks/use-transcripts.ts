@@ -10,7 +10,7 @@ import type {
   TranscriptSegmentFilters,
   PaginatedResponse,
 } from "@/types";
-import { apiGet, ApiError, buildQuery } from "@/lib/worker-api";
+import { apiGet, NotFoundError, buildQuery } from "@/lib/worker-api";
 
 const TRANSCRIPTS_KEY = "transcripts";
 
@@ -22,7 +22,7 @@ export function useTranscript(meetingId: string | undefined) {
         return await apiGet<Transcript>(`/meetings/${meetingId}/transcript`);
       } catch (e) {
         // No transcript yet → worker 404s; surface as null like maybeSingle().
-        if (e instanceof ApiError && e.status === 404) return null;
+        if (e instanceof NotFoundError) return null;
         throw e;
       }
     },

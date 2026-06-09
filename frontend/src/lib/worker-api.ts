@@ -22,6 +22,16 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown specifically on 404 so callers can treat "not found yet" as null
+// (e.g. a transcript that hasn't been produced) without re-checking
+// `e.status === 404` in every hook.
+export class NotFoundError extends ApiError {
+  constructor(message: string, body: unknown) {
+    super(404, message, body);
+    this.name = "NotFoundError";
+  }
+}
+
 type QueryValue = string | number | boolean | null | undefined;
 
 // Build a `?a=1&b=2` string, skipping null/undefined/"" values.
@@ -77,6 +87,7 @@ async function request<T>(
     } catch {
       /* non-JSON body */
     }
+    if (res.status === 404) throw new NotFoundError(message, parsed);
     throw new ApiError(res.status, message, parsed);
   }
 
