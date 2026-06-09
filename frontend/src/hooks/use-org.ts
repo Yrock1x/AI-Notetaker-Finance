@@ -19,19 +19,13 @@ interface OrgResponse {
   role: string;
 }
 
-// Queries that hold per-org data. switchOrg drops these to avoid showing the
-// previous org's rows while the new org's queries refetch.
-const ORG_SCOPED_KEYS = [
-  "deals",
-  "meetings",
-  "documents",
-  "analyses",
-  "qa",
-  "calendar",
-  "bot-sessions",
-  "deliverables",
-  "transcripts",
-];
+// Query-key roots that are NOT org-scoped and must survive an org switch:
+// the org list itself and the auth session. Everything else holds per-org data
+// and is dropped on switch (see switchOrg). Using a denylist of global keys —
+// rather than an allowlist of org-scoped ones — means a newly-added org-scoped
+// hook is cleared automatically instead of silently leaking the previous org's
+// rows until someone remembers to extend a list.
+const GLOBAL_QUERY_KEYS = new Set(["orgs", "auth"]);
 
 export function useOrgs() {
   return useQuery<Organization[]>({
@@ -72,9 +66,14 @@ export function useOrg() {
   const switchOrg = (orgId: string) => {
     if (!orgs.some((o) => o.id === orgId) || orgId === currentOrgId) return;
     setCurrentOrgId(orgId);
-    for (const key of ORG_SCOPED_KEYS) {
-      queryClient.removeQueries({ queryKey: [key] });
-    }
+    // Drop every org-scoped query so the UI can't show the previous org's rows
+    // while the new org refetches. Keep only the genuinely-global queries.
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const root = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey;
+        return typeof root !== "string" || !GLOBAL_QUERY_KEYS.has(root);
+      },
+    });
   };
 
   return { currentOrg, orgs, switchOrg };
