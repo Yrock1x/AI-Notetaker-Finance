@@ -16,7 +16,7 @@ from uuid import UUID
 
 import structlog
 from cryptography.fernet import Fernet, InvalidToken
-from jose import JWTError, jwt
+from jose import JWTError, jwt  # type: ignore[import-untyped]  # no stubs installed
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

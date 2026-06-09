@@ -10,7 +10,7 @@ table; this module owns only the vector + the search.
 
 from __future__ import annotations
 
-import sqlite_vec
+import sqlite_vec  # type: ignore[import-untyped]  # no stubs / py.typed marker
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 

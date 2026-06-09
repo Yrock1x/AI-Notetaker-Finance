@@ -87,13 +87,10 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 plugins = ["pydantic.mypy"]
 
-[[tool.mypy.overrides]]
-module = [
-    "app.integrations.*",
-    "app.llm.*",
-    "app.services.*",
-]
-ignore_errors = true
+# NOTE: the blanket ignore_errors over app.llm.* / app.services.* /
+# app.integrations.* was removed once those packages type-checked clean — they
+# are now held to the same bar as the rest of app/. Untyped third-party imports
+# (sqlite_vec, jose) are suppressed inline at the import site.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

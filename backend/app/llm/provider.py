@@ -23,8 +23,12 @@ class LLMProvider(ABC):
     async def complete(self, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
         ...
 
+    # Plain ``def`` returning an AsyncIterator (not ``async def``):
+    # implementations are async generators (``async def`` + ``yield``), whose
+    # inferred type is AsyncIterator[str]. Annotating this as ``async def``
+    # would make mypy expect a coroutine and flag every override.
     @abstractmethod
-    async def stream(self, system_prompt: str, user_prompt: str, **kwargs) -> AsyncIterator[str]:
+    def stream(self, system_prompt: str, user_prompt: str, **kwargs) -> AsyncIterator[str]:
         ...
 
 
