@@ -87,9 +87,19 @@ def _set_session_cookie(response, token: str) -> None:
     )
 
 
+def _safe_next(path: str | None) -> str:
+    """Only allow same-site relative paths (guard against open redirect)."""
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return "/dashboard"
+    return path
+
+
 @router.get("/login/{provider}")
-async def login(provider: str, request: Request):
+async def login(provider: str, request: Request, next: str = "/dashboard"):
     client = _client(provider)
+    # Stash where to land the user after callback (survives the round-trip via
+    # the Authlib session cookie). Sanitized on the way out.
+    request.session["post_login_next"] = _safe_next(next)
     redirect_uri = f"{settings.public_api_url}/api/v1/auth/callback/{provider}"
     return await client.authorize_redirect(request, redirect_uri)
 
@@ -116,8 +126,9 @@ async def callback(provider: str, request: Request, session: Session = Depends(g
     )
     session.commit()
 
+    next_path = _safe_next(request.session.pop("post_login_next", "/dashboard"))
     session_token = issue_session_token(profile.id, email)
-    response = RedirectResponse(url=settings.frontend_url)
+    response = RedirectResponse(url=settings.frontend_url.rstrip("/") + next_path)
     _set_session_cookie(response, session_token)
     return response
 
