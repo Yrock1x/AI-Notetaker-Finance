@@ -82,7 +82,9 @@ def _storage_and_token(tmp_path, monkeypatch):
 @pytest.fixture()
 def fake_llm(monkeypatch):
     router = FakeLLMRouter()
-    monkeypatch.setattr("app.api.v1.internal.get_llm_router", lambda: router)
+    # get_llm_router moved with the embed/analyze handlers into the
+    # transcription submodule when internal.py was split into a package.
+    monkeypatch.setattr("app.api.v1.internal.transcription.get_llm_router", lambda: router)
     return router
 
 
