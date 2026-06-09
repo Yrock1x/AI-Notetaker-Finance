@@ -21,6 +21,7 @@ import {
   Users,
 } from "lucide-react";
 import { useDeal } from "@/hooks/use-deals";
+import { meetingDisplayState, isBotSessionLive } from "@/lib/meeting-status";
 import { useMeetings } from "@/hooks/use-meetings";
 import { useDealStats } from "@/hooks/use-deal-stats";
 import { useDealExtractions } from "@/hooks/use-deal-extractions";
@@ -72,8 +73,10 @@ function meetingKind(m: Meeting): string {
 }
 
 function meetingStatusBadge(m: Meeting): { label: string; color: string } | null {
-  if (m.status === "scheduled") return { label: "Upcoming", color: "var(--ws-muted)" };
-  if (m.status === "recording") return { label: "Live", color: "var(--ws-danger)" };
+  const state = meetingDisplayState(m);
+  if (state === "live") return { label: "Live", color: "var(--ws-danger)" };
+  if (state === "scheduled") return { label: "Upcoming", color: "var(--ws-muted)" };
+  if (state === "not_joined") return { label: "Not joined", color: "var(--ws-faint)" };
   if (
     m.status === "transcribing" ||
     m.status === "analyzing" ||
@@ -121,9 +124,7 @@ export default function DealOverviewPage() {
     .filter((m) => m.status !== "scheduled" && m.status !== "recording")
     .slice(0, 6);
 
-  const isLive = sessions?.some(
-    (s) => s.status === "recording" || s.status === "joining",
-  );
+  const isLive = sessions?.some(isBotSessionLive);
 
   return (
     <div

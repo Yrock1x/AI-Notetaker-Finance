@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMeeting, useUpdateMeeting } from "@/hooks/use-meetings";
+import { meetingDisplayState } from "@/lib/meeting-status";
 import { CallTypeSelector } from "@/components/analysis/call-type-selector";
 import { useAnalyses, useRunAnalysis } from "@/hooks/use-analysis";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -91,9 +92,12 @@ export default function MeetingDetailPage() {
   // clicking "Schedule Notetaker" so they can watch the bot join.
   // 'uploading' is the default status for calendar-synced meetings that
   // are waiting on the bot to arrive; treat it as a pre-live state too.
+  // Time-aware: a months-old "recording"/"scheduled" row is a stale bot that
+  // never finalized — don't force the Live panel for it.
+  const liveState = meeting ? meetingDisplayState(meeting) : "other";
   const isLive =
-    meeting?.status === "scheduled" ||
-    meeting?.status === "recording" ||
+    liveState === "live" ||
+    liveState === "scheduled" ||
     meeting?.status === "uploading";
   const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
   const [isEditingTitle, setIsEditingTitle] = useState(false);

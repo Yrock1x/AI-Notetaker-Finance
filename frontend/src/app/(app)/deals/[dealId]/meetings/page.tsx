@@ -22,6 +22,7 @@ import {
   useToggleMeetingBot,
 } from "@/hooks/use-meetings";
 import { useDealExtractions } from "@/hooks/use-deal-extractions";
+import { meetingDisplayState } from "@/lib/meeting-status";
 import { UploadDialog } from "@/components/meetings/upload-dialog";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -256,8 +257,9 @@ function MeetingRow({
 }) {
   const counts = meetingExtractionCounts(m.id, extractions);
   const d = m.meeting_date ? new Date(m.meeting_date) : new Date(m.created_at);
-  const isLive = m.status === "recording";
-  const showBot = Boolean(m.source_url) && (m.status === "scheduled" || m.status === "recording");
+  const state = meetingDisplayState(m);
+  const isLive = state === "live";
+  const showBot = Boolean(m.source_url) && (state === "scheduled" || state === "live");
   const enabled = botOverride ?? m.bot_enabled ?? true;
   const stack = attendeesFromTitle(m).map((init) => ({
     initials: init,
@@ -322,14 +324,17 @@ function MeetingRow({
               {counts.decisions} decision{counts.decisions === 1 ? "" : "s"} ·{" "}
               {counts.questions} open question{counts.questions === 1 ? "" : "s"}
             </p>
-          ) : m.status === "scheduled" || m.status === "recording" ? (
-            <p
-              className="m-0 text-[12px]"
-              style={{ color: "var(--ws-muted)" }}
-            >
-              {m.status === "recording"
-                ? "Recording in progress — extractions will appear after the call ends."
-                : "Scheduled. Bot will join automatically."}
+          ) : state === "live" ? (
+            <p className="m-0 text-[12px]" style={{ color: "var(--ws-muted)" }}>
+              Recording in progress — extractions will appear after the call ends.
+            </p>
+          ) : state === "scheduled" ? (
+            <p className="m-0 text-[12px]" style={{ color: "var(--ws-muted)" }}>
+              Scheduled. Bot will join automatically.
+            </p>
+          ) : state === "not_joined" ? (
+            <p className="m-0 text-[12px] italic" style={{ color: "var(--ws-faint)" }}>
+              Bot did not join this meeting.
             </p>
           ) : (
             <p
@@ -384,11 +389,9 @@ function MeetingRow({
             ? `${Math.floor(m.duration_seconds / 60)}:${(m.duration_seconds % 60)
                 .toString()
                 .padStart(2, "0")}`
-            : m.status === "scheduled"
-              ? "—"
-              : m.status === "recording"
-                ? "live"
-                : "—"}
+            : isLive
+              ? "live"
+              : "—"}
         </span>
         <span></span>
       </Link>
@@ -449,7 +452,7 @@ function MeetingsTimeline({
                   hour: "2-digit",
                   minute: "2-digit",
                 });
-                const isLive = m.status === "recording";
+                const isLive = meetingDisplayState(m) === "live";
                 return (
                   <Link
                     key={m.id}
