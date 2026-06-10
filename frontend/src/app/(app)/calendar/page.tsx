@@ -17,7 +17,7 @@ import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
 import { AssignMeetingDialog } from "@/components/meetings/assign-meeting-dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useOrg } from "@/hooks/use-org";
-import { useSupabaseSession } from "@/hooks/use-supabase-session";
+import { useSession } from "@/hooks/use-session";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -253,7 +253,7 @@ export default function CalendarPage() {
   const queryClient = useQueryClient();
   const toggleBotMutation = useToggleMeetingBot(undefined);
   const { currentOrg } = useOrg();
-  const { user } = useSupabaseSession();
+  const { user } = useSession();
 
   const today = new Date();
   const [view, setView] = useState<View>("month");

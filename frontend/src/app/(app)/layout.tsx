@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSupabaseSession } from "@/hooks/use-supabase-session";
+import { useSession } from "@/hooks/use-session";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
@@ -10,7 +10,7 @@ import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useSupabaseSession();
+  const { isAuthenticated, isLoading } = useSession();
   const { isDark } = useScribeTheme();
 
   useEffect(() => {

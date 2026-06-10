@@ -4,9 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  useSupabaseSession,
+  useSession,
   userDisplayName,
-} from "@/hooks/use-supabase-session";
+} from "@/hooks/use-session";
 import { OrgSwitcher } from "./org-switcher";
 import { Breadcrumbs } from "./breadcrumbs";
 import { Settings, LogOut } from "lucide-react";
@@ -18,7 +18,7 @@ export function Topbar() {
   const { isDark } = useScribeTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { user, signOut } = useSupabaseSession();
+  const { user, signOut } = useSession();
   const router = useRouter();
 
   const displayName = userDisplayName(user);

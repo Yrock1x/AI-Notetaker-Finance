@@ -1,11 +1,7 @@
 "use client";
 
-// Session hook — now backed by the worker's GET /auth/session endpoint
-// (cookie-authenticated) instead of supabase.auth. Kept under the original
-// filename + export name so consumers don't change.
-//
-// TODO: remove once all consumers migrated — this file no longer touches
-// src/lib/supabase/*.
+// Session hook — backed by the worker's GET /auth/session endpoint
+// (cookie-authenticated).
 
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,7 +16,7 @@ export interface SessionUser {
   avatar_url: string | null;
 }
 
-export interface SupabaseSessionState {
+export interface SessionState {
   user: SessionUser | null;
   // Retained for source compatibility; the worker session is cookie-based so
   // there's no client-visible session object anymore.
@@ -38,7 +34,7 @@ export function userDisplayName(user: SessionUser | null): string {
   return user.email ? user.email.split("@")[0] : "";
 }
 
-export function useSupabaseSession(): SupabaseSessionState {
+export function useSession(): SessionState {
   const queryClient = useQueryClient();
 
   const query = useQuery<SessionUser | null>({
