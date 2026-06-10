@@ -49,11 +49,15 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 
 export function useMeetingParticipants(meetingId: string | undefined) {
   const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
+  // Surfaced so the UI can tell "live over SSE" from "bridging via the slow
+  // poll" — data still arrives either way, just with higher latency.
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!meetingId) {
       setParticipants([]);
+      setIsStreamConnected(false);
       return;
     }
     let cancelled = false;
@@ -74,9 +78,11 @@ export function useMeetingParticipants(meetingId: string | undefined) {
     esRef.current = es;
     es.onopen = () => {
       streamUp = true;
+      if (!cancelled) setIsStreamConnected(true);
     };
     es.onerror = () => {
       streamUp = false;
+      if (!cancelled) setIsStreamConnected(false);
     };
     es.onmessage = (ev: MessageEvent) => {
       if (cancelled) return;
@@ -113,16 +119,18 @@ export function useMeetingParticipants(meetingId: string | undefined) {
     };
   }, [meetingId]);
 
-  return { participants };
+  return { participants, isStreamConnected };
 }
 
 export function useMeetingChat(meetingId: string | undefined) {
   const [messages, setMessages] = useState<MeetingChatMessage[]>([]);
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!meetingId) {
       setMessages([]);
+      setIsStreamConnected(false);
       return;
     }
     let cancelled = false;
@@ -143,9 +151,11 @@ export function useMeetingChat(meetingId: string | undefined) {
     esRef.current = es;
     es.onopen = () => {
       streamUp = true;
+      if (!cancelled) setIsStreamConnected(true);
     };
     es.onerror = () => {
       streamUp = false;
+      if (!cancelled) setIsStreamConnected(false);
     };
     es.onmessage = (ev: MessageEvent) => {
       if (cancelled) return;
@@ -176,5 +186,5 @@ export function useMeetingChat(meetingId: string | undefined) {
     };
   }, [meetingId]);
 
-  return { messages };
+  return { messages, isStreamConnected };
 }

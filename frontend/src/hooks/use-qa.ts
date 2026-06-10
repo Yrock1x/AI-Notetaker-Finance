@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import apiClient from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/worker-api";
 import type { QAInteraction, QARequest, QAResponse } from "@/types";
 
 const QA_KEY = "qa";
@@ -8,10 +8,7 @@ export function useQAHistory(dealId: string | undefined) {
   return useQuery({
     queryKey: [QA_KEY, dealId],
     queryFn: async () => {
-      const { data } = await apiClient.get<QAInteraction[]>(
-        `/deals/${dealId}/qa/history`
-      );
-      return data;
+      return apiGet<QAInteraction[]>(`/deals/${dealId}/qa/history`);
     },
     enabled: !!dealId,
   });
@@ -27,11 +24,7 @@ export function useAskQuestion() {
       dealId: string;
       payload: QARequest;
     }) => {
-      const { data } = await apiClient.post<QAResponse>(
-        `/deals/${dealId}/qa/ask`,
-        payload
-      );
-      return data;
+      return apiPost<QAResponse>(`/deals/${dealId}/qa/ask`, payload);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -50,11 +43,7 @@ export function useMeetingAskQuestion() {
       meetingId: string;
       payload: QARequest;
     }) => {
-      const { data } = await apiClient.post<QAResponse>(
-        `/meetings/${meetingId}/qa/ask`,
-        payload
-      );
-      return data;
+      return apiPost<QAResponse>(`/meetings/${meetingId}/qa/ask`, payload);
     },
   });
 }

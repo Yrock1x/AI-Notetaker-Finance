@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import apiClient from "@/lib/api-client";
+import { apiDelete, apiGet, apiPost } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
 import {
   Video,
@@ -79,7 +79,7 @@ export default function IntegrationsPage() {
 
   const fetchIntegrations = async () => {
     try {
-      const { data } = await apiClient.get("/integrations");
+      const data = await apiGet<Integration[]>("/integrations");
       setIntegrations(data);
     } catch {
       // Use default empty state
@@ -99,7 +99,7 @@ export default function IntegrationsPage() {
   const handleConnect = async (platform: string) => {
     setConnecting(platform);
     try {
-      const { data } = await apiClient.post(
+      const data = await apiPost<{ authorization_url?: string }>(
         `/integrations/${platform}/connect`
       );
       if (data.authorization_url) {
@@ -117,7 +117,7 @@ export default function IntegrationsPage() {
 
   const handleDisconnect = async (platform: string) => {
     try {
-      await apiClient.delete(`/integrations/${platform}/disconnect`);
+      await apiDelete(`/integrations/${platform}/disconnect`);
       await fetchIntegrations();
     } catch {
       // Handle error

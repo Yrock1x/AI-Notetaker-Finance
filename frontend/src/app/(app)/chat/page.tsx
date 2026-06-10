@@ -22,7 +22,7 @@ import {
 import { useDeals } from "@/hooks/use-deals";
 import { useMeetings } from "@/hooks/use-meetings";
 import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
-import { warmWorker } from "@/lib/api-client";
+import { ApiError, NetworkError, warmWorker } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
 import type { Citation, Deal, Meeting } from "@/types";
 
@@ -183,39 +183,21 @@ function ChatContent() {
         ),
       );
     } catch (err: unknown) {
-      let detail = "";
-      let status: number | undefined;
-      let code: string | undefined;
-      let message = "";
-      if (err && typeof err === "object") {
-        const e = err as {
-          response?: { status?: number; data?: { detail?: string } };
-          code?: string;
-          message?: string;
-        };
-        status = e.response?.status;
-        detail = e.response?.data?.detail ?? "";
-        code = e.code;
-        message = e.message ?? "";
-      }
-      // Surface enough to diagnose: HTTP status + server detail when present,
-      // otherwise fall back to the axios error code/message. Treat Railway
-      // edge failures (502/503/504) the same as ERR_NETWORK — the user-facing
-      // root cause is identical (worker not responding), and the diagnostic
-      // pointer to NEXT_PUBLIC_API_URL is more useful than a bare HTTP code.
+      const apiErr = err instanceof ApiError ? err : null;
+      // Surface enough to diagnose: HTTP status + server detail when present.
+      // Treat edge failures (502/503/504) the same as an unreachable worker —
+      // the user-facing root cause is identical (worker not responding), and
+      // the diagnostic pointer to NEXT_PUBLIC_API_URL is more useful than a
+      // bare HTTP code.
       const workerDown =
-        code === "ERR_NETWORK" ||
-        code === "ECONNABORTED" ||
-        status === 502 ||
-        status === 503 ||
-        status === 504;
+        err instanceof NetworkError ||
+        (apiErr !== null && [502, 503, 504].includes(apiErr.status));
       const text = workerDown
         ? "Couldn't reach the worker. Check NEXT_PUBLIC_API_URL and that the worker is up."
-        : detail
-          ? `${status ? `[${status}] ` : ""}${detail}`
-          : status
-            ? `Request failed with HTTP ${status}.`
-            : message || "Sorry, an error occurred while processing your question.";
+        : apiErr
+          ? `[${apiErr.status}] ${apiErr.message}`
+          : (err instanceof Error && err.message) ||
+            "Sorry, an error occurred while processing your question.";
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiMsg.id

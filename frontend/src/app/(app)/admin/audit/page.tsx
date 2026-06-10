@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import apiClient from "@/lib/api-client";
+import { apiGet, buildQuery } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import type { AuditLog } from "@/types";
@@ -15,9 +15,9 @@ export default function AuditLogsPage() {
     async function fetchLogs() {
       setLoading(true);
       try {
-        const { data } = await apiClient.get("/admin/audit-logs", {
-          params: { action: actionFilter || undefined },
-        });
+        const data = await apiGet<{ items?: AuditLog[] }>(
+          `/admin/audit-logs${buildQuery({ action: actionFilter })}`
+        );
         setLogs(data.items ?? []);
       } catch {
         setLogs([]);

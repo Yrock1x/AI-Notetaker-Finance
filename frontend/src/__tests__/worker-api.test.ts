@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   API_BASE,
   ApiError,
+  NetworkError,
   NotFoundError,
   buildQuery,
   apiGet,
@@ -136,5 +137,59 @@ describe("error contract", () => {
     );
     const err = await captureError(apiPost("/deals", {}));
     expect(err.message).toBe("422 Unprocessable Entity");
+  });
+});
+
+// Resilience ported from the retired axios client: one retry when no response
+// arrived at all, a NetworkError when the retry fails too, and a default
+// timeout signal so a hung connection can't spin forever.
+describe("network resilience", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries once after a network failure and succeeds", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(json(200, { id: "d1" }));
+
+    const pending = apiGet("/deals/d1");
+    await vi.advanceTimersByTimeAsync(800);
+    await expect(pending).resolves.toEqual({ id: "d1" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws NetworkError when the retry fails too", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const pending = captureError(apiPost("/deals", {}));
+    await vi.advanceTimersByTimeAsync(800);
+    const err = await pending;
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(err).not.toBeInstanceOf(ApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a deliberate caller-side abort", async () => {
+    const controller = new AbortController();
+    const abortErr = new DOMException("The operation was aborted.", "AbortError");
+    fetchMock.mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(abortErr);
+    });
+
+    const err = await captureError(apiGet("/deals/d1", { signal: controller.signal }));
+    expect(err).toBe(abortErr);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches a timeout signal when the caller passes none", async () => {
+    fetchMock.mockResolvedValue(json(200, {}));
+    await apiGet("/deals/d1");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 });

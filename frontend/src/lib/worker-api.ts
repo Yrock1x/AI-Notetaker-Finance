@@ -32,6 +32,24 @@ export class NotFoundError extends ApiError {
   }
 }
 
+// Thrown when no response arrived at all (connection refused, dropped TCP,
+// timeout) — after the one automatic retry below. Distinct from ApiError so
+// callers can tell "the worker said no" from "the worker isn't reachable".
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+
+// 60s ceiling so a hung connection (cold start, dropped TCP) surfaces as a
+// real error instead of a silent forever-spinner. QA is the longest
+// legitimate request (~15-25s) so 60s is plenty of headroom.
+const REQUEST_TIMEOUT_MS = 60_000;
+// When no response was received (cold start, transient TCP blip, brief CORS
+// preflight failure), retry once after a short pause.
+const NETWORK_RETRY_DELAY_MS = 800;
+
 type QueryValue = string | number | boolean | null | undefined;
 
 // Build a `?a=1&b=2` string, skipping null/undefined/"" values.
@@ -58,13 +76,30 @@ async function request<T>(
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    credentials: "include",
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    ...init,
-  });
+  const doFetch = () =>
+    fetch(`${API_BASE}${path}`, {
+      method,
+      credentials: "include",
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch (e) {
+    // A caller-supplied signal aborting is a deliberate cancellation — let it
+    // propagate. Anything else means no response arrived; retry once.
+    if (init?.signal?.aborted) throw e;
+    await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAY_MS));
+    try {
+      res = await doFetch();
+    } catch {
+      throw new NetworkError(`${method} ${path}: worker unreachable`);
+    }
+  }
 
   // 401 → bounce to login so a dropped/expired cookie doesn't leave the user
   // staring at perpetual error toasts.

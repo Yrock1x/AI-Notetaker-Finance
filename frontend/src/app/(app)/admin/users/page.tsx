@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import apiClient from "@/lib/api-client";
+import { apiGet, buildQuery } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Search, Users } from "lucide-react";
@@ -16,9 +16,9 @@ export default function AdminUsersPage() {
     async function fetchUsers() {
       setLoading(true);
       try {
-        const { data } = await apiClient.get("/admin/users", {
-          params: { search: search || undefined },
-        });
+        const data = await apiGet<{ items?: User[] }>(
+          `/admin/users${buildQuery({ search })}`
+        );
         setUsers(data.items ?? []);
       } catch {
         setUsers([]);

@@ -2,13 +2,34 @@
 
 // Side-by-side participants list + in-meeting chat feed. Both streams come
 // from Recall.ai via the ``participant_events.*`` and ``chat_messages.*``
-// webhooks and are broadcast via Supabase Realtime.
+// webhooks and fan out over the worker's SSE stream
+// (GET /meetings/{id}/stream); a slow poll bridges any stream outage.
 
 import {
   useMeetingParticipants,
   useMeetingChat,
 } from "@/hooks/use-meeting-extras";
-import { Users, MessageSquare } from "lucide-react";
+import { Users, MessageSquare, Radio, Circle } from "lucide-react";
+
+// "Live" while the SSE stream is up; "Polling" while the fallback poll is
+// bridging an outage (data still flows, just slower).
+function StreamHealth({ connected }: { connected: boolean }) {
+  return connected ? (
+    <span className="ml-auto flex items-center gap-1.5">
+      <Radio className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
+      <span className="text-[10px] font-data uppercase tracking-widest text-emerald-600">
+        Live
+      </span>
+    </span>
+  ) : (
+    <span className="ml-auto flex items-center gap-1.5">
+      <Circle className="h-3.5 w-3.5 text-[#1A1A1A]/20" />
+      <span className="text-[10px] font-data uppercase tracking-widest text-[#1A1A1A]/40">
+        Polling
+      </span>
+    </span>
+  );
+}
 
 function formatTime(iso: string | null) {
   if (!iso) return "";
@@ -23,8 +44,9 @@ function formatTime(iso: string | null) {
 }
 
 export function AttendeesPanel({ meetingId }: { meetingId: string }) {
-  const { participants } = useMeetingParticipants(meetingId);
-  const { messages } = useMeetingChat(meetingId);
+  const { participants, isStreamConnected: participantsLive } =
+    useMeetingParticipants(meetingId);
+  const { messages, isStreamConnected: chatLive } = useMeetingChat(meetingId);
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
@@ -35,6 +57,7 @@ export function AttendeesPanel({ meetingId }: { meetingId: string }) {
           <h3 className="text-sm font-bold text-primary">
             Participants ({participants.length})
           </h3>
+          <StreamHealth connected={participantsLive} />
         </header>
         {participants.length === 0 ? (
           <p className="text-xs text-[#1A1A1A]/40">
@@ -78,6 +101,7 @@ export function AttendeesPanel({ meetingId }: { meetingId: string }) {
           <h3 className="text-sm font-bold text-primary">
             In-meeting chat ({messages.length})
           </h3>
+          <StreamHealth connected={chatLive} />
         </header>
         {messages.length === 0 ? (
           <p className="text-xs text-[#1A1A1A]/40">

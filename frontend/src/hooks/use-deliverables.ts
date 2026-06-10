@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import apiClient from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/worker-api";
 
 export interface Deliverable {
   id: string;
@@ -18,10 +18,7 @@ export function useDeliverables(dealId: string | undefined) {
   return useQuery({
     queryKey: [DELIVERABLES_KEY, dealId],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ items: Deliverable[] }>(
-        `/deals/${dealId}/deliverables`
-      );
-      return data;
+      return apiGet<{ items: Deliverable[] }>(`/deals/${dealId}/deliverables`);
     },
     enabled: !!dealId,
   });
@@ -31,11 +28,9 @@ export function useGenerateDeliverable() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ dealId, type }: { dealId: string; type: string }) => {
-      const { data } = await apiClient.post<Deliverable>(
-        `/deals/${dealId}/deliverables/generate`,
-        { type }
-      );
-      return data;
+      return apiPost<Deliverable>(`/deals/${dealId}/deliverables/generate`, {
+        type,
+      });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -65,11 +60,9 @@ export function useDeliverableChat() {
       dealId: string;
       message: string;
     }) => {
-      const { data } = await apiClient.post<DeliverableChatMessage>(
-        `/deals/${dealId}/deliverables/chat`,
-        { message }
-      );
-      return data;
+      return apiPost<DeliverableChatMessage>(`/deals/${dealId}/deliverables/chat`, {
+        message,
+      });
     },
   });
 }
