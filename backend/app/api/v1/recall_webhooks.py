@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -269,13 +270,11 @@ async def recall_webhook(
         return await _handle_status_change(event, data, session)
 
     # --- Participant join / leave -------------------------------------------
-    if event.startswith("participant_events.") or event.startswith(
-        "participant."
-    ):
+    if event.startswith(("participant_events.", "participant.")):
         return await _handle_participant(event, data, session)
 
     # --- In-meeting chat -----------------------------------------------------
-    if event.startswith("chat_messages.") or event.startswith("chat."):
+    if event.startswith(("chat_messages.", "chat.")):
         return await _handle_chat(event, data, session)
 
     # ``recording.done`` / ``meeting_metadata.done`` / ``video_mixed.done``
@@ -294,7 +293,7 @@ async def _handle_transcript(
     #  2. realtime_endpoints push: {"event":"transcript.partial_data", "data":
     #     {"bot":{"id","metadata"}, "data":{"participant":{…},"words":[…]}}}
     # Normalise both into the same row before upsert so the DB stays uniform.
-    is_partial = event.endswith(".partial") or event.endswith(".partial_data")
+    is_partial = event.endswith((".partial", ".partial_data"))
 
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
@@ -372,10 +371,8 @@ async def _handle_transcript(
 
     # Broadcast to the worker's in-process pub/sub so the new SSE stream
     # delivers live segments. Never let a pub/sub hiccup fail the webhook.
-    try:
+    with contextlib.suppress(Exception):
         await publish_meeting_event(meeting_id, "transcript_segment", row)
-    except Exception:  # noqa: BLE001
-        pass
 
     return {"received": True, "handled": True, "is_partial": is_partial}
 
@@ -447,19 +444,18 @@ async def _handle_status_change(
         session.flush()
 
     meeting_id = bot_session.meeting_id
-    try:
-        await publish_meeting_event(
-            meeting_id,
-            "bot_session",
-            {
-                "id": bot_session.id,
-                "meeting_id": meeting_id,
-                "deal_id": bot_session.deal_id,
-                "status": next_status,
-            },
-        ) if meeting_id else None
-    except Exception:  # noqa: BLE001
-        pass
+    if meeting_id:
+        with contextlib.suppress(Exception):
+            await publish_meeting_event(
+                meeting_id,
+                "bot_session",
+                {
+                    "id": bot_session.id,
+                    "meeting_id": meeting_id,
+                    "deal_id": bot_session.deal_id,
+                    "status": next_status,
+                },
+            )
 
     # Keep meetings.status in sync with the bot's real lifecycle. bot_start
     # intentionally leaves the meeting at 'scheduled' until Recall confirms
@@ -470,12 +466,10 @@ async def _handle_status_change(
             if meeting is not None:
                 meeting.status = "recording"
                 session.flush()
-        try:
+        with contextlib.suppress(Exception):
             await publish_meeting_event(
                 meeting_id, "meeting", {"id": meeting_id, "status": "recording"}
             )
-        except Exception:  # noqa: BLE001
-            pass
     elif next_status == "completed" and meeting_id:
         # Bot meetings take a dedicated pipeline that pulls the authoritative
         # transcript + participants from Recall's recording shortcuts —
@@ -510,7 +504,8 @@ async def _handle_participant(
     """
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_inner = data.get("data")
+    inner: dict = raw_inner if isinstance(raw_inner, dict) else {}
 
     bot_session = _session_for_bot(session, bot_id)
     if not bot_session or not bot_session.meeting_id:
@@ -538,10 +533,7 @@ async def _handle_participant(
         or data.get("timestamp")
         or data.get("updated_at")
     )
-    if isinstance(raw_ts, dict):
-        timestamp = raw_ts.get("absolute")
-    else:
-        timestamp = raw_ts
+    timestamp = raw_ts.get("absolute") if isinstance(raw_ts, dict) else raw_ts
 
     row: dict = {
         "meeting_id": meeting_id,
@@ -572,10 +564,8 @@ async def _handle_participant(
             session.add(MeetingParticipant(**row))
         session.flush()
 
-    try:
+    with contextlib.suppress(Exception):
         await publish_meeting_event(meeting_id, "participant", row)
-    except Exception:  # noqa: BLE001
-        pass
     return {"received": True, "handled": True, "action": action}
 
 
@@ -590,7 +580,8 @@ async def _handle_chat(
     """
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_inner = data.get("data")
+    inner: dict = raw_inner if isinstance(raw_inner, dict) else {}
 
     bot_session = _session_for_bot(session, bot_id)
     if not bot_session or not bot_session.meeting_id:
@@ -645,8 +636,6 @@ async def _handle_chat(
             session.add(MeetingChatMessage(**row))
         session.flush()
 
-    try:
+    with contextlib.suppress(Exception):
         await publish_meeting_event(meeting_id, "chat", row)
-    except Exception:  # noqa: BLE001
-        pass
     return {"received": True, "handled": True}

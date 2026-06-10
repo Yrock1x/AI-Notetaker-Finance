@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from sqlalchemy.engine import Engine
 
+# Importing models registers them on Base.metadata.
+import app.db.models  # noqa: F401
 from app.db.base import Base
 from app.db.engine import get_engine
 from app.db.vectors import create_vec_table
-
-# Importing models registers them on Base.metadata.
-import app.db.models  # noqa: F401
 
 
 def init_schema(engine: Engine | None = None) -> None:

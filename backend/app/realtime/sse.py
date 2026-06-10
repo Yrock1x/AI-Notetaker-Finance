@@ -56,7 +56,7 @@ def stream_meeting(
                     event = await asyncio.wait_for(
                         queue.get(), timeout=HEARTBEAT_INTERVAL
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # No event in the interval — send a heartbeat comment.
                     yield ": heartbeat\n\n"
                     continue

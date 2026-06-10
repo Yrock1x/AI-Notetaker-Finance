@@ -51,12 +51,16 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run type-check
+      - name: Test
+        run: npm test
       - name: Lint
         run: ESLINT_USE_FLAT_CONFIG=false npm run lint
       - name: Build
         run: npm run build
         env:
-          # Public placeholder values — real secrets come from Vercel at deploy.
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          # Placeholder values — real secrets come from Vercel at deploy. The
+          # /api/inngest route fails the build without a signing key (its
+          # production fail-fast), which is exactly what we want on Vercel but
+          # not here; the placeholder satisfies the compile-time check only.
           NEXT_PUBLIC_API_URL: https://worker.example.com
+          INNGEST_SIGNING_KEY: signkey-test-ci-placeholder

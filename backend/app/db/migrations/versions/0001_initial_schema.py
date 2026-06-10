@@ -12,11 +12,10 @@ from __future__ import annotations
 
 from alembic import op
 
-from app.db.base import Base
-from app.db.vectors import create_vec_table
-
 # Importing models registers them on Base.metadata.
 import app.db.models  # noqa: F401
+from app.db.base import Base
+from app.db.vectors import create_vec_table
 
 revision = "0001_initial"
 down_revision = None

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db.models import Analysis, Document, Meeting
-from app.llm.router import LLMRouter, TASK_IC_MEMO
+from app.llm.router import TASK_IC_MEMO, LLMRouter
 
 logger = structlog.get_logger(__name__)
 

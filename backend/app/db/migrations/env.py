@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from alembic import context
 
-from app.db.base import Base
-from app.db.engine import get_engine
-
 # Register models on the metadata for autogenerate.
 import app.db.models  # noqa: F401
+from app.db.base import Base
+from app.db.engine import get_engine
 
 target_metadata = Base.metadata
 

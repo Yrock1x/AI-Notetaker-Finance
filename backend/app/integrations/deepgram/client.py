@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import structlog
-
 from deepgram import AsyncDeepgramClient as DGClient
 
 from app.integrations.deepgram.config import DEEPGRAM_CONFIG
@@ -81,7 +80,7 @@ class DeepgramClient:
 
             return response.model_dump()
 
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             logger.error(
                 "deepgram.transcribe_file.timeout",
                 audio_url=audio_url,
@@ -146,7 +145,7 @@ class DeepgramClient:
 
             return response.model_dump()
 
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             logger.error(
                 "deepgram.transcribe_bytes.timeout",
                 mimetype=mimetype,

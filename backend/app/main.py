@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
     # exception handler converts RateLimitExceeded into a 429 response.
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # Session middleware — used by Authlib to hold the OAuth state between
     # /auth/login and /auth/callback. Secret reuses a configured signing key.

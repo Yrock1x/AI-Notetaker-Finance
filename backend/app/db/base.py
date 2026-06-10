@@ -11,7 +11,7 @@ Type mapping from the old Postgres schema:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -24,7 +24,7 @@ def gen_uuid() -> str:
 
 def utcnow_iso() -> str:
     """Current UTC time as ISO-8601 — replaces Postgres ``now()``."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Base(DeclarativeBase):

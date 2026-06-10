@@ -68,7 +68,7 @@ def _client(provider: str):
     return client
 
 
-def _cookie_samesite() -> "Literal['lax', 'none']":
+def _cookie_samesite() -> Literal['lax', 'none']:
     # Frontend (vercel.app) and worker (fly.dev) are cross-site, so the session
     # cookie must be SameSite=None (+Secure) to ride the frontend's credentialed
     # fetches. Locally (http) fall back to lax since None requires Secure/https.
@@ -95,7 +95,7 @@ def _safe_next(path: str | None) -> str:
 
 
 @router.get("/login/{provider}")
-async def login(provider: str, request: Request, next: str = "/dashboard"):
+async def login(provider: str, request: Request, next: str = "/dashboard"):  # noqa: A002 — `next` is the public query-param name
     client = _client(provider)
     # Stash where to land the user after callback (survives the round-trip via
     # the Authlib session cookie). Sanitized on the way out.
@@ -111,11 +111,13 @@ async def callback(provider: str, request: Request, session: Session = Depends(g
     # (https://login.microsoftonline.com/{tenantid}/v2.0), so exact id_token
     # issuer validation fails. Suppress ONLY the iss check for Microsoft —
     # signature, audience (client_id), expiry, and nonce are still enforced.
-    extra = {"claims_options": {"iss": {}}} if provider == "microsoft" else {}
+    extra: dict = {"claims_options": {"iss": {}}} if provider == "microsoft" else {}
     try:
         token = await client.authorize_access_token(request, **extra)
-    except OAuthError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth failed")
+    except OAuthError as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth failed"
+        ) from err
     userinfo = token.get("userinfo")
     if not userinfo:
         userinfo = await client.userinfo(token=token)

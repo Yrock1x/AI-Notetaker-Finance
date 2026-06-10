@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Meeting, OrgMembership
 
 
-class AccessDenied(Exception):
+class AccessDenied(Exception):  # noqa: N818 — established name, raised/caught across the app
     """Raised when a principal tries to touch data outside their orgs."""
 
 

@@ -96,6 +96,8 @@ def _dedupe_zoom_google_rows(
     # same start time down to the second, so that's a stable join key.
     by_date: dict[str, list[Meeting]] = {}
     for r in rows:
+        if r.meeting_date is None:
+            continue
         by_date.setdefault(r.meeting_date, []).append(r)
 
     for date_rows in by_date.values():

@@ -72,10 +72,16 @@ class ClaudeProvider(LLMProvider):
             log.warning("claude_rate_limit", error=str(exc))
             raise
         except anthropic.APIError as exc:
-            log.error("claude_api_error", status_code=getattr(exc, "status_code", None), error=str(exc))
+            log.error(
+                "claude_api_error",
+                status_code=getattr(exc, "status_code", None),
+                error=str(exc),
+            )
             raise
         except Exception as exc:
-            log.error("claude_unexpected_error", error=str(exc), error_type=type(exc).__name__)
+            log.error(
+                "claude_unexpected_error", error=str(exc), error_type=type(exc).__name__
+            )
             raise
 
     async def stream(self, system_prompt: str, user_prompt: str, **kwargs) -> AsyncIterator[str]:
@@ -112,7 +118,11 @@ class ClaudeProvider(LLMProvider):
             log.warning("claude_rate_limit", error=str(exc))
             raise
         except anthropic.APIError as exc:
-            log.error("claude_api_error", status_code=getattr(exc, "status_code", None), error=str(exc))
+            log.error(
+                "claude_api_error",
+                status_code=getattr(exc, "status_code", None),
+                error=str(exc),
+            )
             raise
         except Exception as exc:
             log.error(

@@ -25,9 +25,9 @@ from sqlalchemy.orm import Session
 from app.db.models import Analysis, Deal, Meeting, TranscriptSegment
 from app.llm.prompts.base import BasePromptTemplate
 from app.llm.router import (
-    LLMRouter,
     TASK_IC_MEMO,
     TASK_SUMMARIZATION,
+    LLMRouter,
 )
 
 logger = structlog.get_logger(__name__)

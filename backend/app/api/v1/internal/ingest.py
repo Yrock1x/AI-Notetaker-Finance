@@ -311,7 +311,11 @@ async def teams_ingest_call_record(
     persisted = 0
     for p in participants:
         identity = (p.get("user") or {}) if isinstance(p, dict) else {}
-        display_name = identity.get("displayName") or p.get("displayName") if isinstance(p, dict) else None
+        display_name = (
+            (identity.get("displayName") or p.get("displayName"))
+            if isinstance(p, dict)
+            else None
+        )
         upn = (
             identity.get("userPrincipalName")
             or (p.get("userPrincipalName") if isinstance(p, dict) else None)
@@ -359,7 +363,8 @@ async def teams_ingest_call_record(
             )
 
     logger.info(
-        "teams_call_record_fetched call_record_id=%s organizer=%s participants=%d persisted=%d meeting_id=%s",
+        "teams_call_record_fetched call_record_id=%s organizer=%s "
+        "participants=%d persisted=%d meeting_id=%s",
         body.call_record_id,
         organizer,
         len(participants),

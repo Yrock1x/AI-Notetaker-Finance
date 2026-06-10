@@ -58,7 +58,7 @@ def _assert_supported(platform: str) -> Platform:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported platform '{platform}'",
         )
-    return cast(Platform, platform)
+    return cast("Platform", platform)
 
 
 def _resolve_default_org(session: Session, user_id: UUID) -> UUID:

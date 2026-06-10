@@ -160,33 +160,32 @@ class FireworksProvider(LLMProvider):
         log = logger.bind(provider="fireworks", model=self.model)
         log.info("fireworks_stream_start")
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{FIREWORKS_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    payload = line[len("data: ") :].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        import json as _json
+        async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+            "POST",
+            f"{FIREWORKS_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                payload = line[len("data: ") :].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    import json as _json
 
-                        chunk = _json.loads(payload)
-                    except ValueError:
-                        continue
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta = (choice.get("delta") or {}).get("content")
-                    if delta:
-                        yield delta
+                    chunk = _json.loads(payload)
+                except ValueError:
+                    continue
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = (choice.get("delta") or {}).get("content")
+                if delta:
+                    yield delta
 
         log.info("fireworks_stream_complete")
 

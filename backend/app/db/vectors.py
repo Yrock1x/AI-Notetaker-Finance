@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite_vec  # type: ignore[import-untyped]  # no stubs / py.typed marker
 from sqlalchemy import bindparam, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from app.db.models import Embedding
@@ -28,9 +29,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {VEC_TABLE} USING vec0(
 """
 
 
-def create_vec_table(session: Session) -> None:
+def create_vec_table(target: Session | Connection) -> None:
     """Create the vec0 virtual table (idempotent). Call once at schema init."""
-    session.execute(text(_CREATE_VEC_TABLE))
+    target.execute(text(_CREATE_VEC_TABLE))
 
 
 def upsert_vector(
@@ -39,12 +40,12 @@ def upsert_vector(
     """Insert/replace the vector for an embeddings row."""
     blob = sqlite_vec.serialize_float32(vector)
     session.execute(
-        text(f"DELETE FROM {VEC_TABLE} WHERE embedding_id = :id"),
+        text(f"DELETE FROM {VEC_TABLE} WHERE embedding_id = :id"),  # noqa: S608 — constant table name, bound params
         {"id": embedding_id},
     )
     session.execute(
         text(
-            f"INSERT INTO {VEC_TABLE}(embedding_id, deal_id, embedding) "
+            f"INSERT INTO {VEC_TABLE}(embedding_id, deal_id, embedding) "  # noqa: S608 — constant table name, bound params
             "VALUES (:id, :deal, :emb)"
         ),
         {"id": embedding_id, "deal": deal_id, "emb": blob},
@@ -55,7 +56,7 @@ def delete_vectors(session: Session, embedding_ids: list[str]) -> None:
     if not embedding_ids:
         return
     stmt = text(
-        f"DELETE FROM {VEC_TABLE} WHERE embedding_id IN :ids"
+        f"DELETE FROM {VEC_TABLE} WHERE embedding_id IN :ids"  # noqa: S608 — constant table name, bound params
     ).bindparams(bindparam("ids", expanding=True))
     session.execute(stmt, {"ids": embedding_ids})
 
@@ -76,14 +77,10 @@ def match_embeddings_for_deal(
     blob = sqlite_vec.serialize_float32(query_vector)
     knn = session.execute(
         text(
-            f"""
-            SELECT embedding_id, distance
-            FROM {VEC_TABLE}
-            WHERE deal_id = :deal_id
-              AND embedding MATCH :q
-              AND k = :k
-            ORDER BY distance
-            """
+            "SELECT embedding_id, distance "  # noqa: S608 — constant table name, bound params
+            f"FROM {VEC_TABLE} "
+            "WHERE deal_id = :deal_id AND embedding MATCH :q AND k = :k "
+            "ORDER BY distance"
         ),
         {"deal_id": str(deal_id), "q": blob, "k": top_k},
     ).all()

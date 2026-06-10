@@ -40,7 +40,7 @@ def scoped_meeting_or_404(session: Session, principal: Principal, meeting_id: st
     return meeting
 
 
-def access_denied_handler(_request, exc: AccessDenied):  # noqa: ANN001
+def access_denied_handler(_request, exc: Exception):  # noqa: ANN001 — registered on the app for AccessDenied
     """Map app-layer scope violations to 403 (registered on the app)."""
     from fastapi.responses import JSONResponse
 

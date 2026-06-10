@@ -24,6 +24,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+)
+from sqlalchemy import (
     text as sa_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column

@@ -74,7 +74,10 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "ICN", "PIE", "T20", "SIM", "TCH"]
+# TCH (typing-only import blocks) is deliberately not selected: FastAPI
+# Depends, SQLAlchemy Mapped, and Pydantic models all evaluate annotations at
+# runtime, so mechanically moving imports under TYPE_CHECKING breaks them.
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "ICN", "PIE", "T20", "SIM"]
 ignore = ["S101", "B008"]
 
 [tool.ruff.lint.isort]

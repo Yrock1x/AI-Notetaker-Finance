@@ -466,8 +466,8 @@ async def bot_finalize(
             .where(MeetingParticipant.meeting_id == meeting_id)
             .where(MeetingParticipant.recall_participant_id.is_not(None))
         ).all()
-        for old in old_participants:
-            session.delete(old)
+        for old_participant in old_participants:
+            session.delete(old_participant)
         session.flush()
         for prow in participants_by_id.values():
             session.add(MeetingParticipant(**prow))
@@ -490,12 +490,14 @@ async def bot_finalize(
                 # chosen title. Placeholders all start with a known prefix.
                 current_meeting = session.get(Meeting, meeting_id)
                 cur_title = (current_meeting.title if current_meeting else "") or ""
-                if current_meeting is not None and (
-                    cur_title.startswith("Bot meeting — ")
-                    or cur_title.startswith("Live meeting — ")
-                    or cur_title.startswith("Zoom call — ")
-                    or cur_title.startswith("Teams meeting — ")
-                    or cur_title.startswith("Google Meet — ")
+                if current_meeting is not None and cur_title.startswith(
+                    (
+                        "Bot meeting — ",
+                        "Live meeting — ",
+                        "Zoom call — ",
+                        "Teams meeting — ",
+                        "Google Meet — ",
+                    )
                 ):
                     current_meeting.title = real_title
                     session.flush()

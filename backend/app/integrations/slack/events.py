@@ -44,7 +44,7 @@ class SlackEventHandler:
 
     def __init__(
         self,
-        session: "Session | None" = None,
+        session: Session | None = None,
         org_id: str | None = None,
     ) -> None:
         # When both are supplied the slash-command sub-handlers run real

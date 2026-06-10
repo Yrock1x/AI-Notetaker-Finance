@@ -15,7 +15,7 @@ from app.db.models import TranscriptSegment
 from app.llm.chunking import _estimate_tokens
 from app.llm.guardrails import FinancialGuardrails
 from app.llm.prompts.qa import RAG_QA
-from app.llm.router import LLMRouter, TASK_QA_MEETING, TASK_QA_RAG
+from app.llm.router import TASK_QA_MEETING, TASK_QA_RAG, LLMRouter
 
 logger = structlog.get_logger(__name__)
 

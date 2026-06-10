@@ -25,7 +25,8 @@ from app.dependencies import (
 )
 from app.schemas.common import PaginatedResponse
 from app.schemas.qa import QAHistoryResponse, QARequest, QAResponse
-from app.services.qa_service import Citation as ServiceCitation, QAService
+from app.services.qa_service import Citation as ServiceCitation
+from app.services.qa_service import QAService
 
 
 def _llm_provider_http_error(exc: httpx.HTTPStatusError) -> HTTPException:
