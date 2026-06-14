@@ -119,10 +119,15 @@ async def rerun_analysis(
 ) -> AnalysisResponse:
     _require_meeting_org(session, principal, meeting_id)
     svc = AnalysisService(session=session, llm_router=get_llm_router())
+    # Confirm the analysis belongs to this (org-scoped) meeting BEFORE running
+    # the billed LLM rerun — otherwise a cross-meeting analysis_id triggers a
+    # paid rerun before the 404.
     try:
-        row = await svc.rerun_analysis(analysis_id)
+        existing = await svc.get_analysis(analysis_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if row["meeting_id"] != str(meeting_id):
+    if existing["meeting_id"] != str(meeting_id):
         raise HTTPException(status_code=404, detail="Analysis not in meeting")
+
+    row = await svc.rerun_analysis(analysis_id)
     return AnalysisResponse.model_validate(row)

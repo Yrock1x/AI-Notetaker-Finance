@@ -5,9 +5,9 @@
 // meeting detail page can embed it as a "Live" tab while the bot is
 // recording.
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Circle, Radio } from "lucide-react";
-import { useLiveTranscript } from "@/hooks/use-live-transcript";
+import { useLiveTranscript, type LiveSegment } from "@/hooks/use-live-transcript";
 import { LoadingState } from "@/components/shared/loading-state";
 
 const SPEAKER_COLORS = [
@@ -32,6 +32,33 @@ function formatClock(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
+
+// Memoized so a new partial segment only re-renders the row that changed —
+// mergeSegment preserves the object reference of every unchanged segment, so
+// this skips re-rendering the (potentially hundreds of) rows above it.
+const SegmentRow = memo(function SegmentRow({ seg }: { seg: LiveSegment }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex-shrink-0 w-14 pt-0.5 text-[10px] font-data uppercase text-[#1A1A1A]/30">
+        {formatClock(seg.start_time)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className={`text-xs font-heading font-bold ${speakerColor(seg.speaker_label)}`}
+        >
+          {seg.speaker_name || seg.speaker_label}
+        </div>
+        <p
+          className={`text-sm leading-relaxed ${
+            seg.is_partial ? "italic text-[#1A1A1A]/50" : "text-[#1A1A1A]/85"
+          }`}
+        >
+          {seg.text}
+        </p>
+      </div>
+    </div>
+  );
+});
 
 export function LiveTranscriptPanel({
   meetingId,
@@ -92,27 +119,7 @@ export function LiveTranscriptPanel({
           </p>
         ) : (
           segments.map((seg) => (
-            <div key={seg.recall_segment_id || seg.id} className="flex gap-3">
-              <div className="flex-shrink-0 w-14 pt-0.5 text-[10px] font-data uppercase text-[#1A1A1A]/30">
-                {formatClock(seg.start_time)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div
-                  className={`text-xs font-heading font-bold ${speakerColor(seg.speaker_label)}`}
-                >
-                  {seg.speaker_name || seg.speaker_label}
-                </div>
-                <p
-                  className={`text-sm leading-relaxed ${
-                    seg.is_partial
-                      ? "italic text-[#1A1A1A]/50"
-                      : "text-[#1A1A1A]/85"
-                  }`}
-                >
-                  {seg.text}
-                </p>
-              </div>
-            </div>
+            <SegmentRow key={seg.recall_segment_id || seg.id} seg={seg} />
           ))
         )}
       </div>

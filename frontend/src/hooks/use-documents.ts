@@ -12,6 +12,7 @@ import type {
   PaginatedResponse,
 } from "@/types";
 import { apiGet, apiPost } from "@/lib/worker-api";
+import { sendInngestEvent } from "@/lib/inngest-send";
 
 const DOCUMENTS_KEY = "documents";
 const DOCUMENTS_BUCKET = "deal-documents";
@@ -91,13 +92,9 @@ export function useConfirmDocumentUpload() {
         }
       );
 
-      await fetch("/api/inngest/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "document/uploaded",
-          data: { document_id: doc.id, deal_id: payload.deal_id },
-        }),
+      await sendInngestEvent("document/uploaded", {
+        document_id: doc.id,
+        deal_id: payload.deal_id,
       });
 
       return doc;

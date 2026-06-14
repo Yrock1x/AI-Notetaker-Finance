@@ -28,6 +28,7 @@ from app.auth.passwords import (
 from app.auth.provisioning import get_or_create_user
 from app.auth.tokens import DEFAULT_TTL_SECONDS, issue_session_token
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.deps import get_db
 from app.db.models import Profile
 from app.dependencies import AuthUser, get_current_user
@@ -245,7 +246,10 @@ async def callback(provider: str, request: Request, session: Session = Depends(g
 
 
 @router.post("/register")
-def register(payload: RegisterRequest, session: Session = Depends(get_db)) -> JSONResponse:
+@limiter.limit("10/hour")
+def register(
+    request: Request, payload: RegisterRequest, session: Session = Depends(get_db)
+) -> JSONResponse:
     email = _normalize_email(payload.email)
     _validate_password(payload.password)
 
@@ -279,7 +283,10 @@ def register(payload: RegisterRequest, session: Session = Depends(get_db)) -> JS
 
 
 @router.post("/login")
-def login_password(payload: LoginRequest, session: Session = Depends(get_db)) -> JSONResponse:
+@limiter.limit("10/minute")
+def login_password(
+    request: Request, payload: LoginRequest, session: Session = Depends(get_db)
+) -> JSONResponse:
     email = _normalize_email(payload.email)
     profile = session.scalar(
         select(Profile).where(func.lower(Profile.email) == email.lower())

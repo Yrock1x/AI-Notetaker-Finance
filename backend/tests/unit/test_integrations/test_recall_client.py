@@ -11,7 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.integrations.recall.client import DEFAULT_BASE_URL, RecallClient
+from app.integrations.recall.client import (
+    DEFAULT_REGION,
+    RecallClient,
+    _base_url_for_region,
+)
+
+# The client now derives its base URL from a region (DEFAULT_BASE_URL was
+# renamed/removed). A client constructed with no explicit region uses this.
+DEFAULT_BASE_URL = _base_url_for_region(DEFAULT_REGION)
 
 # ---------------------------------------------------------------------------
 # Fixtures

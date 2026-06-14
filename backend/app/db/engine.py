@@ -50,10 +50,21 @@ def create_db_engine(db_path: str | None = None) -> Engine:
     threadpool workers; each thread still uses its own pooled connection.
     """
     path = db_path or DEFAULT_DB_PATH
+    # Size the pool explicitly rather than relying on QueuePool's silent 5+10
+    # default. FastAPI runs sync handlers in a threadpool, so several requests
+    # can each check out a connection concurrently; the default 15 is easy to
+    # exhaust (e.g. a burst of reads + the live-meeting SSE scope checks), after
+    # which every other request blocks for pool_timeout then 500s. WAL readers
+    # are cheap, so a larger ceiling is fine. Overridable via env.
+    pool_size = int(os.getenv("SQLITE_POOL_SIZE", "20"))
+    max_overflow = int(os.getenv("SQLITE_MAX_OVERFLOW", "20"))
     engine = create_engine(
         _sqlite_url(path),
         future=True,
         connect_args={"check_same_thread": False},
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=30,
     )
     event.listen(engine, "connect", _configure_connection)
     logger.info("sqlite_engine_created", path=path)

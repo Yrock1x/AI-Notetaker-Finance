@@ -16,17 +16,22 @@ import { inngest } from "@/lib/inngest/client";
 const WORKER_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 const API_BASE = `${WORKER_URL}/api/v1`;
 
+// Events the BROWSER fires through this relay. bot/scheduled + bot/cancelled
+// are NOT here: scheduling/cancelling now goes through the worker REST API
+// (use-bot-sessions), and those events are produced server-side (cron fanout +
+// worker). The on-demand calendar refresh and bot auto-schedule nudges DO come
+// from the client and must be allowlisted or they silently 400.
 type AllowedEventName =
   | "meeting/uploaded"
   | "document/uploaded"
-  | "bot/scheduled"
-  | "bot/cancelled";
+  | "calendar/refresh.requested"
+  | "bot/auto-schedule.requested";
 
 const ALLOWED_EVENTS: ReadonlySet<AllowedEventName> = new Set<AllowedEventName>([
   "meeting/uploaded",
   "document/uploaded",
-  "bot/scheduled",
-  "bot/cancelled",
+  "calendar/refresh.requested",
+  "bot/auto-schedule.requested",
 ]);
 
 function isUuid(v: unknown): v is string {
@@ -54,7 +59,8 @@ async function workerGet(path: string, cookie: string): Promise<number> {
 async function authorizeEvent(
   cookie: string,
   name: AllowedEventName,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  userId: string | undefined
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   switch (name) {
     case "meeting/uploaded": {
@@ -79,31 +85,17 @@ async function authorizeEvent(
       }
       return { ok: true };
     }
-    case "bot/scheduled":
-    case "bot/cancelled": {
-      const sessionId = data.session_id;
-      if (!isUuid(sessionId)) {
-        return { ok: false, status: 400, error: "session_id required" };
+    case "calendar/refresh.requested": {
+      // refreshCalendarForUser re-scopes integrations to the invoking user
+      // server-side; just confirm the event targets the session's own user.
+      if (data.user_id !== userId) {
+        return { ok: false, status: 403, error: "user_id mismatch" };
       }
-      // No single-session GET on the worker; list the caller's sessions
-      // (org-scoped) and confirm the id is among them.
-      try {
-        const res = await fetch(`${API_BASE}/bot-sessions`, {
-          method: "GET",
-          headers: { Accept: "application/json", cookie },
-          redirect: "manual",
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          return { ok: false, status: 403, error: "bot session not accessible" };
-        }
-        const sessions = (await res.json()) as Array<{ id: string }>;
-        if (!sessions.some((s) => s.id === sessionId)) {
-          return { ok: false, status: 403, error: "bot session not accessible" };
-        }
-      } catch {
-        return { ok: false, status: 502, error: "ownership check failed" };
-      }
+      return { ok: true };
+    }
+    case "bot/auto-schedule.requested": {
+      // Empty payload; the worker function is fully org-scoped via the
+      // forwarded session cookie. A valid session (checked below) is enough.
       return { ok: true };
     }
   }
@@ -153,7 +145,7 @@ export async function POST(request: NextRequest) {
   }
 
   const data = body.data ?? {};
-  const decision = await authorizeEvent(cookie, name, data);
+  const decision = await authorizeEvent(cookie, name, data, userId);
   if (!decision.ok) {
     return NextResponse.json({ error: decision.error }, { status: decision.status });
   }

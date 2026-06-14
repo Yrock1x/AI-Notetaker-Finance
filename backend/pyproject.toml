@@ -13,10 +13,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.9",
 
-    # Supabase (Postgres + Auth + Storage) — being migrated out; kept until cutover
-    "supabase>=2.8.0",
-
-    # SQLite data layer (migration target: worker-owned DB)
+    # SQLite data layer (worker-owned DB)
     "sqlalchemy>=2.0.0",
     "alembic>=1.13.0",
     "sqlite-vec>=0.1.6",        # vec0 virtual table + server-side KNN

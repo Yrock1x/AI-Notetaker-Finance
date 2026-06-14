@@ -5,9 +5,8 @@
 // dedicated server endpoint), so it stays in sync with whatever RLS
 // returns and doesn't require a new API route.
 
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/worker-api";
 import type { Meeting } from "@/types";
+import { useMeetings } from "./use-meetings";
 import { useDealExtractions } from "./use-deal-extractions";
 
 export interface DealStats {
@@ -19,38 +18,20 @@ export interface DealStats {
   totalMeetings: number;
 }
 
-interface MeetingStat {
-  id: string;
-  meeting_date: string | null;
-  duration_seconds: number | null;
-  created_at: string;
-}
-
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function useDealStats(dealId: string | undefined): {
   data?: DealStats;
   isLoading: boolean;
 } {
-  const meetingsQ = useQuery<MeetingStat[]>({
-    queryKey: ["deal-stats-meetings", dealId],
-    enabled: !!dealId,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const rows = await apiGet<Meeting[]>(`/deals/${dealId}/meetings`);
-      return rows.map((m) => ({
-        id: m.id,
-        meeting_date: m.meeting_date ?? null,
-        duration_seconds: m.duration_seconds ?? null,
-        created_at: m.created_at,
-      })) as MeetingStat[];
-    },
-  });
+  // Reuse the shared meetings query (same ["meetings", dealId] cache entry as
+  // useMeetings / useDealExtractions) rather than fetching /meetings again.
+  const meetingsQ = useMeetings(dealId);
 
   const extractionsQ = useDealExtractions(dealId);
 
   const data = ((): DealStats | undefined => {
-    const meetings = meetingsQ.data;
+    const meetings = meetingsQ.data?.items;
     const ext = extractionsQ.data;
     if (!meetings || !ext) return undefined;
 
@@ -58,7 +39,7 @@ export function useDealStats(dealId: string | undefined): {
     const thisWeekStart = now - ONE_WEEK_MS;
     const lastWeekStart = thisWeekStart - ONE_WEEK_MS;
 
-    const dateOf = (m: MeetingStat) =>
+    const dateOf = (m: Meeting) =>
       new Date(m.meeting_date || m.created_at).getTime();
 
     const thisWeek = meetings.filter((m) => dateOf(m) >= thisWeekStart).length;

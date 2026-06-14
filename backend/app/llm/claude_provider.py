@@ -7,11 +7,23 @@ from app.llm.provider import LLMProvider, LLMResponse
 
 logger = structlog.get_logger(__name__)
 
+# Opus 4.7+ removed the sampling parameters (temperature / top_p / top_k):
+# sending any of them returns HTTP 400. Strip temperature for those models so a
+# premium-task override to an Opus model doesn't hard-fail. (Sonnet 4.6 still
+# accepts temperature.) See the claude-api skill.
+_NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+
+
+def _accepts_temperature(model: str) -> bool:
+    return not model.startswith(_NO_SAMPLING_PREFIXES)
+
 
 class ClaudeProvider(LLMProvider):
     """LLM provider backed by Anthropic Claude models."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
+    # claude-sonnet-4-20250514 (Sonnet 4) is deprecated; claude-sonnet-4-6 is
+    # the current drop-in. Override per task via LLM_MODEL_FOR_<TASK>.
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6") -> None:
         self.model = model
         # Anthropic SDK has built-in retry on 429/5xx with exponential backoff;
         # set the values explicitly so they don't drift on SDK upgrades. 3
@@ -36,13 +48,16 @@ class ClaudeProvider(LLMProvider):
         log = logger.bind(model=self.model, max_tokens=max_tokens, temperature=temperature)
         log.info("claude_complete_start")
 
+        sampling: dict = (
+            {"temperature": temperature} if _accepts_temperature(self.model) else {}
+        )
         try:
             response = await self._client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
-                temperature=temperature,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                **sampling,
                 **kwargs,
             )
 
@@ -97,13 +112,16 @@ class ClaudeProvider(LLMProvider):
         log = logger.bind(model=self.model, max_tokens=max_tokens, temperature=temperature)
         log.info("claude_stream_start")
 
+        sampling: dict = (
+            {"temperature": temperature} if _accepts_temperature(self.model) else {}
+        )
         try:
             async with self._client.messages.stream(
                 model=self.model,
                 max_tokens=max_tokens,
-                temperature=temperature,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                **sampling,
                 **kwargs,
             ) as stream:
                 async for text in stream.text_stream:

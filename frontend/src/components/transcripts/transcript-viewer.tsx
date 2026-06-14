@@ -97,6 +97,14 @@ export function TranscriptViewer({ meetingId }: TranscriptViewerProps) {
             <div
               key={segment.id}
               className="flex gap-3 rounded px-2 py-1.5 hover:bg-muted/50"
+              // Let the browser skip layout/paint for off-screen rows — a long
+              // transcript can be thousands of segments, and rendering them all
+              // janks scrolling. `contain-intrinsic-size` keeps the scrollbar
+              // stable with an estimated row height until the row is measured.
+              style={{
+                contentVisibility: "auto",
+                containIntrinsicSize: "auto 44px",
+              }}
             >
               <div className="flex shrink-0 items-start gap-2 pt-0.5">
                 <span className="text-xs text-muted-foreground tabular-nums">

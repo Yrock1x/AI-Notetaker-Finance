@@ -110,6 +110,10 @@ async def ask_question(
     principal: Principal = Depends(get_principal),
 ) -> QAResponse:
     """Ask a question scoped to a deal (RAG over all deal artefacts)."""
+    # Authorize BEFORE running the billed embed + RAG + LLM pipeline — otherwise
+    # a member of any org could spend tokens against an arbitrary deal_id (the
+    # answer is discarded on the 404, but the cost/latency is already incurred).
+    _require_deal_access(session, principal, deal_id)
     qa = QAService(session=session, llm_router=get_llm_router())
     try:
         result = await qa.ask(deal_id=deal_id, question=payload.question)

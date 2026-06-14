@@ -24,6 +24,7 @@ import {
 } from "@/components/calendar/constants";
 import { CalendarRail } from "@/components/calendar/calendar-rail";
 import { StatTile } from "@/components/calendar/stat-tile";
+import { sendInngestEvent } from "@/lib/inngest-send";
 import {
   AgendaView,
   MonthView,
@@ -71,13 +72,9 @@ export default function CalendarPage() {
       const userId = user?.id;
       if (!userId) throw new Error("not authed");
       if (!orgId) throw new Error("no org");
-      await fetch("/api/inngest/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "calendar/refresh.requested",
-          data: { org_id: orgId, user_id: userId },
-        }),
+      await sendInngestEvent("calendar/refresh.requested", {
+        org_id: orgId,
+        user_id: userId,
       });
       await new Promise((r) => setTimeout(r, 4000));
       await queryClient.invalidateQueries({

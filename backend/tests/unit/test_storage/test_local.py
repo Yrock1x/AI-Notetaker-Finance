@@ -46,22 +46,29 @@ def test_safe_path_rejects_bad_bucket():
 
 def test_sign_then_verify_valid():
     exp = int(time.time()) + 60
-    sig = local.sign("deliverables", "d1/x.pdf", exp)
-    assert local.verify("deliverables", "d1/x.pdf", exp, sig) is True
+    sig = local.sign("GET", "deliverables", "d1/x.pdf", exp)
+    assert local.verify("GET", "deliverables", "d1/x.pdf", exp, sig) is True
 
 
 def test_tampered_sig_fails():
     exp = int(time.time()) + 60
-    sig = local.sign("deliverables", "d1/x.pdf", exp)
-    assert local.verify("deliverables", "d1/x.pdf", exp, sig + "00") is False
+    sig = local.sign("GET", "deliverables", "d1/x.pdf", exp)
+    assert local.verify("GET", "deliverables", "d1/x.pdf", exp, sig + "00") is False
     # wrong key path
-    assert local.verify("deliverables", "d1/other.pdf", exp, sig) is False
+    assert local.verify("GET", "deliverables", "d1/other.pdf", exp, sig) is False
+
+
+def test_method_binding_prevents_get_sig_replayed_as_put():
+    # A signature minted for GET (download) must not validate a PUT (overwrite).
+    exp = int(time.time()) + 60
+    get_sig = local.sign("GET", "deliverables", "d1/x.pdf", exp)
+    assert local.verify("PUT", "deliverables", "d1/x.pdf", exp, get_sig) is False
 
 
 def test_expired_url_fails():
     exp = int(time.time()) - 1
-    sig = local.sign("deliverables", "d1/x.pdf", exp)
-    assert local.verify("deliverables", "d1/x.pdf", exp, sig) is False
+    sig = local.sign("GET", "deliverables", "d1/x.pdf", exp)
+    assert local.verify("GET", "deliverables", "d1/x.pdf", exp, sig) is False
 
 
 def test_make_signed_url_format():

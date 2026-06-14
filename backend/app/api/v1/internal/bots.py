@@ -101,6 +101,12 @@ async def bot_start(
         bot_session.meeting_id = meeting_id
         session.flush()
 
+    # Commit any meeting-row creation before the Recall API call so the single
+    # SQLite writer lock isn't held across the network round-trip (it would
+    # otherwise stall the live-transcript write path until busy_timeout). No-op
+    # when the meeting already existed (the block above was reads-only).
+    session.commit()
+
     recall = RecallClient(api_key=settings.recall_api_key, region=settings.recall_region)
 
     # Per-bot realtime webhook. Recall v1 only accepts transcript +
@@ -473,6 +479,11 @@ async def bot_finalize(
             session.add(MeetingParticipant(**prow))
         session.flush()
         participant_count = len(participants_by_id)
+
+    # Commit the transcript + participant writes before the metadata GET below
+    # so the SQLite writer lock isn't held across that network call. No-op when
+    # nothing was written above.
+    session.commit()
 
     # --- Meeting metadata (title) -------------------------------------------
     meta_url = ((shortcuts.get("meeting_metadata") or {}).get("data") or {}).get(

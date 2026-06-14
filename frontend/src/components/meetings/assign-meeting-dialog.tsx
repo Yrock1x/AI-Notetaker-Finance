@@ -14,6 +14,7 @@ import { X, Bot, Sparkles, CalendarClock } from "lucide-react";
 import { useDeals } from "@/hooks/use-deals";
 import { useUpdateMeeting } from "@/hooks/use-meetings";
 import { suggestDealForMeeting } from "@/lib/deal-matcher";
+import { sendInngestEvent } from "@/lib/inngest-send";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import type { Meeting } from "@/types";
 
@@ -66,16 +67,11 @@ export function AssignMeetingDialog({
       // about to start (or just started).
       if (botEnabled) {
         try {
-          await fetch("/api/inngest/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: "bot/auto-schedule.requested",
-              data: {},
-            }),
-          });
-        } catch {
-          // Non-fatal — the cron will catch it on the next tick.
+          await sendInngestEvent("bot/auto-schedule.requested");
+        } catch (err) {
+          // Non-fatal — the 5-min cron will catch it on the next tick. Log so a
+          // persistent relay failure is visible rather than silently swallowed.
+          console.warn("bot auto-schedule nudge failed", err);
         }
       }
     },

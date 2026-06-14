@@ -7,12 +7,8 @@ export interface PaginatedResponse<T> {
   has_more: boolean;
 }
 
-// API error
-export interface ApiError {
-  detail: string;
-  status_code: number;
-  errors?: Record<string, string[]>;
-}
+// NB: the API error type is the `ApiError` *class* in lib/worker-api.ts (used
+// via `instanceof`). There is intentionally no duplicate interface here.
 
 // Deal requests
 export interface DealCreate {
@@ -135,17 +131,4 @@ export interface TranscriptSegmentFilters {
   end_time?: number;
   page?: number;
   page_size?: number;
-}
-
-// Auth types
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  token_type: string;
 }

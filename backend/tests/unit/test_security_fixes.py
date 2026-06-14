@@ -15,8 +15,6 @@ import time
 import uuid
 
 import pytest
-from fastapi import HTTPException
-from jose import jwt as jose_jwt
 from pydantic import ValidationError
 
 from app.api.v1.recall_webhooks import (
@@ -24,78 +22,46 @@ from app.api.v1.recall_webhooks import (
     _SEEN_WEBHOOK_IDS,
     _is_replay,
 )
+from app.auth.tokens import issue_session_token, verify_session_token
 from app.core.config import settings
-from app.dependencies import _verify_supabase_jwt
 
 # =============================================================================
-# P0 #1 — JWT signature verification (regression for verify_signature=False)
+# Session-JWT signature verification (self-issued HS256 tokens)
 # =============================================================================
 
 
-class TestJwtHs256Verification:
-    """Guard against the verify_signature=False regression in
-    backend/app/dependencies.py:_verify_supabase_jwt.
-
-    Before the fix, ANY HS256 token decoded as authentic. After the fix:
-    - HS256 path requires SUPABASE_JWT_SECRET to be configured
-    - Tokens are verified cryptographically against that secret
-    - A token signed with the wrong secret raises 401
+class TestSessionTokenVerification:
+    """The self-issued session JWT must be cryptographically verified: a token
+    signed with a different secret (e.g. after a key rotation, or a forgery)
+    must not authenticate.
     """
 
     @pytest.fixture(autouse=True)
     def _restore_settings(self):
-        """Snapshot settings.supabase_jwt_secret around each test."""
-        original = settings.supabase_jwt_secret
+        original = settings.session_jwt_secret
         try:
             yield
         finally:
-            settings.supabase_jwt_secret = original
+            settings.session_jwt_secret = original
 
-    def _make_hs256(self, secret: str, sub: str | None = None) -> str:
-        return jose_jwt.encode(
-            {"sub": sub or str(uuid.uuid4()), "email": "u@example.com"},
-            secret,
-            algorithm="HS256",
-        )
-
-    @pytest.mark.asyncio
-    async def test_rejects_when_no_secret_configured(self):
-        """HS256 token must be rejected when SUPABASE_JWT_SECRET is unset.
-
-        Before the fix this path silently accepted unverified tokens.
-        """
-        settings.supabase_jwt_secret = ""
-        token = self._make_hs256("any-secret-here")
-
-        with pytest.raises(HTTPException) as exc:
-            await _verify_supabase_jwt(token)
-        assert exc.value.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_rejects_token_signed_with_wrong_secret(self):
-        """A forged HS256 token with the wrong secret must 401.
-
-        This is the core regression: before the fix verify_signature=False
-        meant any HS256 token decoded successfully regardless of its key.
-        """
-        settings.supabase_jwt_secret = "the-real-secret"
-        forged = self._make_hs256("attacker-controlled-secret", sub=str(uuid.uuid4()))
-
-        with pytest.raises(HTTPException) as exc:
-            await _verify_supabase_jwt(forged)
-        assert exc.value.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_accepts_correctly_signed_token(self):
-        """A token signed with the configured secret returns the claims."""
-        secret = "matching-secret"
-        settings.supabase_jwt_secret = secret
+    def test_accepts_correctly_signed_token(self):
+        settings.session_jwt_secret = "the-real-session-secret"
         sub = str(uuid.uuid4())
-        token = self._make_hs256(secret, sub=sub)
+        token = issue_session_token(sub, email="u@example.com")
 
-        claims = await _verify_supabase_jwt(token)
+        claims = verify_session_token(token)
+        assert claims is not None
         assert claims["sub"] == sub
         assert claims["email"] == "u@example.com"
+
+    def test_rejects_token_signed_with_wrong_secret(self):
+        """A token minted under one secret must stop verifying once the signing
+        secret changes — i.e. signatures are actually checked."""
+        settings.session_jwt_secret = "secret-A-original"
+        token = issue_session_token(str(uuid.uuid4()))
+
+        settings.session_jwt_secret = "secret-B-rotated-different"
+        assert verify_session_token(token) is None
 
 
 # =============================================================================

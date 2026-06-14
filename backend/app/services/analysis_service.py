@@ -151,7 +151,11 @@ class AnalysisService:
         except Exception as exc:
             analysis.status = "failed"
             analysis.error_message = str(exc)
-            self.session.flush()
+            # Commit (not just flush) so the failed status survives — the
+            # request's get_db dependency rolls the transaction back on the
+            # re-raise below, which would otherwise discard this write and leave
+            # the row stuck in "running".
+            self.session.commit()
             logger.error(
                 "analysis_failed",
                 analysis_id=analysis_id,

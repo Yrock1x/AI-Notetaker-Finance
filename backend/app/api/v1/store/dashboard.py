@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.store._common import get_db, get_principal, scoped_deal_or_404
+from app.db.base import utcnow_iso
 from app.db.models import (
     ActionItemCompletion,
     Analysis,
@@ -165,6 +166,9 @@ def upsert_action_item(
         existing.analysis_id = payload.analysis_id
         existing.action_text = payload.action_text
         existing.completed_by = principal.user_id
+        # Refresh the timestamp — re-completing should reflect the latest action,
+        # not the original (the column default only fires on insert).
+        existing.completed_at = utcnow_iso()
         row = existing
     else:
         row = ActionItemCompletion(

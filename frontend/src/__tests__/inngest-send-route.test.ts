@@ -21,7 +21,6 @@ const API_BASE = "http://worker.test/api/v1";
 const COOKIE = "cogni_session=abc123";
 const MEETING_ID = "11111111-2222-4333-8444-555555555555";
 const DOCUMENT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-const SESSION_ID = "99999999-8888-4777-8666-555555555555";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -119,12 +118,14 @@ describe("POST /api/inngest/send — event allowlist & payload validation", () =
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it("rejects events not on the allowlist (internal pipeline events)", async () => {
+  it("rejects events not on the allowlist (server-side / internal events)", async () => {
+    // bot/scheduled + bot/cancelled are produced server-side now (cron + worker);
+    // the browser must not be able to fire them through the relay.
     for (const name of [
       "meeting/bot-completed",
       "zoom/recording.completed",
-      "calendar/sync.requested",
-      "bot/auto-schedule.requested",
+      "bot/scheduled",
+      "bot/cancelled",
     ]) {
       const res = await POST(makeRequest({ name, data: {} }));
       expect(res.status).toBe(400);
@@ -148,9 +149,14 @@ describe("POST /api/inngest/send — event allowlist & payload validation", () =
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a missing session_id for bot events", async () => {
-    const res = await POST(makeRequest({ name: "bot/scheduled", data: {} }));
-    expect(res.status).toBe(400);
+  it("rejects calendar/refresh.requested when user_id does not match the session", async () => {
+    const res = await POST(
+      makeRequest({
+        name: "calendar/refresh.requested",
+        data: { org_id: "org-1", user_id: "someone-else" },
+      })
+    );
+    expect(res.status).toBe(403);
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
@@ -194,29 +200,17 @@ describe("POST /api/inngest/send — cross-tenant ownership checks", () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it("rejects bot/scheduled when the session id is not in the caller's org", async () => {
-    mockWorker({
-      "/auth/session": validSession(),
-      "/bot-sessions": json(200, [{ id: "some-other-session" }]),
-    });
+  it("rejects calendar/refresh.requested targeting another user", async () => {
+    // The relay confirms the session, then requires the event's user_id to be
+    // the session's own user (the worker function re-scopes server-side anyway).
+    mockWorker({ "/auth/session": validSession() });
     const res = await POST(
-      makeRequest({ name: "bot/scheduled", data: { session_id: SESSION_ID } })
+      makeRequest({
+        name: "calendar/refresh.requested",
+        data: { org_id: "org-1", user_id: "another-user" },
+      })
     );
     expect(res.status).toBe(403);
-    expect(sendMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects bot/cancelled when the session listing fails", async () => {
-    mockWorker({
-      "/auth/session": validSession(),
-      "/bot-sessions": () => {
-        throw new Error("socket hang up");
-      },
-    });
-    const res = await POST(
-      makeRequest({ name: "bot/cancelled", data: { session_id: SESSION_ID } })
-    );
-    expect(res.status).toBe(502);
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
@@ -254,18 +248,31 @@ describe("POST /api/inngest/send — authorized sends", () => {
     expect(sendMock).toHaveBeenCalledOnce();
   });
 
-  it("forwards bot/scheduled when the session id belongs to the caller", async () => {
-    mockWorker({
-      "/auth/session": validSession(),
-      "/bot-sessions": json(200, [{ id: "other" }, { id: SESSION_ID }]),
-    });
+  it("forwards bot/auto-schedule.requested for a valid session (empty, org-scoped payload)", async () => {
+    mockWorker({ "/auth/session": validSession() });
     const res = await POST(
-      makeRequest({ name: "bot/scheduled", data: { session_id: SESSION_ID } })
+      makeRequest({ name: "bot/auto-schedule.requested", data: {} })
     );
     expect(res.status).toBe(200);
     expect(sendMock).toHaveBeenCalledExactlyOnceWith({
-      name: "bot/scheduled",
-      data: { session_id: SESSION_ID },
+      name: "bot/auto-schedule.requested",
+      data: {},
+      user: { external_id: "user-1" },
+    });
+  });
+
+  it("forwards calendar/refresh.requested when user_id matches the session", async () => {
+    mockWorker({ "/auth/session": validSession() });
+    const res = await POST(
+      makeRequest({
+        name: "calendar/refresh.requested",
+        data: { org_id: "org-1", user_id: "user-1" },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(sendMock).toHaveBeenCalledExactlyOnceWith({
+      name: "calendar/refresh.requested",
+      data: { org_id: "org-1", user_id: "user-1" },
       user: { external_id: "user-1" },
     });
   });

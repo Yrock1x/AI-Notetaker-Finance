@@ -108,7 +108,8 @@ async def zoom_ingest(
         meeting_id = new_meeting.id
         deal_id = ""
 
-    # 2) Look up any active zoom credential (prefer one in the matched org).
+    # 2) Resolve the download credential (best-effort). Still fast DB/crypto
+    #    work, done before we commit + download.
     cred_for_org = session.scalar(
         select(IntegrationCredential)
         .where(IntegrationCredential.platform == "zoom")
@@ -124,7 +125,14 @@ async def zoom_ingest(
         except Exception:
             logger.exception("zoom_ingest_decrypt_failed")
 
-    # 3) Download.
+    # Commit now so the single SQLite writer lock is NOT held across the (up to
+    # 10-minute) recording download below. Holding it would stall every other
+    # writer — notably the hot live-transcript webhook — until busy_timeout
+    # elapses and they fail with "database is locked". The meeting row persists
+    # in "uploading" so a failed download is recoverable, not lost.
+    session.commit()
+
+    # 3) Download with no open DB transaction.
     try:
         async with httpx.AsyncClient(timeout=600) as client:
             resp = await client.get(
@@ -136,6 +144,12 @@ async def zoom_ingest(
             file_bytes = resp.content
     except Exception as exc:
         logger.exception("zoom_ingest_download_failed")
+        # Mark the meeting failed in a fresh short transaction so it doesn't
+        # sit in "uploading" forever.
+        failed = session.get(Meeting, meeting_id)
+        if failed is not None:
+            failed.status = "failed"
+            session.commit()
         raise HTTPException(
             status_code=502, detail=f"Zoom download failed: {exc}"
         ) from exc
@@ -143,14 +157,15 @@ async def zoom_ingest(
     file_key = f"zoom/{meeting_id}.mp4"
     storage.save_bytes(MEETINGS_BUCKET, file_key, file_bytes)
 
-    # 4) Flip status + fire the post-meeting pipeline.
+    # 4) Flip status in a fresh short transaction.
     meeting_to_update = session.get(Meeting, meeting_id)
     if meeting_to_update is not None:
         meeting_to_update.file_key = file_key
         meeting_to_update.status = "uploaded"
         meeting_to_update.source_url = body.download_url
-        session.flush()
+        session.commit()
 
+    # 5) Fire the post-meeting pipeline.
     from app.integrations.inngest import send_event
 
     await send_event(

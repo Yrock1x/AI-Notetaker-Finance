@@ -220,22 +220,32 @@ class FireworksEmbeddingProvider(EmbeddingProvider):
         log = logger.bind(provider="fireworks", model=self.model, n=len(texts))
         log.info("fireworks_embed_batch_start")
 
-        all_vectors: list[list[float]] = []
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            for start in range(0, len(texts), self.MAX_BATCH_SIZE):
-                batch = texts[start : start + self.MAX_BATCH_SIZE]
-                resp = await client.post(
-                    f"{FIREWORKS_BASE_URL}/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": self.model, "input": batch},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                for row in data.get("data", []):
-                    all_vectors.append(row["embedding"])
+        batches = [
+            texts[start : start + self.MAX_BATCH_SIZE]
+            for start in range(0, len(texts), self.MAX_BATCH_SIZE)
+        ]
+        # Run the batches concurrently (a large ingest can be many batches) but
+        # cap concurrency so we don't spike the provider. gather preserves order,
+        # so the flattened result still lines up with `texts`.
+        sem = asyncio.Semaphore(4)
 
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+
+            async def _embed_one(batch: list[str]) -> list[list[float]]:
+                async with sem:
+                    resp = await client.post(
+                        f"{FIREWORKS_BASE_URL}/embeddings",
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"model": self.model, "input": batch},
+                    )
+                resp.raise_for_status()
+                return [row["embedding"] for row in resp.json().get("data", [])]
+
+            results = await asyncio.gather(*(_embed_one(b) for b in batches))
+
+        all_vectors = [vec for batch_vecs in results for vec in batch_vecs]
         log.info("fireworks_embed_batch_success", total=len(all_vectors))
         return all_vectors
