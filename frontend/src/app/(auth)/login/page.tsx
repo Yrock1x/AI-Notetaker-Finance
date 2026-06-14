@@ -1,9 +1,14 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight } from "lucide-react";
-import { signInWithOAuth } from "@/lib/auth";
+import { ArrowRight, Loader2 } from "lucide-react";
+import {
+  registerWithPassword,
+  signInWithOAuth,
+  signInWithPassword,
+} from "@/lib/auth";
+import { ApiError } from "@/lib/worker-api";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 
 export default function LoginPage() {
@@ -14,42 +19,120 @@ export default function LoginPage() {
   );
 }
 
+type Mode = "signin" | "signup";
+
+function safeNext(path: string | null): string {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return "/dashboard";
+  return path;
+}
+
 function LoginContent() {
   const { isDark } = useScribeTheme();
   const search = useSearchParams();
-  const nextPath = search.get("next") || "/dashboard";
+  const nextPath = safeNext(search.get("next"));
 
+  const [mode, setMode] = useState<Mode>("signin");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "azure" | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Seed the banner from ?error= so OAuth failures (which redirect back here)
+  // are explained instead of silently dropped.
+  const [error, setError] = useState<string | null>(() => search.get("error"));
+
+  // bfcache restore (back button after an OAuth redirect) can leave the buttons
+  // stuck in their loading state — clear it when the page is shown again.
+  useEffect(() => {
+    const reset = () => setOauthLoading(null);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
 
   const handleOAuth = (provider: "google" | "azure") => {
     setError(null);
     setOauthLoading(provider);
+    // Full-page navigation to the worker, which runs the provider dance and
+    // sets the `cogni_session` cookie before redirecting back.
+    signInWithOAuth(provider, nextPath);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
     try {
-      // Full-page navigation to the worker, which handles the provider dance
-      // and sets the `cogni_session` cookie before redirecting back.
-      signInWithOAuth(provider, nextPath);
-    } catch (e: unknown) {
-      setOauthLoading(null);
-      setError(e instanceof Error ? e.message : "Sign in failed. Please try again.");
+      if (mode === "signup") {
+        await registerWithPassword(email, password, name);
+      } else {
+        await signInWithPassword(email, password);
+      }
+      // Cookie is set on the response; a full navigation re-runs the session
+      // probe and lands the user on their destination cleanly authenticated.
+      window.location.assign(nextPath);
+    } catch (err: unknown) {
+      setSubmitting(false);
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again."
+      );
     }
   };
+
+  const toggleMode = () => {
+    setError(null);
+    setPassword("");
+    setMode((m) => (m === "signin" ? "signup" : "signin"));
+  };
+
+  const inputClass = `w-full rounded-xl border px-4 py-3 text-[13px] outline-none transition-colors ${
+    isDark
+      ? "bg-white/[0.03] border-white/10 text-white placeholder:text-white/35 focus:border-white/30"
+      : "bg-white border-black/[0.08] text-black placeholder:text-black/35 focus:border-black/30"
+  }`;
+
+  const oauthBtnClass = `group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
+    isDark
+      ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
+      : "bg-white border-black/[0.08] hover:border-black/20"
+  }`;
+
+  const busy = submitting || oauthLoading !== null;
 
   return (
     <div className="flex flex-col gap-7">
       <div className="text-center flex flex-col gap-2">
         <h1 className="text-[40px] leading-[1.05] tracking-[-0.02em] font-medium">
-          Welcome
-          <br />
-          <span
-            className="font-display italic font-normal"
-            style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
-          >
-            back.
-          </span>
+          {mode === "signin" ? (
+            <>
+              Welcome
+              <br />
+              <span
+                className="font-display italic font-normal"
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
+              >
+                back.
+              </span>
+            </>
+          ) : (
+            <>
+              Create your
+              <br />
+              <span
+                className="font-display italic font-normal"
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
+              >
+                account.
+              </span>
+            </>
+          )}
         </h1>
         <p className={`text-[13px] ${isDark ? "text-white/55" : "text-black/55"}`}>
-          Sign in to your CogniSuite workspace.
+          {mode === "signin"
+            ? "Sign in to your CogniSuite workspace."
+            : "Set up your CogniSuite workspace in seconds."}
         </p>
       </div>
 
@@ -65,16 +148,86 @@ function LoginContent() {
         </div>
       )}
 
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
+        {mode === "signup" && (
+          <input
+            type="text"
+            autoComplete="name"
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={busy}
+            className={inputClass}
+          />
+        )}
+        <input
+          type="email"
+          autoComplete="email"
+          required
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+          className={inputClass}
+        />
+        <input
+          type="password"
+          autoComplete={mode === "signin" ? "current-password" : "new-password"}
+          required
+          minLength={mode === "signup" ? 8 : undefined}
+          placeholder={mode === "signup" ? "Password (min. 8 characters)" : "Password"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={busy}
+          className={inputClass}
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-[13px] font-medium transition-colors disabled:opacity-50 ${
+            isDark ? "bg-white text-black hover:bg-white/90" : "bg-black text-white hover:bg-black/90"
+          }`}
+        >
+          {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+          {mode === "signin" ? "Sign in" : "Create account"}
+        </button>
+      </form>
+
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={toggleMode}
+          disabled={busy}
+          className={`text-[12px] transition-colors disabled:opacity-50 ${
+            isDark ? "text-white/55 hover:text-white/80" : "text-black/55 hover:text-black/80"
+          }`}
+        >
+          {mode === "signin" ? (
+            <>
+              Don&apos;t have an account?{" "}
+              <span className="font-medium underline underline-offset-2">Create one</span>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <span className="font-medium underline underline-offset-2">Sign in</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-black/10"}`} />
+        <span className={`text-[11px] ${isDark ? "text-white/40" : "text-black/40"}`}>or</span>
+        <div className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-black/10"}`} />
+      </div>
+
       <div className="flex flex-col gap-2.5">
         <button
           type="button"
           onClick={() => handleOAuth("google")}
-          disabled={oauthLoading !== null}
-          className={`group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
-            isDark
-              ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
-              : "bg-white border-black/[0.08] hover:border-black/20"
-          }`}
+          disabled={busy}
+          className={oauthBtnClass}
         >
           <div className="flex items-center gap-3">
             <GoogleIcon />
@@ -92,12 +245,8 @@ function LoginContent() {
         <button
           type="button"
           onClick={() => handleOAuth("azure")}
-          disabled={oauthLoading !== null}
-          className={`group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
-            isDark
-              ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
-              : "bg-white border-black/[0.08] hover:border-black/20"
-          }`}
+          disabled={busy}
+          className={oauthBtnClass}
         >
           <div className="flex items-center gap-3">
             <MicrosoftIcon />

@@ -26,6 +26,34 @@ export function signInWithOAuth(
   window.location.href = `${API_BASE}/auth/login/${slug}?next=${next}`;
 }
 
+// The worker's email/password endpoints return the session user and set the
+// `cogni_session` cookie on the response. They're plain fetch() POSTs (unlike
+// OAuth, which is a full-page navigation). A 401/409/403 surfaces as an
+// ApiError the login form renders inline; worker-api exempts /auth/* from its
+// global redirect-on-401 so the error reaches the caller.
+export interface AuthUser {
+  id: string;
+  email: string;
+  full_name: string;
+  avatar_url: string | null;
+}
+
+export function signInWithPassword(email: string, password: string): Promise<AuthUser> {
+  return apiPost<AuthUser>("/auth/login", { email, password });
+}
+
+export function registerWithPassword(
+  email: string,
+  password: string,
+  fullName?: string
+): Promise<AuthUser> {
+  return apiPost<AuthUser>("/auth/register", {
+    email,
+    password,
+    full_name: fullName?.trim() || undefined,
+  });
+}
+
 export async function signOut(): Promise<void> {
   try {
     await apiPost("/auth/signout");

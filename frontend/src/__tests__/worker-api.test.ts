@@ -193,3 +193,46 @@ describe("network resilience", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 });
+
+// A 401 normally hard-redirects to /login (a dropped/expired cookie). The
+// /auth/* endpoints are exempt: there a 401 is an expected, caller-handled
+// outcome (the session probe, a wrong password) and must surface as an
+// ApiError instead of bouncing the page.
+describe("401 redirect behavior", () => {
+  // This suite runs in the node env (no DOM), so the redirect branch — guarded
+  // by `typeof window !== "undefined"` — is otherwise skipped. Stub a minimal
+  // window so the branch runs, without disturbing the module-level fetch stub.
+  type WindowLike = { location: { href: string; pathname: string } };
+  const stubWindow = (pathname: string): WindowLike => {
+    const w = { location: { href: "", pathname } };
+    (globalThis as unknown as { window: WindowLike }).window = w;
+    return w;
+  };
+  afterEach(() => {
+    delete (globalThis as unknown as { window?: WindowLike }).window;
+  });
+
+  it("hard-redirects to /login on a 401 from a normal endpoint", async () => {
+    const w = stubWindow("/dashboard");
+    fetchMock.mockResolvedValue(json(401, { detail: "expired" }));
+    await captureError(apiGet("/deals"));
+    expect(w.location.href).toBe("/login");
+  });
+
+  it("does NOT redirect on a 401 from an /auth/* endpoint", async () => {
+    const w = stubWindow("/dashboard");
+    fetchMock.mockResolvedValue(json(401, { detail: "Invalid email or password." }));
+    const err = await captureError(apiPost("/auth/login", { email: "a@b.com", password: "x" }));
+    expect(w.location.href).toBe(""); // untouched
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("Invalid email or password.");
+  });
+
+  it("does not redirect when already on /login", async () => {
+    const w = stubWindow("/login");
+    fetchMock.mockResolvedValue(json(401, { detail: "expired" }));
+    await captureError(apiGet("/deals"));
+    expect(w.location.href).toBe(""); // already on /login → left alone
+  });
+});

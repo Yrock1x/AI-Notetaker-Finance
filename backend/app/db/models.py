@@ -44,6 +44,9 @@ class Profile(UUIDPrimaryKey, Timestamps, Base):
     full_name: Mapped[str] = mapped_column(String, nullable=False, default="")
     avatar_url: Mapped[str | None] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Argon2id hash for local email/password accounts. NULL for OAuth-only
+    # users (they sign in via Google/Microsoft and have no local credential).
+    password_hash: Mapped[str | None] = mapped_column(String)
 
     __table_args__ = (
         # case-insensitive unique email (replaces lower(email) unique index)

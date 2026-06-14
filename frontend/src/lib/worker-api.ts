@@ -102,8 +102,15 @@ async function request<T>(
   }
 
   // 401 → bounce to login so a dropped/expired cookie doesn't leave the user
-  // staring at perpetual error toasts.
-  if (res.status === 401 && typeof window !== "undefined") {
+  // staring at perpetual error toasts. Exempt the /auth/* endpoints: a 401
+  // there is an expected, caller-handled outcome (the session probe returning
+  // "not signed in", or a wrong password on /auth/login) — hard-redirecting
+  // would clobber the login screen and swallow its error message.
+  if (
+    res.status === 401 &&
+    typeof window !== "undefined" &&
+    !path.startsWith("/auth/")
+  ) {
     if (!window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";
     }

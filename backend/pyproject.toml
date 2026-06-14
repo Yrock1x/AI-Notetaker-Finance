@@ -26,6 +26,7 @@ dependencies = [
     # Auth / crypto
     "python-jose[cryptography]>=3.3.0",
     "cryptography>=42.0.0",
+    "argon2-cffi>=23.1.0",     # Argon2id hashing for email/password accounts
     "httpx>=0.27.0",
 
     # LLM providers
