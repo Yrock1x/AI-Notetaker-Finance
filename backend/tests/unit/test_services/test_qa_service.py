@@ -19,6 +19,7 @@ from app.db.engine import (
 )
 from app.db.models import (
     Deal,
+    Document,
     Embedding,
     Meeting,
     Organization,
@@ -143,6 +144,21 @@ def _add_embedding(session, *, org_id, deal_id, chunk_text, source_type,
     return emb
 
 
+def _add_document(session, *, org_id, deal_id, user_id, title, extracted_text):
+    doc = Document(
+        org_id=org_id,
+        deal_id=deal_id,
+        title=title,
+        document_type="pdf",
+        file_key=f"{deal_id}/{title}.pdf",
+        extracted_text=extracted_text,
+        uploaded_by=user_id,
+    )
+    session.add(doc)
+    session.flush()
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -243,7 +259,10 @@ async def test_oversized_transcript_falls_back_to_rag(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deal_rag_ask_cites_retrieved_chunk(db):
+async def test_deal_rag_ask_cites_retrieved_chunk(db, monkeypatch):
+    # Force the RAG path: with the budget at 0 even a tiny corpus is "too large"
+    # for context-first, so ask() falls back to embed + sqlite-vec KNN.
+    monkeypatch.setattr(QAService, "DEAL_FULL_MAX_TOKENS", 0)
     session = get_session_factory()()
     try:
         s = _seed_base(session)
@@ -283,5 +302,88 @@ async def test_deal_rag_ask_cites_retrieved_chunk(db):
         assert cit.source_type == "transcript_segment"
         assert cit.metadata.get("meeting_id") == s.meeting_id
         assert cit.metadata.get("start_time") == 2.0
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_context_first_uses_cheap_model(db):
+    """A small deal corpus (transcripts + a document) is answered context-first:
+    the whole corpus goes to the cheap model with no embedding/retrieval."""
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)
+        # A second meeting so we exercise multi-meeting corpus assembly.
+        m2 = Meeting(org_id=s.org_id, deal_id=s.deal_id, title="Kickoff",
+                     created_by=s.user_id)
+        session.add(m2)
+        session.flush()
+
+        _add_segment(session, s.meeting_id,
+                     text="Revenue grew 15% to fifty million.", speaker="John")
+        _add_segment(session, m2.id, text="Timeline is Q3.", speaker="Mary")
+        _add_document(session, org_id=s.org_id, deal_id=s.deal_id,
+                      user_id=s.user_id, title="CIM",
+                      extracted_text="The target operates in fintech.")
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        await qa.ask(deal_id=UUID(s.deal_id), question="What did John say?")
+
+        # Context-first: cheap model, no embedding, whole corpus in the prompt.
+        assert router.embed_calls == []
+        assert len(router.complete_calls) == 1
+        prompt = router.complete_calls[0]["user_prompt"]
+        assert router.complete_calls[0]["task_type"] == TASK_QA_MEETING
+        assert "John: Revenue grew 15% to fifty million." in prompt
+        assert "Mary: Timeline is Q3." in prompt
+        assert "The target operates in fintech." in prompt
+        assert "Meeting:" in prompt and "Document: CIM" in prompt
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_empty_corpus_falls_back_to_rag(db):
+    """A deal with no transcripts/documents has no corpus to stuff → RAG."""
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)  # meeting exists but has no segments, no docs
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        await qa.ask(deal_id=UUID(s.deal_id), question="What did John say?")
+
+        assert router.embed_calls == ["What did John say?"]
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_oversized_corpus_falls_back_to_rag(db, monkeypatch):
+    monkeypatch.setattr(QAService, "DEAL_FULL_MAX_TOKENS", 1)
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)
+        _add_segment(session, s.meeting_id, text="word word word word word",
+                     speaker="John")
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        await qa.ask(deal_id=UUID(s.deal_id), question="What did John say?")
+
+        assert router.embed_calls == ["What did John say?"]
     finally:
         session.close()
