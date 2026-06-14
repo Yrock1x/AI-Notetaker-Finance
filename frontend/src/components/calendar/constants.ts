@@ -85,7 +85,7 @@ export const BOT_STATUS_LABELS: Record<
   failed: { label: "Failed", className: "bg-red-50 text-red-500" },
   cancelled: {
     label: "Cancelled",
-    className: "bg-[#1A1A1A]/5 text-[#1A1A1A]/50",
+    className: "bg-ink/5 text-ink/50",
   },
 };
 

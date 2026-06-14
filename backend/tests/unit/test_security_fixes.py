@@ -133,9 +133,9 @@ class TestBaseSchemaForbidExtra:
 
     def test_base_schema_forbids_extra_keys(self):
         """Any schema extending BaseSchema must reject unknown keys."""
-        from app.schemas.organization import OrgCreate
+        from app.schemas.qa import QARequest
 
         with pytest.raises(ValidationError) as exc:
-            OrgCreate(name="Org", slug="org", surprise_field="x")
+            QARequest(question="hello", surprise_field="x")
         # Pydantic v2 phrasing: "Extra inputs are not permitted"
         assert "extra" in str(exc.value).lower() or "permitted" in str(exc.value).lower()

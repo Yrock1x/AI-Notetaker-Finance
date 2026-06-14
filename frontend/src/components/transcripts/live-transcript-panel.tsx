@@ -39,7 +39,7 @@ function formatClock(seconds: number): string {
 const SegmentRow = memo(function SegmentRow({ seg }: { seg: LiveSegment }) {
   return (
     <div className="flex gap-3">
-      <div className="flex-shrink-0 w-14 pt-0.5 text-[10px] font-data uppercase text-[#1A1A1A]/30">
+      <div className="flex-shrink-0 w-14 pt-0.5 text-[10px] font-data uppercase text-ink/30">
         {formatClock(seg.start_time)}
       </div>
       <div className="flex-1 min-w-0">
@@ -50,7 +50,7 @@ const SegmentRow = memo(function SegmentRow({ seg }: { seg: LiveSegment }) {
         </div>
         <p
           className={`text-sm leading-relaxed ${
-            seg.is_partial ? "italic text-[#1A1A1A]/50" : "text-[#1A1A1A]/85"
+            seg.is_partial ? "italic text-ink/50" : "text-ink/85"
           }`}
         >
           {seg.text}
@@ -100,8 +100,8 @@ export function LiveTranscriptPanel({
           </>
         ) : (
           <>
-            <Circle className="h-4 w-4 text-[#1A1A1A]/20" />
-            <span className="text-xs font-data uppercase tracking-widest text-[#1A1A1A]/40">
+            <Circle className="h-4 w-4 text-ink/20" />
+            <span className="text-xs font-data uppercase tracking-widest text-ink/40">
               Disconnected
             </span>
           </>
@@ -110,10 +110,10 @@ export function LiveTranscriptPanel({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 overflow-y-auto rounded-2xl border border-[#1A1A1A]/5 bg-white p-6 space-y-3"
+        className="flex-1 overflow-y-auto rounded-2xl border border-ink/5 bg-white p-6 space-y-3"
       >
         {segments.length === 0 ? (
-          <p className="text-sm text-[#1A1A1A]/40">
+          <p className="text-sm text-ink/40">
             Waiting for the meeting to start — words will appear here as
             people speak.
           </p>

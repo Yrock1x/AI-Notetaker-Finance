@@ -283,7 +283,7 @@ export default function CalendarPage() {
           <h1 className="text-4xl font-heading font-extrabold tracking-tight text-primary">
             Meeting Calendar
           </h1>
-          <p className="font-subheading text-[#1A1A1A]/60 text-lg font-medium leading-relaxed">
+          <p className="font-subheading text-ink/60 text-lg font-medium leading-relaxed">
             Scheduled meetings across all active deals. Toggle CogniSuite to
             auto-join and record.
           </p>
@@ -292,7 +292,7 @@ export default function CalendarPage() {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-md border border-[#1A1A1A]/10 bg-white px-3 py-2 text-sm font-medium text-[#1A1A1A]/70 transition-colors hover:bg-[#F2F0E9] disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-medium text-ink/70 transition-colors hover:bg-[#F2F0E9] disabled:opacity-60"
             title="Pull fresh events from your calendar providers"
           >
             <RefreshCw
@@ -358,7 +358,7 @@ export default function CalendarPage() {
       {/* Controls row */}
       <div className="flex flex-wrap items-center gap-3">
         {/* View toggle */}
-        <div className="inline-flex gap-0.5 rounded-md border border-[#1A1A1A]/10 bg-white p-0.5">
+        <div className="inline-flex gap-0.5 rounded-md border border-ink/10 bg-white p-0.5">
           {(["month", "week", "agenda"] as const).map((v) => (
             <button
               key={v}
@@ -366,7 +366,7 @@ export default function CalendarPage() {
               className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors capitalize ${
                 view === v
                   ? "bg-primary text-primary-foreground"
-                  : "text-[#1A1A1A]/60 hover:bg-[#F2F0E9]"
+                  : "text-ink/60 hover:bg-[#F2F0E9]"
               }`}
             >
               {v}
@@ -376,14 +376,14 @@ export default function CalendarPage() {
 
         <button
           onClick={goToToday}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#1A1A1A]/10 bg-white px-3 py-1.5 text-xs font-semibold text-[#1A1A1A]/70 hover:bg-[#F2F0E9]"
+          className="inline-flex items-center gap-1.5 rounded-md border border-ink/10 bg-white px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-[#F2F0E9]"
         >
           <CalendarDays className="h-3 w-3" />
           Today
         </button>
 
         {/* Status filter chips */}
-        <div className="inline-flex gap-0.5 rounded-md border border-[#1A1A1A]/10 bg-white p-0.5">
+        <div className="inline-flex gap-0.5 rounded-md border border-ink/10 bg-white p-0.5">
           {(
             [
               { value: "all", label: "All" },
@@ -398,7 +398,7 @@ export default function CalendarPage() {
               className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
                 statusFilter === opt.value
                   ? "bg-primary text-primary-foreground"
-                  : "text-[#1A1A1A]/60 hover:bg-[#F2F0E9]"
+                  : "text-ink/60 hover:bg-[#F2F0E9]"
               }`}
             >
               {opt.label}
@@ -410,7 +410,7 @@ export default function CalendarPage() {
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-3">
-          <span className="font-subheading text-xs font-medium text-[#1A1A1A]/40">
+          <span className="font-subheading text-xs font-medium text-ink/40">
             Filter by deal:
           </span>
           {allDealIds.map((dealId, i) => {
@@ -425,15 +425,15 @@ export default function CalendarPage() {
                 className={`flex items-center gap-2 rounded-full px-3 py-1.5 border transition-all duration-200 ${
                   isVisible
                     ? `${colors.bg} border-transparent`
-                    : "bg-white border-[#1A1A1A]/10 opacity-50"
+                    : "bg-white border-ink/10 opacity-50"
                 }`}
               >
                 <span
                   className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                    isVisible ? colors.dot : "bg-[#1A1A1A]/20"
+                    isVisible ? colors.dot : "bg-ink/20"
                   }`}
                 />
-                <span className="font-subheading text-xs font-bold text-[#1A1A1A]/60">
+                <span className="font-subheading text-xs font-bold text-ink/60">
                   {dealName}
                 </span>
               </button>
@@ -446,7 +446,7 @@ export default function CalendarPage() {
         <LoadingState message="Loading calendar data..." />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px] items-start">
-          <div className="rounded-[2.5rem] border border-[#1A1A1A]/5 bg-white p-8 shadow-sm">
+          <div className="rounded-[2.5rem] border border-ink/5 bg-white p-8 shadow-sm">
             {view === "month" && (
               <MonthView
                 year={currentYear}

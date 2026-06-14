@@ -137,24 +137,24 @@ export default function IntegrationsPage() {
         <h2 className="text-2xl font-heading font-extrabold text-primary">
           Integrations
         </h2>
-        <p className="text-sm text-[#1A1A1A]/50 font-medium mt-1">
+        <p className="text-sm text-ink/50 font-medium mt-1">
           Connect your meeting and communication platforms to unlock AI-powered workflows.
         </p>
       </div>
 
       {/* Status bar */}
-      <div className="flex items-center gap-3 rounded-2xl border border-[#1A1A1A]/5 bg-white px-5 py-3.5">
+      <div className="flex items-center gap-3 rounded-2xl border border-ink/5 bg-white px-5 py-3.5">
         <div className="flex items-center gap-2">
           <div
             className={`h-2.5 w-2.5 rounded-full ${
-              connectedCount > 0 ? "bg-emerald-500" : "bg-[#1A1A1A]/20"
+              connectedCount > 0 ? "bg-emerald-500" : "bg-ink/20"
             }`}
           />
           <span className="text-sm font-bold text-primary">
             {connectedCount} of {Object.keys(PLATFORM_CONFIG).length} connected
           </span>
         </div>
-        <span className="text-xs text-[#1A1A1A]/40">
+        <span className="text-xs text-ink/40">
           Connect platforms to enable meeting recording, calendar sync, and notifications.
         </span>
       </div>
@@ -172,7 +172,7 @@ export default function IntegrationsPage() {
               className={`relative rounded-2xl border bg-white p-6 transition-all hover:shadow-md ${
                 isConnected
                   ? "border-emerald-200 shadow-sm"
-                  : "border-[#1A1A1A]/5"
+                  : "border-ink/5"
               }`}
             >
               {/* Connected badge */}
@@ -193,7 +193,7 @@ export default function IntegrationsPage() {
                   <h3 className="font-heading font-bold text-primary">
                     {config.name}
                   </h3>
-                  <p className="mt-1 text-xs text-[#1A1A1A]/40 leading-relaxed">
+                  <p className="mt-1 text-xs text-ink/40 leading-relaxed">
                     {config.description}
                   </p>
 
@@ -217,7 +217,7 @@ export default function IntegrationsPage() {
                 ) : isConnected ? (
                   <button
                     onClick={() => handleDisconnect(platform)}
-                    className="w-full rounded-xl border border-[#1A1A1A]/10 py-2.5 text-xs font-bold text-[#1A1A1A]/40 transition-all hover:border-red-300 hover:text-red-500"
+                    className="w-full rounded-xl border border-ink/10 py-2.5 text-xs font-bold text-ink/40 transition-all hover:border-red-300 hover:text-red-500"
                   >
                     Disconnect
                   </button>
@@ -247,7 +247,7 @@ export default function IntegrationsPage() {
       </div>
 
       {/* Meeting bot section */}
-      <div className="rounded-2xl border border-[#1A1A1A]/5 bg-white p-6">
+      <div className="rounded-2xl border border-ink/5 bg-white p-6">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-accent/10 p-3">
             <Bot className="h-5 w-5 text-accent" />
@@ -256,7 +256,7 @@ export default function IntegrationsPage() {
             <h3 className="font-heading font-bold text-primary">
               AI Notetaker Bot
             </h3>
-            <p className="text-xs text-[#1A1A1A]/40 mt-0.5">
+            <p className="text-xs text-ink/40 mt-0.5">
               Automatically joins Zoom or Teams meetings to record, transcribe, and analyze conversations.
             </p>
           </div>
@@ -273,7 +273,7 @@ export default function IntegrationsPage() {
               </span>
             </div>
           ) : (
-            <p className="text-xs text-[#1A1A1A]/40">
+            <p className="text-xs text-ink/40">
               Connect Zoom, Microsoft 365, or Google Workspace above to enable the AI notetaker for your meetings.
             </p>
           )}

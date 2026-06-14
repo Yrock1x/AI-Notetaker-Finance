@@ -79,12 +79,12 @@ export default function TeamPage() {
               placeholder="colleague@yourfirm.com"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              className="rounded-md border border-[#1A1A1A]/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              className="rounded-md border border-ink/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             />
             <select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as DealRole)}
-              className="rounded-md border border-[#1A1A1A]/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              className="rounded-md border border-ink/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
               {ROLE_OPTIONS.map((r) => (
                 <option key={r} value={r}>

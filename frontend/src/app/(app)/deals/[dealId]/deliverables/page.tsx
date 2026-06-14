@@ -60,7 +60,7 @@ function DeliverableRow({ item }: { item: Deliverable }) {
   const hasDownload = !!item.download_url;
 
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-[#1A1A1A]/5 bg-white p-5 transition-all hover:shadow-md">
+    <div className="flex items-center justify-between rounded-2xl border border-ink/5 bg-white p-5 transition-all hover:shadow-md">
       <div className="flex items-center gap-4">
         <div className={`rounded-xl p-3 ${colorClass}`}>
           <Icon className="h-5 w-5" />
@@ -69,7 +69,7 @@ function DeliverableRow({ item }: { item: Deliverable }) {
           <p className="font-heading font-bold text-sm text-primary">
             {item.title}
           </p>
-          <p className="text-xs text-[#1A1A1A]/40 font-medium mt-0.5">
+          <p className="text-xs text-ink/40 font-medium mt-0.5">
             {item.file_format.toUpperCase()} &middot;{" "}
             {new Date(item.created_at).toLocaleDateString()}
           </p>
@@ -85,7 +85,7 @@ function DeliverableRow({ item }: { item: Deliverable }) {
           Download
         </a>
       ) : (
-        <span className="flex items-center gap-2 rounded-full bg-[#F2F0E9]/50 px-4 py-2 text-xs font-bold text-[#1A1A1A]/30">
+        <span className="flex items-center gap-2 rounded-full bg-[#F2F0E9]/50 px-4 py-2 text-xs font-bold text-ink/30">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Processing
         </span>
@@ -132,7 +132,7 @@ export default function DeliverablesPage() {
           <h2 className="text-2xl font-heading font-extrabold text-primary">
             Deliverables
           </h2>
-          <p className="text-sm text-[#1A1A1A]/50 font-medium mt-1">
+          <p className="text-sm text-ink/50 font-medium mt-1">
             AI-generated documents based on meeting transcripts and uploaded
             materials.
           </p>
@@ -155,7 +155,7 @@ export default function DeliverablesPage() {
           </button>
 
           {showDropdown && (
-            <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-[#1A1A1A]/10 bg-white p-2 shadow-xl z-50">
+            <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-ink/10 bg-white p-2 shadow-xl z-50">
               {GENERATE_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
                 return (
@@ -164,12 +164,12 @@ export default function DeliverablesPage() {
                     onClick={() => handleGenerate(opt.type)}
                     className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-[#F2F0E9]"
                   >
-                    <Icon className="h-5 w-5 text-[#1A1A1A]/40" />
+                    <Icon className="h-5 w-5 text-ink/40" />
                     <div>
                       <p className="text-sm font-bold text-primary">
                         {opt.label}
                       </p>
-                      <p className="text-[11px] text-[#1A1A1A]/40">
+                      <p className="text-[11px] text-ink/40">
                         {opt.format}
                       </p>
                     </div>
@@ -185,17 +185,17 @@ export default function DeliverablesPage() {
       <DeliverableChat dealId={params.dealId} />
 
       {/* Example doc upload */}
-      <div className="rounded-2xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/30 p-6">
+      <div className="rounded-2xl border border-dashed border-ink/10 bg-[#F2F0E9]/30 p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-white p-3 border border-[#1A1A1A]/5">
-              <Upload className="h-5 w-5 text-[#1A1A1A]/30" />
+            <div className="rounded-xl bg-white p-3 border border-ink/5">
+              <Upload className="h-5 w-5 text-ink/30" />
             </div>
             <div>
               <p className="text-sm font-bold text-primary">
                 Example Document (Style Reference)
               </p>
-              <p className="text-xs text-[#1A1A1A]/40 mt-0.5">
+              <p className="text-xs text-ink/40 mt-0.5">
                 Upload a presentation, model, or memo as a formatting template
                 for generated deliverables.
               </p>
@@ -209,7 +209,7 @@ export default function DeliverablesPage() {
           ) : (
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-full border border-[#1A1A1A]/10 bg-white px-4 py-2 text-xs font-bold text-[#1A1A1A]/60 transition-all hover:border-accent hover:text-accent"
+              className="rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-bold text-ink/60 transition-all hover:border-accent hover:text-accent"
             >
               Upload Template
             </button>
@@ -233,7 +233,7 @@ export default function DeliverablesPage() {
               Generating{" "}
               {GENERATE_OPTIONS.find((o) => o.type === generating)?.label}...
             </p>
-            <p className="text-xs text-[#1A1A1A]/40 mt-0.5">
+            <p className="text-xs text-ink/40 mt-0.5">
               Analyzing transcripts and documents to produce your deliverable.
             </p>
           </div>
@@ -242,12 +242,12 @@ export default function DeliverablesPage() {
 
       {/* Deliverables list */}
       {deliverables.length === 0 && !generating ? (
-        <div className="rounded-2xl border border-[#1A1A1A]/5 bg-white p-12 text-center">
-          <Sparkles className="mx-auto h-8 w-8 text-[#1A1A1A]/20" />
+        <div className="rounded-2xl border border-ink/5 bg-white p-12 text-center">
+          <Sparkles className="mx-auto h-8 w-8 text-ink/20" />
           <p className="mt-3 text-sm font-bold text-primary/60">
             No deliverables yet
           </p>
-          <p className="mt-1 text-xs text-[#1A1A1A]/40">
+          <p className="mt-1 text-xs text-ink/40">
             Click Generate to create investment memos, financial models, or
             presentations from your meeting data.
           </p>

@@ -63,15 +63,15 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
   };
 
   return (
-    <div className="rounded-2xl border border-[#1A1A1A]/5 bg-white overflow-hidden">
+    <div className="rounded-2xl border border-ink/5 bg-white overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2.5 border-b border-[#1A1A1A]/5 px-5 py-3.5">
+      <div className="flex items-center gap-2.5 border-b border-ink/5 px-5 py-3.5">
         <div className="rounded-lg bg-accent/10 p-1.5">
           <Sparkles className="h-4 w-4 text-accent" />
         </div>
         <div>
           <p className="text-sm font-bold text-primary">AI Assistant</p>
-          <p className="text-[11px] text-[#1A1A1A]/40">
+          <p className="text-[11px] text-ink/40">
             Describe what you need — I&apos;ll help shape your deliverable
           </p>
         </div>
@@ -82,12 +82,12 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
         {messages.length === 0 && !chatMutation.isPending ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <div className="rounded-2xl bg-[#F2F0E9]/60 p-4">
-              <Sparkles className="h-7 w-7 text-[#1A1A1A]/20" />
+              <Sparkles className="h-7 w-7 text-ink/20" />
             </div>
             <p className="mt-4 text-sm font-bold text-primary/70">
               What would you like to create?
             </p>
-            <p className="mt-1 max-w-xs text-xs text-[#1A1A1A]/40">
+            <p className="mt-1 max-w-xs text-xs text-ink/40">
               Describe the deliverable you need — include context on audience,
               focus areas, or specific sections.
             </p>
@@ -96,7 +96,7 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
                 <button
                   key={example}
                   onClick={() => handleSend(example)}
-                  className="block w-full rounded-xl border border-[#1A1A1A]/5 bg-[#F2F0E9]/30 px-4 py-2.5 text-left text-xs font-medium text-[#1A1A1A]/60 transition-all hover:border-accent/30 hover:text-accent"
+                  className="block w-full rounded-xl border border-ink/5 bg-[#F2F0E9]/30 px-4 py-2.5 text-left text-xs font-medium text-ink/60 transition-all hover:border-accent/30 hover:text-accent"
                 >
                   {example}
                 </button>
@@ -130,7 +130,7 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl bg-[#F2F0E9]/60 px-4 py-3">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-                  <span className="text-xs font-medium text-[#1A1A1A]/40">
+                  <span className="text-xs font-medium text-ink/40">
                     Thinking...
                   </span>
                 </div>
@@ -145,7 +145,7 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
       {/* Input */}
       <form
         onSubmit={handleSubmit}
-        className="border-t border-[#1A1A1A]/5 px-4 py-3"
+        className="border-t border-ink/5 px-4 py-3"
       >
         <div className="flex items-center gap-2">
           <input
@@ -153,7 +153,7 @@ export function DeliverableChat({ dealId }: DeliverableChatProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe what you'd like to generate..."
-            className="flex-1 rounded-xl border border-[#1A1A1A]/10 bg-[#F2F0E9]/20 px-4 py-2.5 text-sm text-primary placeholder:text-[#1A1A1A]/30 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="flex-1 rounded-xl border border-ink/10 bg-[#F2F0E9]/20 px-4 py-2.5 text-sm text-primary placeholder:text-ink/30 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             disabled={chatMutation.isPending}
           />
           <button

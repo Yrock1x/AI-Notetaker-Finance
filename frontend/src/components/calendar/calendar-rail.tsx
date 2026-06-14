@@ -42,10 +42,10 @@ export function CalendarRail({
               >
                 <Mic className="h-3 w-3 text-red-500" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-semibold text-[#1A1A1A]">
+                  <p className="truncate text-xs font-semibold text-ink">
                     {m.title}
                   </p>
-                  <p className="truncate text-[10px] text-[#1A1A1A]/50">
+                  <p className="truncate text-[10px] text-ink/50">
                     {m.deal_name}
                   </p>
                 </div>
@@ -55,13 +55,13 @@ export function CalendarRail({
         </div>
       )}
 
-      <div className="rounded-2xl border border-[#1A1A1A]/5 bg-white p-4">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-[#1A1A1A]/40">
+      <div className="rounded-2xl border border-ink/5 bg-white p-4">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-ink/40">
           Today · {today.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
         </h3>
         <div className="mt-3 space-y-2">
           {todayMeetings.length === 0 ? (
-            <p className="text-xs text-[#1A1A1A]/40">
+            <p className="text-xs text-ink/40">
               Nothing on the schedule. Click a day cell to add one.
             </p>
           ) : (
@@ -84,17 +84,17 @@ export function CalendarRail({
                       onAssign(m);
                     }
                   }}
-                  className="block rounded-lg border border-[#1A1A1A]/5 px-3 py-2 hover:bg-[#F2F0E9]/40"
+                  className="block rounded-lg border border-ink/5 px-3 py-2 hover:bg-[#F2F0E9]/40"
                 >
                   <div className="flex items-baseline gap-2">
-                    <span className="font-data text-[10px] font-semibold text-[#1A1A1A]/40">
+                    <span className="font-data text-[10px] font-semibold text-ink/40">
                       {formatTime(m.meeting_date || m.created_at)}
                     </span>
-                    <p className="truncate text-xs font-semibold text-[#1A1A1A]">
+                    <p className="truncate text-xs font-semibold text-ink">
                       {m.title}
                     </p>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#1A1A1A]/50">
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-ink/50">
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${colors.dot}`}
                     />
@@ -107,13 +107,13 @@ export function CalendarRail({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#1A1A1A]/5 bg-white p-4">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-[#1A1A1A]/40">
+      <div className="rounded-2xl border border-ink/5 bg-white p-4">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-ink/40">
           Next 7 days
         </h3>
         <div className="mt-3 space-y-2">
           {upcomingWeek.length === 0 ? (
-            <p className="text-xs text-[#1A1A1A]/40">
+            <p className="text-xs text-ink/40">
               Nothing scheduled. Refresh from your calendar provider or
               schedule a notetaker.
             </p>
@@ -138,23 +138,23 @@ export function CalendarRail({
                       onAssign(m);
                     }
                   }}
-                  className="grid grid-cols-[auto_1fr] items-center gap-3 rounded-lg border border-[#1A1A1A]/5 px-3 py-2 hover:bg-[#F2F0E9]/40"
+                  className="grid grid-cols-[auto_1fr] items-center gap-3 rounded-lg border border-ink/5 px-3 py-2 hover:bg-[#F2F0E9]/40"
                 >
                   <div className="rounded-md bg-[#F2F0E9] px-2 py-1 text-center">
-                    <div className="text-[8px] font-bold uppercase tracking-wider text-[#1A1A1A]/40">
+                    <div className="text-[8px] font-bold uppercase tracking-wider text-ink/40">
                       {d.toLocaleDateString(undefined, {
                         month: "short",
                       })}
                     </div>
-                    <div className="font-data text-sm font-bold text-[#1A1A1A]">
+                    <div className="font-data text-sm font-bold text-ink">
                       {d.getDate()}
                     </div>
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-[#1A1A1A]">
+                    <p className="truncate text-xs font-semibold text-ink">
                       {m.title}
                     </p>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#1A1A1A]/50">
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-ink/50">
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${colors.dot}`}
                       />

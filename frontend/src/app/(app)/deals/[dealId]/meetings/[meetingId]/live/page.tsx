@@ -28,7 +28,7 @@ export default function LiveTranscriptPage() {
         <h2 className="font-heading text-2xl font-bold text-primary">
           {meeting?.title ?? "Live Meeting"}
         </h2>
-        <p className="font-subheading text-sm text-[#1A1A1A]/60">
+        <p className="font-subheading text-sm text-ink/60">
           {activeSession?.platform
             ? `Bot on ${activeSession.platform.replace("_", " ")} — ${activeSession.status}`
             : "Bot not connected"}

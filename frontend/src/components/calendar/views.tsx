@@ -61,7 +61,7 @@ export function MonthView({
       <div className="mb-8 flex items-center justify-between">
         <button
           onClick={onPrev}
-          className="rounded-full p-2 text-[#1A1A1A]/40 transition-colors hover:bg-[#F2F0E9] hover:text-[#1A1A1A]"
+          className="rounded-full p-2 text-ink/40 transition-colors hover:bg-[#F2F0E9] hover:text-ink"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -70,7 +70,7 @@ export function MonthView({
         </h2>
         <button
           onClick={onNext}
-          className="rounded-full p-2 text-[#1A1A1A]/40 transition-colors hover:bg-[#F2F0E9] hover:text-[#1A1A1A]"
+          className="rounded-full p-2 text-ink/40 transition-colors hover:bg-[#F2F0E9] hover:text-ink"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -80,14 +80,14 @@ export function MonthView({
         {DAYS_OF_WEEK.map((day) => (
           <div
             key={day}
-            className="pb-3 text-center font-data text-xs font-bold text-[#1A1A1A]/40"
+            className="pb-3 text-center font-data text-xs font-bold text-ink/40"
           >
             {day}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-px rounded-[2rem] border border-[#1A1A1A]/5 overflow-hidden bg-[#1A1A1A]/5">
+      <div className="grid grid-cols-7 gap-px rounded-[2rem] border border-ink/5 overflow-hidden bg-ink/5">
         {Array.from({ length: totalCells }, (_, i) => {
           const day = i - firstDay + 1;
           const isCurrentMonth = day >= 1 && day <= daysInMonth;
@@ -115,7 +115,7 @@ export function MonthView({
                       className={`flex h-6 w-6 items-center justify-center rounded-full font-data text-xs font-semibold ${
                         isToday(day)
                           ? "bg-primary text-white"
-                          : "text-[#1A1A1A]/70"
+                          : "text-ink/70"
                       }`}
                     >
                       {day}
@@ -153,7 +153,7 @@ export function MonthView({
                     )}
                   </div>
                   {dayMeetings.length === 0 && (
-                    <span className="absolute bottom-2 left-2 hidden items-center gap-1 text-[10px] text-[#1A1A1A]/30 group-hover:flex">
+                    <span className="absolute bottom-2 left-2 hidden items-center gap-1 text-[10px] text-ink/30 group-hover:flex">
                       <Plus className="h-2.5 w-2.5" /> schedule
                     </span>
                   )}
@@ -216,7 +216,7 @@ export function WeekView({
       <div className="mb-8 flex items-center justify-between">
         <button
           onClick={onPrev}
-          className="rounded-full p-2 text-[#1A1A1A]/40 transition-colors hover:bg-[#F2F0E9] hover:text-[#1A1A1A]"
+          className="rounded-full p-2 text-ink/40 transition-colors hover:bg-[#F2F0E9] hover:text-ink"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -225,7 +225,7 @@ export function WeekView({
         </h2>
         <button
           onClick={onNext}
-          className="rounded-full p-2 text-[#1A1A1A]/40 transition-colors hover:bg-[#F2F0E9] hover:text-[#1A1A1A]"
+          className="rounded-full p-2 text-ink/40 transition-colors hover:bg-[#F2F0E9] hover:text-ink"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -243,18 +243,18 @@ export function WeekView({
               className={`rounded-xl border p-2 min-h-[280px] ${
                 isCurrent
                   ? "border-primary/30 bg-primary/5"
-                  : "border-[#1A1A1A]/5 bg-white"
+                  : "border-ink/5 bg-white"
               }`}
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className="font-data text-[10px] font-bold uppercase tracking-widest text-[#1A1A1A]/40">
+                <span className="font-data text-[10px] font-bold uppercase tracking-widest text-ink/40">
                   {DAYS_OF_WEEK[d.getDay()]}
                 </span>
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full font-data text-xs font-semibold ${
                     isCurrent
                       ? "bg-primary text-white"
-                      : "text-[#1A1A1A]/70"
+                      : "text-ink/70"
                   }`}
                 >
                   {d.getDate()}
@@ -265,7 +265,7 @@ export function WeekView({
                   <button
                     type="button"
                     onClick={() => onScheduleAt(d)}
-                    className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-[#1A1A1A]/10 p-4 text-[10px] font-medium text-[#1A1A1A]/30 hover:border-primary/30 hover:text-[#1A1A1A]/60"
+                    className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-ink/10 p-4 text-[10px] font-medium text-ink/30 hover:border-primary/30 hover:text-ink/60"
                   >
                     <Plus className="mr-1 h-3 w-3" /> schedule
                   </button>
@@ -339,7 +339,7 @@ export function AgendaView({
 
   if (groups.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-[#1A1A1A]/40">
+      <p className="py-12 text-center text-sm text-ink/40">
         No meetings match this filter.
       </p>
     );
@@ -349,7 +349,7 @@ export function AgendaView({
     <div className="space-y-6">
       {groups.map(([day, items]) => (
         <section key={day}>
-          <h3 className="mb-3 font-heading text-sm font-bold text-[#1A1A1A]/70">
+          <h3 className="mb-3 font-heading text-sm font-bold text-ink/70">
             {day}
           </h3>
           <div className="space-y-2">
@@ -360,7 +360,7 @@ export function AgendaView({
                   className="grid grid-cols-[auto_1fr]"
                   style={{ gap: 12 }}
                 >
-                  <span className="pt-2 font-data text-xs font-semibold text-[#1A1A1A]/40">
+                  <span className="pt-2 font-data text-xs font-semibold text-ink/40">
                     {formatTime(meeting.meeting_date || meeting.created_at)}
                   </span>
                   <MeetingCard
@@ -388,7 +388,7 @@ export function AgendaView({
                   className="grid grid-cols-[auto_1fr]"
                   style={{ gap: 12 }}
                 >
-                  <span className="pt-2 font-data text-xs font-semibold text-[#1A1A1A]/40">
+                  <span className="pt-2 font-data text-xs font-semibold text-ink/40">
                     {formatTime(meeting.meeting_date || meeting.created_at)}
                   </span>
                   <UnassignedMeetingCard

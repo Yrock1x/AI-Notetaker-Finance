@@ -238,16 +238,24 @@ async def get_qa_history(
 ) -> PaginatedResponse[QAHistoryResponse]:
     """Paginated Q&A history for a deal (org-scoped)."""
     _require_deal_access(session, principal, deal_id)
-    from sqlalchemy import select
+    from sqlalchemy import select, tuple_
 
     stmt = (
         select(QAInteraction)
         .where(QAInteraction.deal_id == str(deal_id))
-        .order_by(QAInteraction.created_at.desc())
+        .order_by(QAInteraction.created_at.desc(), QAInteraction.id.desc())
         .limit(limit + 1)
     )
     if cursor:
-        stmt = stmt.where(QAInteraction.created_at < cursor)
+        # Composite (created_at, id) cursor — see list_deals; falls back to the
+        # legacy created_at-only cursor for older URLs.
+        c_created, sep, c_id = cursor.rpartition("|")
+        if sep:
+            stmt = stmt.where(
+                tuple_(QAInteraction.created_at, QAInteraction.id) < (c_created, c_id)
+            )
+        else:
+            stmt = stmt.where(QAInteraction.created_at < cursor)
     rows = session.scalars(stmt).all()
 
     has_more = len(rows) > limit
@@ -263,7 +271,9 @@ async def get_qa_history(
         )
         for r in items
     ]
-    next_cursor = items[-1].created_at if has_more and items else None
+    next_cursor = (
+        f"{items[-1].created_at}|{items[-1].id}" if has_more and items else None
+    )
     return PaginatedResponse(items=history, cursor=next_cursor, has_more=has_more)
 
 

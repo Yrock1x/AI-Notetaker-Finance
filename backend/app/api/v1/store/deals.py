@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.api.v1.store._common import get_db, get_principal, scoped_deal_or_404
@@ -89,13 +89,22 @@ def list_deals(
         like = f"%{q}%"
         stmt = stmt.where(or_(Deal.name.ilike(like), Deal.target_company.ilike(like)))
     if cursor:
-        stmt = stmt.where(Deal.created_at < cursor)
-    stmt = stmt.order_by(Deal.created_at.desc()).limit(limit + 1)
+        # Composite (created_at, id) cursor so rows sharing a created_at aren't
+        # skipped/duplicated across a page boundary. Falls back to the legacy
+        # created_at-only cursor for any URL minted before this change.
+        c_created, sep, c_id = cursor.rpartition("|")
+        if sep:
+            stmt = stmt.where(tuple_(Deal.created_at, Deal.id) < (c_created, c_id))
+        else:
+            stmt = stmt.where(Deal.created_at < cursor)
+    stmt = stmt.order_by(Deal.created_at.desc(), Deal.id.desc()).limit(limit + 1)
 
     rows = session.scalars(stmt).all()
     has_more = len(rows) > limit
     items = rows[:limit]
-    next_cursor = items[-1].created_at if has_more and items else None
+    next_cursor = (
+        f"{items[-1].created_at}|{items[-1].id}" if has_more and items else None
+    )
     return PaginatedResponse(
         items=[DealResponse.model_validate(d) for d in items],
         cursor=next_cursor,

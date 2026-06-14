@@ -25,6 +25,10 @@ const config: Config = {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
         },
+        // Near-black "ink" used across the authed app. Single source of truth
+        // for what were ~130 scattered `[#1A1A1A]` arbitrary values; opacity
+        // modifiers (text-ink/85, border-ink/5, …) work as before.
+        ink: "#1A1A1A",
         border: "var(--border)",
         ring: "var(--ring)",
       },

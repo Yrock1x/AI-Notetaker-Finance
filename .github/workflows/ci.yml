@@ -41,6 +41,20 @@ jobs:
         env:
           SQLITE_DB_PATH: /tmp/ci.db
           STORAGE_ROOT: /tmp/ci-storage
+      - name: Migration check
+        # Exercise the migration chain on a fresh DB (it was never run in CI
+        # before) and assert the ORM models are in sync with it (`alembic check`).
+        # sqlite-vec's vec0 tables are excluded via env.py include_name.
+        # NB: 0001 materializes the schema via create_all, so a brand-new model
+        # without a paired migration is NOT caught here (it would need 0001
+        # frozen to explicit DDL); this still catches broken migrations and any
+        # explicit migration that drifts from the models.
+        run: |
+          alembic upgrade head
+          alembic check
+        env:
+          SQLITE_DB_PATH: /tmp/drift.db
+          STORAGE_ROOT: /tmp/drift-storage
       - name: Parse sanity
         run: python -c "import ast, glob; [ast.parse(open(f).read(), filename=f) for f in glob.glob('app/**/*.py', recursive=True)]; print('ok')"
 
