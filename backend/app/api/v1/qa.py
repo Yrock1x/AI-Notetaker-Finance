@@ -116,17 +116,10 @@ async def ask_question(
     except httpx.HTTPStatusError as exc:
         raise _llm_provider_http_error(exc) from exc
 
-    citations = [
-        {
-            "chunk_id": c.chunk_id,
-            "source_id": c.source_id,
-            "source_type": c.source_type,
-            "text_excerpt": c.text,
-            "relevance": c.relevance,
-            **(c.metadata or {}),
-        }
-        for c in result.citations
-    ]
+    # Persist citations in the same shape the API returns (and that the
+    # Citation schema accepts) so the Q&A history endpoint can re-serialize
+    # them without a validation error.
+    citations = [_to_response_citation(c) for c in result.citations]
     interaction = _persist_interaction(
         session,
         principal,
@@ -144,7 +137,7 @@ async def ask_question(
         deal_id=deal_id,
         question=payload.question,
         answer=result.answer,
-        citations=[_to_response_citation(c) for c in result.citations],
+        citations=citations,
         grounding_score=result.grounding_score,
         model_used=interaction.model_used or "llm-router",
         created_at=interaction.created_at,
@@ -183,17 +176,10 @@ async def ask_meeting_question(
     except httpx.HTTPStatusError as exc:
         raise _llm_provider_http_error(exc) from exc
 
-    citations = [
-        {
-            "chunk_id": c.chunk_id,
-            "source_id": c.source_id,
-            "source_type": c.source_type,
-            "text_excerpt": c.text,
-            "relevance": c.relevance,
-            **(c.metadata or {}),
-        }
-        for c in result.citations
-    ]
+    # Persist citations in the same shape the API returns (and that the
+    # Citation schema accepts) so the Q&A history endpoint can re-serialize
+    # them without a validation error.
+    citations = [_to_response_citation(c) for c in result.citations]
     interaction = _persist_interaction(
         session,
         principal,
@@ -211,7 +197,7 @@ async def ask_meeting_question(
         deal_id=deal_id,
         question=payload.question,
         answer=result.answer,
-        citations=[_to_response_citation(c) for c in result.citations],
+        citations=citations,
         grounding_score=result.grounding_score,
         model_used=interaction.model_used or "llm-router",
         created_at=interaction.created_at,
