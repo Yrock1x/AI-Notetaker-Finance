@@ -15,7 +15,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.store._common import access_denied_handler
-from app.db.base import gen_uuid
 from app.db.engine import configure_engine, create_db_engine, get_session_factory
 from app.db.models import Deal, DealMembership, Organization, OrgMembership, Profile
 from app.db.schema import init_schema

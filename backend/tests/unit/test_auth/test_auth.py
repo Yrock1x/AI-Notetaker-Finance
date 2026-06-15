@@ -11,7 +11,7 @@ from app.auth.provisioning import get_or_create_user
 from app.auth.tokens import issue_session_token, verify_session_token
 from app.core.config import settings
 from app.db.engine import configure_engine, create_db_engine, get_session_factory
-from app.db.models import OrgMembership, Organization, Profile
+from app.db.models import Organization, OrgMembership, Profile
 from app.db.schema import init_schema
 
 

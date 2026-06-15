@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.base import gen_uuid
-from app.db.engine import create_db_engine, configure_engine, get_session_factory
+from app.db.engine import configure_engine, create_db_engine, get_session_factory
 from app.db.models import (
     Deal,
     Embedding,

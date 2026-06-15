@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from app.realtime import sse
 from app.realtime.pubsub import (
     PubSub,
