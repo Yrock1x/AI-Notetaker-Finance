@@ -96,6 +96,17 @@ class Settings(BaseSettings):
     slack_client_secret: str = ""
     slack_signing_secret: str = ""
 
+    # CogniVault — this worker acts as an OAuth *client* of CogniVault for the
+    # "Connect a deal to a VDR" flow. CogniVault's consent screen enforces that
+    # the user is an admin of the chosen VDR (we never model VDR roles here); the
+    # token exchange returns the chosen ``vdr_id``, which we store on a per-deal
+    # connection. Separately, CogniVault holds a partner API key (partner_api_keys)
+    # to PULL the shared deal data from /partner/v1.
+    cognivault_client_id: str = ""
+    cognivault_client_secret: str = ""
+    cognivault_authorize_url: str = ""  # e.g. https://app.cognivault.com/oauth/authorize
+    cognivault_token_url: str = ""  # e.g. https://app.cognivault.com/oauth/token
+
     # Public URL of the Next.js frontend — where we bounce users back after
     # the OAuth consent screen (e.g. https://app.example.com).
     frontend_url: str = "http://localhost:3000"

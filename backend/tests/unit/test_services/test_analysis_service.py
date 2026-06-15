@@ -28,7 +28,6 @@ from app.db.models import (
 from app.db.schema import init_schema
 from app.services.analysis_service import AnalysisService
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------

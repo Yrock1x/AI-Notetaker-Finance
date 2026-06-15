@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from app.api.v1.store import dashboard, deals, meetings
-from app.db.base import gen_uuid
 from app.db.engine import get_session_factory
 from app.db.models import Analysis, Meeting
 

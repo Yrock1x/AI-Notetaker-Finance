@@ -26,6 +26,7 @@ from app.db.deps import get_db
 from app.db.models import (
     Analysis,
     Deal,
+    DealVdrConnection,
     Document,
     Meeting,
     OrgMembership,
@@ -53,6 +54,11 @@ class DealResponse(BaseSchema):
     created_by: str
     created_at: datetime
     updated_at: datetime
+    # Which CogniVault VDR this deal is shared into, and which resource categories
+    # the partner may pull (the deal's per-deal share scopes). Set from the active
+    # connection so the consumer can route each deal to the right VDR.
+    vdr_id: str | None = None
+    shared_scopes: list[str] = []
 
 
 class DealCreate(BaseSchema):
@@ -153,6 +159,9 @@ def _org_actor_id(session: Session, org_id: str) -> str:
 def _scoped_deal_or_404(
     session: Session, ctx: PartnerContext, deal_id: str
 ) -> Deal:
+    """Org-scoped deal lookup (no share gate) — used by the WRITE endpoints,
+    which are governed by ``deals:write`` / ``documents:write`` rather than by
+    the per-deal share opt-in."""
     deal = session.scalar(
         select(Deal).where(
             Deal.id == deal_id,
@@ -167,19 +176,79 @@ def _scoped_deal_or_404(
     return deal
 
 
-def _scoped_meeting_or_404(
+# ---------------------------------------------------------------------------
+# per-deal share gate (CogniVault VDR connection)
+# ---------------------------------------------------------------------------
+def _active_connection(
+    session: Session, ctx: PartnerContext, deal_id: str
+) -> DealVdrConnection | None:
+    return session.scalar(
+        select(DealVdrConnection).where(
+            DealVdrConnection.deal_id == deal_id,
+            DealVdrConnection.org_id == ctx.org_id,
+            DealVdrConnection.status == "active",
+        )
+    )
+
+
+def _scoped_shared_deal_or_404(
+    session: Session, ctx: PartnerContext, deal_id: str
+) -> tuple[Deal, DealVdrConnection]:
+    """A deal the partner may READ: org-scoped, not deleted, AND with an active
+    VDR connection. A non-shared / foreign / deleted deal is an indistinguishable
+    404 (we never reveal that an unshared deal exists)."""
+    deal = session.scalar(
+        select(Deal).where(
+            Deal.id == deal_id,
+            Deal.org_id == ctx.org_id,
+            Deal.deleted_at.is_(None),
+        )
+    )
+    conn = _active_connection(session, ctx, deal_id)
+    if deal is None or conn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found"
+        )
+    return deal, conn
+
+
+def _scoped_shared_meeting_or_404(
     session: Session, ctx: PartnerContext, meeting_id: str
-) -> Meeting:
+) -> tuple[Meeting, DealVdrConnection]:
+    """A meeting whose deal is shared. ``Meeting.deal_id`` is nullable (calendar
+    events before deal assignment); an unattached meeting is a 404."""
     meeting = session.scalar(
         select(Meeting).where(
             Meeting.id == meeting_id, Meeting.org_id == ctx.org_id
         )
     )
-    if meeting is None:
+    if meeting is None or meeting.deal_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found"
         )
-    return meeting
+    conn = _active_connection(session, ctx, meeting.deal_id)
+    if conn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found"
+        )
+    return meeting, conn
+
+
+def _require_share_scope(conn: DealVdrConnection, category: str) -> None:
+    """403 if the deal is shared but this resource category is withheld. The deal
+    itself is legitimately visible, so revealing the withheld category is fine."""
+    if category not in (conn.share_scopes or []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Resource not shared for this deal: {category}",
+        )
+
+
+def _deal_response(deal: Deal, conn: DealVdrConnection) -> DealResponse:
+    resp = DealResponse.model_validate(deal)
+    resp.vdr_id = conn.vdr_id
+    resp.shared_scopes = list(conn.share_scopes or [])
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -191,10 +260,22 @@ def list_deals(
     session: Session = Depends(get_db),
 ) -> list[DealResponse]:
     require_scope(ctx, "deals:read")
-    stmt = org_scoped(select(Deal), Deal, ctx.principal()).where(
-        Deal.deleted_at.is_(None)
-    )
-    rows = session.scalars(stmt.order_by(Deal.created_at.desc())).all()
+    # Only deals with an active CogniVault connection are visible; map each to its
+    # connection so the response can carry vdr_id + shared_scopes.
+    conns = session.scalars(
+        select(DealVdrConnection).where(
+            DealVdrConnection.org_id == ctx.org_id,
+            DealVdrConnection.status == "active",
+        )
+    ).all()
+    conn_by_deal = {c.deal_id: c for c in conns}
+    rows: list[Deal] = []
+    if conn_by_deal:
+        stmt = org_scoped(select(Deal), Deal, ctx.principal()).where(
+            Deal.deleted_at.is_(None),
+            Deal.id.in_(conn_by_deal.keys()),
+        )
+        rows = list(session.scalars(stmt.order_by(Deal.created_at.desc())).all())
     record_audit(
         session,
         org_id=ctx.org_id,
@@ -203,7 +284,7 @@ def list_deals(
         resource_type="partner",
         details={"resource": "deals", "count": len(rows)},
     )
-    return [DealResponse.model_validate(d) for d in rows]
+    return [_deal_response(d, conn_by_deal[d.id]) for d in rows]
 
 
 @router.get("/partner/v1/deals/{deal_id}", response_model=DealResponse)
@@ -213,7 +294,7 @@ def get_deal(
     session: Session = Depends(get_db),
 ) -> DealResponse:
     require_scope(ctx, "deals:read")
-    deal = _scoped_deal_or_404(session, ctx, deal_id)
+    deal, conn = _scoped_shared_deal_or_404(session, ctx, deal_id)
     record_audit(
         session,
         org_id=ctx.org_id,
@@ -224,7 +305,7 @@ def get_deal(
         deal_id=deal.id,
         details={"resource": "deal"},
     )
-    return DealResponse.model_validate(deal)
+    return _deal_response(deal, conn)
 
 
 @router.post(
@@ -278,7 +359,8 @@ def list_documents(
     session: Session = Depends(get_db),
 ) -> list[DocumentResponse]:
     require_scope(ctx, "documents:read")
-    deal = _scoped_deal_or_404(session, ctx, deal_id)
+    deal, conn = _scoped_shared_deal_or_404(session, ctx, deal_id)
+    _require_share_scope(conn, "documents")
     rows = session.scalars(
         select(Document)
         .where(Document.deal_id == deal.id, Document.org_id == ctx.org_id)
@@ -350,7 +432,8 @@ def get_transcript(
     session: Session = Depends(get_db),
 ) -> TranscriptResponse:
     require_scope(ctx, "transcripts:read")
-    meeting = _scoped_meeting_or_404(session, ctx, meeting_id)
+    meeting, conn = _scoped_shared_meeting_or_404(session, ctx, meeting_id)
+    _require_share_scope(conn, "transcripts")
     transcript = session.scalar(
         select(Transcript).where(
             Transcript.meeting_id == meeting.id,
@@ -383,7 +466,8 @@ def list_analyses(
     session: Session = Depends(get_db),
 ) -> list[AnalysisResponse]:
     require_scope(ctx, "transcripts:read")
-    meeting = _scoped_meeting_or_404(session, ctx, meeting_id)
+    meeting, conn = _scoped_shared_meeting_or_404(session, ctx, meeting_id)
+    _require_share_scope(conn, "analyses")
     rows = session.scalars(
         select(Analysis)
         .where(
@@ -422,7 +506,8 @@ def search_deal(
     session: Session = Depends(get_db),
 ) -> list[SearchHit]:
     require_scope(ctx, "search")
-    deal = _scoped_deal_or_404(session, ctx, deal_id)
+    deal, conn = _scoped_shared_deal_or_404(session, ctx, deal_id)
+    _require_share_scope(conn, "search")
     results = match_embeddings_for_deal(
         session,
         deal_id=deal.id,

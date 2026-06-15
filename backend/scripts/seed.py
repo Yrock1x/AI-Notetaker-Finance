@@ -13,7 +13,7 @@ Usage:  python -m scripts.seed   (from the backend/ directory)
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -86,7 +86,7 @@ ANL_CIPHER_1 = uuid.UUID("f6000000-0000-0000-0000-000000000008")
 ANL_CIPHER_2 = uuid.UUID("f6000000-0000-0000-0000-000000000009")
 
 # Base timestamp for seed data - two weeks ago
-BASE_DATE = datetime.now(timezone.utc) - timedelta(days=14)
+BASE_DATE = datetime.now(UTC) - timedelta(days=14)
 
 
 def _ts(days_offset: int = 0, hours_offset: int = 0) -> datetime:

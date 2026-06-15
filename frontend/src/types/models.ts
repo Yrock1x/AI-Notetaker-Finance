@@ -51,6 +51,26 @@ export interface DealMember {
   created_at: string;
 }
 
+// CogniVault VDR share categories a deal can be shared with (per-deal toggles).
+export type VdrShareScope = "documents" | "transcripts" | "analyses" | "search";
+
+export const VDR_SHARE_SCOPES: VdrShareScope[] = [
+  "documents",
+  "transcripts",
+  "analyses",
+  "search",
+];
+
+// The CogniVault connection for a single deal (from /cognivault/.../connection).
+export interface VdrConnection {
+  connected: boolean;
+  status?: string;
+  vdr_id?: string;
+  vdr_name?: string;
+  share_scopes: VdrShareScope[];
+  connected_at?: string;
+}
+
 export interface Meeting {
   id: string;
   // Calendar-synced meetings land with deal_id=null until the user

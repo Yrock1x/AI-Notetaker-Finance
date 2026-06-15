@@ -11,7 +11,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy.orm import Session
 
-from app.db.models import TranscriptSegment
+from app.db.models import Document, Meeting, TranscriptSegment
 from app.llm.chunking import _estimate_tokens
 from app.llm.guardrails import FinancialGuardrails
 from app.llm.prompts.qa import RAG_QA
@@ -59,6 +59,13 @@ class QAService:
     # headroom for the prompt + answer inside a ~32k context window.
     MEETING_FULL_MAX_TOKENS = int(os.getenv("QA_MEETING_FULL_MAX_TOKENS", "24000"))
 
+    # Deal-scoped Q&A budget: if the deal's ENTIRE corpus (all meeting
+    # transcripts + extracted document text) fits within this many estimated
+    # tokens, answer it by feeding the whole corpus to a cheap model — full
+    # recall, no chunk-boundary / stale-embedding / top-k misses. Above it, fall
+    # back to RAG. Same sizing rationale as MEETING_FULL_MAX_TOKENS.
+    DEAL_FULL_MAX_TOKENS = int(os.getenv("QA_DEAL_FULL_MAX_TOKENS", "24000"))
+
     def __init__(
         self,
         session: Session,
@@ -73,8 +80,63 @@ class QAService:
         deal_id: UUID,
         question: str,
         top_k: int = DEFAULT_TOP_K,
+    ) -> QAResponse:
+        """Answer a question scoped to a whole deal.
+
+        Context-first: if the deal's entire corpus (all meeting transcripts +
+        extracted document text) fits the budget, feed it directly to a cheap
+        model — full recall, no retrieval misses. Otherwise fall back to
+        deal-scoped RAG.
+        """
+        blocks = self._fetch_deal_corpus(deal_id)
+        total_tokens = sum(b["tokens"] for b in blocks)
+
+        if blocks and total_tokens <= self.DEAL_FULL_MAX_TOKENS:
+            # One source "chunk" per meeting / document so the shared synthesis
+            # path (prompt, citation parsing, grounding) is fully reused and the
+            # model can cite which meeting/document a fact came from.
+            search_results = [
+                {
+                    "id": f"chunk_{i}",
+                    "source_type": b["source_type"],
+                    "source_id": b["source_id"],
+                    "text": f"## {b['label']}\n{b['text']}",
+                    "similarity": 1.0,
+                    "metadata": (
+                        {"meeting_id": b["source_id"]}
+                        if b["source_type"] == "transcript_segment"
+                        else {}
+                    ),
+                }
+                for i, b in enumerate(blocks)
+            ]
+            logger.info(
+                "qa_deal_full_context",
+                deal_id=str(deal_id),
+                sources=len(blocks),
+                corpus_tokens=total_tokens,
+            )
+            return await self._synthesize(
+                deal_id, question, search_results, TASK_QA_MEETING
+            )
+
+        logger.info(
+            "qa_deal_rag_fallback",
+            deal_id=str(deal_id),
+            corpus_tokens=total_tokens,
+            reason="empty" if not blocks else "too_large",
+        )
+        return await self._ask_rag(deal_id, question, top_k=top_k)
+
+    async def _ask_rag(
+        self,
+        deal_id: UUID,
+        question: str,
+        top_k: int = DEFAULT_TOP_K,
         meeting_id: UUID | None = None,  # noqa: ARG002 - reserved for future filter
     ) -> QAResponse:
+        """Deal-scoped RAG: embed the question, KNN over the deal's embeddings,
+        synthesize. Used when the full corpus is too large to fit in context."""
         query_vector = await self.llm_router.embed(question)
 
         from app.db.vectors import match_embeddings_for_deal
@@ -167,7 +229,9 @@ class QAService:
                 transcript_tokens=tokens,
                 reason="empty" if not transcript.strip() else "too_large",
             )
-            return await self.ask(
+            # A meeting too big to fit means deal RAG, not a deal-wide context
+            # assembly (which would be even larger and also fall back).
+            return await self._ask_rag(
                 deal_id=deal_id, question=question, meeting_id=meeting_id
             )
 
@@ -271,6 +335,63 @@ class QAService:
         )
 
     # ---- helpers -----------------------------------------------------------
+
+    def _fetch_deal_corpus(self, deal_id: UUID) -> list[dict]:
+        """The deal's full Q&A corpus as per-source blocks: every meeting's
+        finalized transcript plus every document's extracted text. Blank/
+        unprocessed sources are skipped. Each block carries an `_estimate_tokens`
+        count so the caller can decide whether the whole corpus fits in context.
+        """
+        blocks: list[dict] = []
+
+        meetings = (
+            self.session.query(
+                Meeting.id, Meeting.title, Meeting.meeting_date, Meeting.created_at
+            )
+            .filter(Meeting.deal_id == str(deal_id))
+            .order_by(Meeting.meeting_date, Meeting.created_at)
+            .all()
+        )
+        for m in meetings:
+            text = self._fetch_meeting_transcript(m[0])
+            if not text.strip():
+                continue
+            when = m[2] or m[3]
+            label = f"Meeting: {m[1] or 'Untitled'}"
+            if when:
+                label += f" ({when})"
+            blocks.append(
+                {
+                    "source_type": "transcript_segment",
+                    "source_id": str(m[0]),
+                    "label": label,
+                    "text": text,
+                    "tokens": _estimate_tokens(text),
+                }
+            )
+
+        docs = (
+            self.session.query(
+                Document.id, Document.title, Document.extracted_text
+            )
+            .filter(Document.deal_id == str(deal_id))
+            .all()
+        )
+        for d in docs:
+            text = (d[2] or "").strip()
+            if not text:
+                continue
+            blocks.append(
+                {
+                    "source_type": "document_chunk",
+                    "source_id": str(d[0]),
+                    "label": f"Document: {d[1] or 'Untitled'}",
+                    "text": text,
+                    "tokens": _estimate_tokens(text),
+                }
+            )
+
+        return blocks
 
     def _fetch_meeting_transcript(self, meeting_id: UUID) -> str:
         """Finalized transcript segments, sorted, as speaker-attributed text."""

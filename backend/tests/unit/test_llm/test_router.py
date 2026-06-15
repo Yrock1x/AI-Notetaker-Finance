@@ -129,133 +129,159 @@ class TestLLMRouterRegistration:
     def test_register_embedding_provider(self):
         router = LLMRouter()
         emb = MockEmbeddingProvider()
-        router.register_embedding_provider(emb)
-        assert router._embedding_provider is emb
+        router.register_embedding_provider("fireworks", emb)
+        assert router._embedding_providers["fireworks"] is emb
 
     def test_register_embedding_provider_overwrites(self):
         router = LLMRouter()
         emb1 = MockEmbeddingProvider(dimensions=3)
         emb2 = MockEmbeddingProvider(dimensions=5)
-        router.register_embedding_provider(emb1)
-        router.register_embedding_provider(emb2)
-        assert router._embedding_provider is emb2
+        router.register_embedding_provider("fireworks", emb1)
+        router.register_embedding_provider("fireworks", emb2)
+        assert router._embedding_providers["fireworks"] is emb2
 
     def test_initial_state_no_providers(self):
         router = LLMRouter()
         assert router._providers == {}
-        assert router._embedding_provider is None
+        assert router._embedding_providers == {}
 
     def test_default_task_routing_table(self):
-        router = LLMRouter()
-        assert router._task_routing["analysis"] == "gemini"
-        assert router._task_routing["qa"] == "gemini"
-        assert router._task_routing["summarization"] == "gemini"
-        assert router._task_routing["general"] == "gemini"
+        """Every routed task resolves to the Fireworks provider by default."""
+        from app.llm.router import _DEFAULT_TASK_MODEL_MAP, _resolve_model
+
+        for task in _DEFAULT_TASK_MODEL_MAP:
+            provider_name, _model = _resolve_model(task)
+            assert provider_name == "fireworks"
 
 
 class TestLLMRouterComplete:
     """Tests for the LLMRouter.complete() method."""
 
-    async def test_routes_analysis_to_gemini(self):
+    async def test_routes_ic_memo_to_fireworks(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
-        result = await router.complete("analysis", "system", "user")
-        assert result.model == "gemini"
-        assert len(gemini.complete_calls) == 1
-        assert gemini.complete_calls[0]["system_prompt"] == "system"
-        assert gemini.complete_calls[0]["user_prompt"] == "user"
+        result = await router.complete("ic_memo", "system", "user")
+        assert result.model == "fireworks"
+        assert len(fireworks.complete_calls) == 1
+        assert fireworks.complete_calls[0]["system_prompt"] == "system"
+        assert fireworks.complete_calls[0]["user_prompt"] == "user"
 
-    async def test_routes_qa_to_gemini(self):
+    async def test_routes_qa_rag_to_fireworks(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
-        result = await router.complete("qa", "sys", "usr")
-        assert result.model == "gemini"
+        result = await router.complete("qa_rag", "sys", "usr")
+        assert result.model == "fireworks"
 
-    async def test_routes_summarization_to_gemini(self):
+    async def test_routes_summarization_to_fireworks(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
         result = await router.complete("summarization", "sys", "usr")
-        assert result.model == "gemini"
+        assert result.model == "fireworks"
 
-    async def test_routes_general_to_gemini(self):
+    async def test_routes_general_to_fireworks(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
         result = await router.complete("general", "sys", "usr")
-        assert result.model == "gemini"
+        assert result.model == "fireworks"
 
-    async def test_unknown_task_type_falls_back_to_gemini(self):
-        """Unknown task types should default to the 'gemini' provider."""
+    async def test_unknown_task_type_falls_back_to_fireworks(self):
+        """Unknown task types should default to the 'general' (Fireworks) model."""
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
         result = await router.complete("unknown_task", "sys", "usr")
-        assert result.model == "gemini"
+        assert result.model == "fireworks"
+
+    async def test_resolves_specific_model_per_task(self):
+        """The router pins the task's resolved model on the provider call."""
+        from app.llm.router import _FIREWORKS_DEEPSEEK, _FIREWORKS_GLM
+
+        router = LLMRouter()
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
+
+        await router.complete("qa_rag", "sys", "usr")
+        await router.complete("summarization", "sys", "usr")
+
+        # qa_rag → deepseek, summarization → glm (model spec is "<provider>:<model>")
+        assert fireworks.complete_calls[0]["model"] == _FIREWORKS_DEEPSEEK.split(":", 1)[1]
+        assert fireworks.complete_calls[1]["model"] == _FIREWORKS_GLM.split(":", 1)[1]
 
     async def test_raises_when_no_provider_registered(self):
         """Should raise ValueError when the needed provider is not registered."""
         router = LLMRouter()
-        with pytest.raises(ValueError, match="No provider registered for 'gemini'"):
-            await router.complete("analysis", "sys", "usr")
+        with pytest.raises(ValueError, match="No LLM provider registered for 'fireworks'"):
+            await router.complete("ic_memo", "sys", "usr")
 
     async def test_raises_when_wrong_provider_registered(self):
-        """If only 'openai' is registered but routing points to 'gemini', should raise."""
+        """If only 'openai' is registered but routing points to 'fireworks', should raise."""
         router = LLMRouter()
         openai = MockLLMProvider("openai")
         router.register_provider("openai", openai)
 
-        with pytest.raises(ValueError, match="No provider registered for 'gemini'"):
-            await router.complete("analysis", "sys", "usr")
+        with pytest.raises(ValueError, match="No LLM provider registered for 'fireworks'"):
+            await router.complete("ic_memo", "sys", "usr")
+
+    async def test_anthropic_route_blocked_when_premium_off(self, monkeypatch):
+        """A task routed to Anthropic raises while PREMIUM_LLM_ENABLED is off."""
+        monkeypatch.setenv("LLM_MODEL_FOR_IC_MEMO", "anthropic:claude-sonnet-4-6")
+        monkeypatch.delenv("PREMIUM_LLM_ENABLED", raising=False)
+        router = LLMRouter()
+        router.register_provider("fireworks", MockLLMProvider("fireworks"))
+
+        with pytest.raises(RuntimeError, match="PREMIUM_LLM_ENABLED"):
+            await router.complete("ic_memo", "sys", "usr")
 
     async def test_passes_kwargs_to_provider(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
-        await router.complete("analysis", "sys", "usr", temperature=0.5, max_tokens=1000)
-        assert gemini.complete_calls[0]["temperature"] == 0.5
-        assert gemini.complete_calls[0]["max_tokens"] == 1000
+        await router.complete("ic_memo", "sys", "usr", temperature=0.5, max_tokens=1000)
+        assert fireworks.complete_calls[0]["temperature"] == 0.5
+        assert fireworks.complete_calls[0]["max_tokens"] == 1000
 
     async def test_returns_llm_response_dataclass(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
-        result = await router.complete("analysis", "sys", "usr")
+        result = await router.complete("ic_memo", "sys", "usr")
         assert isinstance(result, LLMResponse)
-        assert result.content == "Response from gemini"
+        assert result.content == "Response from fireworks"
         assert result.usage == {"input_tokens": 10, "output_tokens": 20}
 
     async def test_propagates_provider_exception(self):
         """If the provider raises, the router should not swallow the exception."""
         router = LLMRouter()
         failing = FailingLLMProvider()
-        router.register_provider("gemini", failing)
+        router.register_provider("fireworks", failing)
 
         with pytest.raises(RuntimeError, match="Provider failure simulated"):
-            await router.complete("analysis", "sys", "usr")
+            await router.complete("ic_memo", "sys", "usr")
 
     async def test_multiple_sequential_calls(self):
         router = LLMRouter()
-        gemini = MockLLMProvider("gemini")
-        router.register_provider("gemini", gemini)
+        fireworks = MockLLMProvider("fireworks")
+        router.register_provider("fireworks", fireworks)
 
-        await router.complete("analysis", "s1", "u1")
-        await router.complete("qa", "s2", "u2")
+        await router.complete("ic_memo", "s1", "u1")
+        await router.complete("qa_rag", "s2", "u2")
         await router.complete("summarization", "s3", "u3")
 
-        assert len(gemini.complete_calls) == 3
-        assert gemini.complete_calls[0]["user_prompt"] == "u1"
-        assert gemini.complete_calls[1]["user_prompt"] == "u2"
-        assert gemini.complete_calls[2]["user_prompt"] == "u3"
+        assert len(fireworks.complete_calls) == 3
+        assert fireworks.complete_calls[0]["user_prompt"] == "u1"
+        assert fireworks.complete_calls[1]["user_prompt"] == "u2"
+        assert fireworks.complete_calls[2]["user_prompt"] == "u3"
 
 
 class TestLLMRouterEmbed:
@@ -264,7 +290,7 @@ class TestLLMRouterEmbed:
     async def test_embed_returns_floats(self):
         router = LLMRouter()
         emb = MockEmbeddingProvider(dimensions=5)
-        router.register_embedding_provider(emb)
+        router.register_embedding_provider("fireworks", emb)
 
         result = await router.embed("hello world")
         assert isinstance(result, list)
@@ -280,7 +306,7 @@ class TestLLMRouterEmbed:
     async def test_embed_batch_returns_list_of_lists(self):
         router = LLMRouter()
         emb = MockEmbeddingProvider(dimensions=4)
-        router.register_embedding_provider(emb)
+        router.register_embedding_provider("fireworks", emb)
 
         texts = ["text1", "text2", "text3"]
         result = await router.embed_batch(texts)
@@ -296,7 +322,7 @@ class TestLLMRouterEmbed:
     async def test_embed_empty_string(self):
         router = LLMRouter()
         emb = MockEmbeddingProvider(dimensions=3)
-        router.register_embedding_provider(emb)
+        router.register_embedding_provider("fireworks", emb)
 
         result = await router.embed("")
         assert len(result) == 3
@@ -304,7 +330,7 @@ class TestLLMRouterEmbed:
     async def test_embed_batch_empty_list(self):
         router = LLMRouter()
         emb = MockEmbeddingProvider(dimensions=3)
-        router.register_embedding_provider(emb)
+        router.register_embedding_provider("fireworks", emb)
 
         result = await router.embed_batch([])
         assert result == []

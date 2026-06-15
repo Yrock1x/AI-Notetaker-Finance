@@ -32,6 +32,7 @@ HANDLER_MODULES = [
     APP / "api" / "v1" / "analysis.py",
     APP / "api" / "v1" / "deliverables.py",
     APP / "api" / "v1" / "partner" / "router.py",
+    APP / "api" / "v1" / "cognivault.py",
     APP / "realtime" / "sse.py",
 ]
 
@@ -40,13 +41,14 @@ TENANT_MODELS = {
     "Deal", "Meeting", "Document", "Analysis", "Transcript", "TranscriptSegment",
     "MeetingBotSession", "MeetingParticipant", "MeetingChatMessage", "QaInteraction",
     "Embedding", "Deliverable", "ActionItemCompletion", "IntegrationCredential",
-    "GraphSubscription",
+    "GraphSubscription", "DealVdrConnection",
 }
 
 # Names that prove a membership/org check happened in the handler.
 GUARD_NAMES = {
     "org_scoped", "meeting_scoped",
     "scoped_deal_or_404", "scoped_meeting_or_404", "_scoped_deal_or_404",
+    "_scoped_shared_deal_or_404", "_scoped_shared_meeting_or_404", "_active_connection",
     "require_org", "in_org",
     "_require_deal_access", "_require_meeting_org",
     "deal_org_id",

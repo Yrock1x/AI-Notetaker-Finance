@@ -306,20 +306,93 @@ class TestGetFileCategory:
 
 
 @_skip_fp
-class TestExtractTextStubs:
-    """Verify that unimplemented extract_text_from_* raise NotImplementedError."""
+class TestExtractText:
+    """Tests for extract_text_from_pdf/docx/xlsx.
 
-    async def test_extract_text_from_pdf_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            await extract_text_from_pdf(b"fake pdf bytes")  # type: ignore[name-defined]
+    These functions are now implemented (pdfplumber / python-docx / openpyxl);
+    they extract real text from valid documents and surface the underlying
+    library's parse error on malformed input. They no longer raise
+    NotImplementedError. We round-trip DOCX/XLSX (we can synthesize valid files
+    in-process) and, since no PDF-writer is available in the test env, assert
+    the PDF path's invalid-input contract.
+    """
 
-    async def test_extract_text_from_docx_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            await extract_text_from_docx(b"fake docx bytes")  # type: ignore[name-defined]
+    # -- helpers to build valid documents in-memory --
 
-    async def test_extract_text_from_xlsx_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            await extract_text_from_xlsx(b"fake xlsx bytes")  # type: ignore[name-defined]
+    @staticmethod
+    def _make_docx(paragraphs: list[str]) -> bytes:
+        import io
+
+        from docx import Document
+
+        buf = io.BytesIO()
+        doc = Document()
+        for text in paragraphs:
+            doc.add_paragraph(text)
+        doc.save(buf)
+        return buf.getvalue()
+
+    @staticmethod
+    def _make_xlsx(sheet_name: str, rows: list[list]) -> bytes:
+        import io
+
+        from openpyxl import Workbook
+
+        buf = io.BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = sheet_name
+        for row in rows:
+            ws.append(row)
+        wb.save(buf)
+        return buf.getvalue()
+
+    # -- DOCX round-trip --
+
+    async def test_extract_text_from_docx_roundtrip(self):
+        data = self._make_docx(["Hello DOCX world", "Second line"])
+        result = await extract_text_from_docx(data)  # type: ignore[name-defined]
+        assert "Hello DOCX world" in result
+        assert "Second line" in result
+
+    async def test_extract_text_from_docx_skips_blank_paragraphs(self):
+        # Blank/whitespace-only paragraphs are filtered out by the extractor.
+        data = self._make_docx(["Real content", "   ", "", "More content"])
+        result = await extract_text_from_docx(data)  # type: ignore[name-defined]
+        assert result == "Real content\n\nMore content"
+
+    async def test_extract_text_from_docx_invalid_bytes_raises(self):
+        # python-docx opens DOCX as a zip; non-zip input raises a parse error
+        # (a real error surfaced to the caller), NOT NotImplementedError.
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - lib-specific type
+            await extract_text_from_docx(b"not a real docx")  # type: ignore[name-defined]
+        assert not isinstance(exc_info.value, NotImplementedError)
+
+    # -- XLSX round-trip --
+
+    async def test_extract_text_from_xlsx_roundtrip(self):
+        data = self._make_xlsx("Sheet1", [["Alpha", "Beta"], [1, 2]])
+        result = await extract_text_from_xlsx(data)  # type: ignore[name-defined]
+        assert "[Sheet1]" in result
+        assert "Alpha\tBeta" in result
+        assert "1\t2" in result
+
+    async def test_extract_text_from_xlsx_invalid_bytes_raises(self):
+        # openpyxl opens XLSX as a zip; non-zip input raises BadZipFile,
+        # NOT NotImplementedError.
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - lib-specific type
+            await extract_text_from_xlsx(b"not a real xlsx")  # type: ignore[name-defined]
+        assert not isinstance(exc_info.value, NotImplementedError)
+
+    # -- PDF (no PDF-writer in the test env -> assert invalid-input contract) --
+
+    async def test_extract_text_from_pdf_invalid_bytes_raises(self):
+        # pdfplumber/pdfminer raises a parse error on non-PDF input. The key
+        # contract: the function is implemented, so it does NOT raise
+        # NotImplementedError.
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - lib-specific type
+            await extract_text_from_pdf(b"not a real pdf")  # type: ignore[name-defined]
+        assert not isinstance(exc_info.value, NotImplementedError)
 
 
 # ===================================================================

@@ -65,7 +65,10 @@ def test_members_add_list_remove(make_client, seed):
         s.close()
 
     client = make_client(ROUTES, seed.user_a)
-    r = client.post(f"/deals/{seed.deal_a}/members", json={"user_id": seed.user_none, "role": "analyst"})
+    r = client.post(
+        f"/deals/{seed.deal_a}/members",
+        json={"user_id": seed.user_none, "role": "analyst"},
+    )
     assert r.status_code == 201, r.text
 
     members = client.get(f"/deals/{seed.deal_a}/members").json()
