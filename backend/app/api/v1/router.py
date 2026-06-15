@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     analysis,
     auth_native,
+    cognivault,
     deliverables,
     health,
     integrations,
@@ -41,6 +42,11 @@ api_router.include_router(
 # Integrations (OAuth + meeting-bot scheduling).
 api_router.include_router(
     integrations.router, prefix="/integrations", tags=["Integrations"]
+)
+
+# CogniVault — connect a deal to a VDR (OAuth client flow) + per-deal share toggles.
+api_router.include_router(
+    cognivault.router, prefix="/cognivault", tags=["CogniVault"]
 )
 
 # Inbound webhooks.

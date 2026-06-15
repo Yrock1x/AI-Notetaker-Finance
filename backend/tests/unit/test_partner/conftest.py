@@ -20,6 +20,7 @@ from app.db.engine import configure_engine, create_db_engine, get_session_factor
 from app.db.models import (
     Analysis,
     Deal,
+    DealVdrConnection,
     Embedding,
     Meeting,
     Organization,
@@ -61,9 +62,11 @@ class Seed:
     def __init__(self) -> None:
         self.org_a = ""
         self.user_a = ""
-        self.deal_a = ""
-        self.deal_a2 = ""
+        self.deal_a = ""        # has an active VDR connection (all share scopes)
+        self.deal_a2 = ""       # org A, but NOT connected (share gate negatives)
+        self.conn_a = ""        # deal_a's DealVdrConnection id
         self.meeting_a = ""
+        self.meeting_nodeal = ""  # org A meeting with deal_id=None
         self.transcript_a = ""
         self.analysis_a = ""
         self.emb_a = ""
@@ -110,7 +113,27 @@ def seed(db) -> Seed:
         meeting_a = Meeting(
             org_id=org_a.id, deal_id=deal_a.id, title="A meeting", created_by=user_a.id
         )
-        session.add(meeting_a)
+        # A meeting not attached to any deal (calendar event before assignment) —
+        # the partner share gate must 404 these even when the org matches.
+        meeting_nodeal = Meeting(
+            org_id=org_a.id, deal_id=None, title="A unassigned", created_by=user_a.id
+        )
+        session.add_all([meeting_a, meeting_nodeal])
+        session.flush()
+
+        # deal_a is shared into a CogniVault VDR with all resource scopes; deal_a2
+        # is intentionally left unconnected so the share-gate tests have a target.
+        conn_a = DealVdrConnection(
+            deal_id=deal_a.id,
+            org_id=org_a.id,
+            provider="cognivault",
+            vdr_id="vdr-a",
+            vdr_name="VDR A",
+            status="active",
+            share_scopes=["documents", "transcripts", "analyses", "search"],
+            connected_by=user_a.id,
+        )
+        session.add(conn_a)
         session.flush()
         transcript_a = Transcript(
             org_id=org_a.id,
@@ -201,7 +224,9 @@ def seed(db) -> Seed:
 
         s.org_a, s.user_a = org_a.id, user_a.id
         s.deal_a, s.deal_a2 = deal_a.id, deal_a2.id
+        s.conn_a = conn_a.id
         s.meeting_a, s.transcript_a = meeting_a.id, transcript_a.id
+        s.meeting_nodeal = meeting_nodeal.id
         s.analysis_a = analysis_done.id
         s.emb_a, s.emb_a2 = emb_a.id, emb_a2.id
         s.org_b, s.user_b = org_b.id, user_b.id

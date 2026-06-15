@@ -22,12 +22,12 @@ from .conftest import (
 # ---------------------------------------------------------------------------
 # auth
 # ---------------------------------------------------------------------------
-def test_valid_key_lists_only_its_org_deals(client, seed):
+def test_valid_key_lists_only_shared_deals_in_its_org(client, seed):
     resp = client.get("/partner/v1/deals", headers=auth(RAW_KEY_FULL))
     assert resp.status_code == 200
     ids = {d["id"] for d in resp.json()}
-    assert seed.deal_a in ids
-    assert seed.deal_a2 in ids
+    assert seed.deal_a in ids  # shared (active VDR connection)
+    assert seed.deal_a2 not in ids  # org A but NOT shared
     assert seed.deal_b not in ids  # org B is invisible
 
 

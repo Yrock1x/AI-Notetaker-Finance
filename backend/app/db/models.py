@@ -567,3 +567,53 @@ class PartnerApiKey(UUIDPrimaryKey, Timestamps, Base):
         UniqueConstraint("key_hash", name="partner_api_keys_hash_unique"),
         Index("partner_api_keys_org", "org_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# deal_vdr_connections (CogniVault per-deal sharing — Connect-VDR flow)
+# ---------------------------------------------------------------------------
+class DealVdrConnection(UUIDPrimaryKey, Timestamps, Base):
+    """A single deal shared into one CogniVault VDR.
+
+    Created by the OAuth "Connect VDR" flow: a user connects a deal to a VDR they
+    administer (CogniVault's consent screen enforces the admin check and returns
+    ``vdr_id``). The presence of an ``active`` row is the per-deal opt-in gate the
+    partner API (/partner/v1) filters on; ``share_scopes`` narrows which resource
+    types CogniVault may pull. Revoking flips ``status`` to ``revoked`` and is
+    effective immediately (the gate is re-resolved live on every partner read).
+    """
+
+    __tablename__ = "deal_vdr_connections"
+
+    deal_id: Mapped[str] = mapped_column(
+        ForeignKey("deals.id", ondelete="CASCADE"), nullable=False
+    )
+    org_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String, nullable=False, default="cognivault")
+    vdr_id: Mapped[str] = mapped_column(String, nullable=False)  # CogniVault VDR id
+    vdr_name: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | revoked
+    # Subset of {"documents","transcripts","analyses","search"} CogniVault may pull.
+    share_scopes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    connected_by: Mapped[str] = mapped_column(
+        ForeignKey("profiles.id"), nullable=False
+    )
+    # CogniVault OAuth token (Fernet-encrypted via services.oauth_tokens). Stored
+    # for future use (re-verification / push notify); not on the partner read path.
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    token_expires_at: Mapped[str | None] = mapped_column(String)
+    connected_at: Mapped[str] = mapped_column(
+        String, nullable=False, default=utcnow_iso
+    )
+    revoked_at: Mapped[str | None] = mapped_column(String)
+
+    __table_args__ = (
+        # One VDR connection per deal; reconnecting updates the row in place.
+        UniqueConstraint("deal_id", name="deal_vdr_connections_deal_unique"),
+        Index("deal_vdr_connections_org_status", "org_id", "status"),
+    )

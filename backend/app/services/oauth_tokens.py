@@ -94,6 +94,37 @@ def verify_state(state: str) -> dict:
     return claims
 
 
+# The CogniVault "Connect a deal to a VDR" flow needs the deal_id to survive the
+# redirect too (the standard ``build_state`` carries only org/user/platform). Same
+# signed-JWT mechanism; a ``purpose`` discriminator keeps the two state kinds from
+# being interchangeable.
+_VDR_CONNECT_PURPOSE = "cognivault_vdr_connect"
+
+
+def build_vdr_connect_state(org_id: UUID, user_id: UUID, deal_id: str) -> str:
+    now = int(time.time())
+    payload = {
+        "org_id": str(org_id),
+        "user_id": str(user_id),
+        "deal_id": deal_id,
+        "purpose": _VDR_CONNECT_PURPOSE,
+        "nonce": secrets.token_urlsafe(16),
+        "iat": now,
+        "exp": now + _STATE_TTL_SECONDS,
+    }
+    return jwt.encode(payload, _state_secret(), algorithm="HS256")
+
+
+def verify_vdr_connect_state(state: str) -> dict:
+    try:
+        claims = jwt.decode(state, _state_secret(), algorithms=["HS256"])
+    except JWTError as exc:
+        raise ValueError(f"invalid OAuth state: {exc}") from exc
+    if claims.get("purpose") != _VDR_CONNECT_PURPOSE:
+        raise ValueError("OAuth state purpose mismatch")
+    return claims
+
+
 # ---------------------------------------------------------------------------
 # Credential storage (integration_credentials)
 # ---------------------------------------------------------------------------
