@@ -90,6 +90,11 @@ known-first-party = ["app"]
 "tests/**" = ["S105", "S106", "S107"]
 # The concurrency stress test prints a throughput line as useful diagnostics.
 "tests/unit/test_stress/test_concurrency.py" = ["T201"]
+# Ops/CLI scripts print to stdout by design — that's their interface.
+"scripts/**" = ["T201"]
+# The dev seed embeds long, realistic transcript/document text as inline data
+# literals; wrapping them to 100 cols would mangle the data, not improve it.
+"scripts/seed.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
