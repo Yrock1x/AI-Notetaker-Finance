@@ -6,6 +6,7 @@
 
 import {
   ArrowRight,
+  Check,
   Mic,
   MoreHorizontal,
   Plus,
@@ -18,9 +19,28 @@ import type { Citation, Meeting } from "@/types";
 
 // Scope is deal-relative here (the page already lives under /deals/[dealId]),
 // unlike the global chat page whose scope carries the deal id.
+//   deal      → the whole deal (all meetings & documents)
+//   meeting   → exactly one meeting (uses the optimized single-meeting endpoint)
+//   meetings  → a selected subset (2+) of meetings
 export type Scope =
   | { kind: "deal" }
-  | { kind: "meeting"; meetingId: string };
+  | { kind: "meeting"; meetingId: string }
+  | { kind: "meetings"; meetingIds: string[] };
+
+// The selected meeting ids implied by a scope ([] for deal-wide).
+export function selectedMeetingIds(scope: Scope): string[] {
+  if (scope.kind === "meeting") return [scope.meetingId];
+  if (scope.kind === "meetings") return scope.meetingIds;
+  return [];
+}
+
+// Collapse a selection set back to the narrowest scope: none → deal, one →
+// single-meeting (optimized path), many → subset.
+export function scopeFromMeetingIds(ids: string[]): Scope {
+  if (ids.length === 0) return { kind: "deal" };
+  if (ids.length === 1) return { kind: "meeting", meetingId: ids[0] };
+  return { kind: "meetings", meetingIds: ids };
+}
 
 export interface QaChatMsg {
   id: string;
@@ -48,6 +68,14 @@ export function ScopeRail({
   dealName: string;
 }) {
   const dealActive = scope.kind === "deal";
+  const selected = selectedMeetingIds(scope);
+  const selectedSet = new Set(selected);
+  const toggle = (id: string) => {
+    const next = selectedSet.has(id)
+      ? selected.filter((x) => x !== id)
+      : [...selected, id];
+    onScope(scopeFromMeetingIds(next));
+  };
   return (
     <aside
       className="ws-card overflow-hidden flex flex-col self-start lg:sticky lg:top-3"
@@ -79,10 +107,10 @@ export function ScopeRail({
             className="text-[13px] font-semibold"
             style={{ color: "var(--ws-ink)" }}
           >
-            {dealName}
+            All meetings & documents
           </div>
           <div className="text-[11px]" style={{ color: "var(--ws-muted)" }}>
-            All meetings & documents
+            Deal-wide context · {dealName}
           </div>
         </div>
       </button>
@@ -103,6 +131,29 @@ export function ScopeRail({
           style={{ color: "var(--ws-ink2)" }}
         />
       </div>
+      {selected.length > 0 && (
+        <div
+          className="px-3.5 py-1.5 flex items-center gap-2 text-[11px]"
+          style={{
+            borderBottom: "1px solid var(--ws-border)",
+            background: "var(--ws-ai-tint)",
+            color: "var(--ws-ai-ink)",
+            fontWeight: 600,
+          }}
+        >
+          <span>
+            {selected.length} meeting{selected.length === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => onScope({ kind: "deal" })}
+            style={{ color: "var(--ws-ai-ink)", textDecoration: "underline" }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {meetings.length === 0 ? (
           <div className="px-3.5 py-3 text-[11.5px]" style={{ color: "var(--ws-faint)" }}>
@@ -110,7 +161,7 @@ export function ScopeRail({
           </div>
         ) : (
           meetings.map((m, i) => {
-            const active = scope.kind === "meeting" && scope.meetingId === m.id;
+            const active = selectedSet.has(m.id);
             const d = m.meeting_date
               ? new Date(m.meeting_date)
               : new Date(m.created_at);
@@ -118,7 +169,7 @@ export function ScopeRail({
               <button
                 key={m.id}
                 type="button"
-                onClick={() => onScope({ kind: "meeting", meetingId: m.id })}
+                onClick={() => toggle(m.id)}
                 className="w-full grid grid-cols-[auto_1fr] gap-2.5 items-start px-3.5 py-2 text-left cursor-pointer"
                 style={{
                   background: active ? "var(--ws-ai-tint)" : "transparent",
@@ -126,10 +177,15 @@ export function ScopeRail({
                   borderTop: i > 0 ? "1px solid var(--ws-border)" : undefined,
                 }}
               >
-                <Mic
-                  className="w-3 h-3 mt-0.5 shrink-0"
-                  style={{ color: active ? "var(--ws-ai-ink)" : "var(--ws-faint)" }}
-                />
+                <span
+                  className="w-3.5 h-3.5 mt-0.5 shrink-0 grid place-items-center rounded-[3px]"
+                  style={{
+                    border: `1.5px solid ${active ? "var(--ws-ai-ink)" : "var(--ws-border-strong)"}`,
+                    background: active ? "var(--ws-ai-ink)" : "transparent",
+                  }}
+                >
+                  {active && <Check className="w-2.5 h-2.5" style={{ color: "#fff" }} />}
+                </span>
                 <div className="min-w-0">
                   <div
                     className="text-[12px] font-semibold truncate"
@@ -183,12 +239,18 @@ export function ConversationHeader({
             fontSize: 10.5,
           }}
         >
-          {scope.kind === "deal" ? dealName : (scopedMeeting?.title ?? "Meeting")}
+          {scope.kind === "deal"
+            ? dealName
+            : scope.kind === "meeting"
+              ? (scopedMeeting?.title ?? "Meeting")
+              : `${scope.meetingIds.length} meetings`}
         </span>
         {scope.kind === "deal" ? (
           <span>· deal-wide context</span>
-        ) : (
+        ) : scope.kind === "meeting" ? (
           <span>· single meeting</span>
+        ) : (
+          <span>· {scope.meetingIds.length} selected meetings</span>
         )}
       </span>
       <div className="flex-1" />
@@ -267,7 +329,13 @@ export function FloatingComposer({
               background: "var(--ws-ai-tint)",
               color: "var(--ws-ai-ink)",
             }}
-            title={scope.kind === "deal" ? dealName : scopedMeeting?.title}
+            title={
+              scope.kind === "deal"
+                ? dealName
+                : scope.kind === "meeting"
+                  ? scopedMeeting?.title
+                  : `${scope.meetingIds.length} meetings`
+            }
           >
             {scope.kind === "deal" ? (
               <>
@@ -277,7 +345,9 @@ export function FloatingComposer({
               <>
                 <Mic className="w-2.5 h-2.5" />
                 <span className="max-w-[120px] truncate">
-                  {scopedMeeting?.title ?? "Meeting"}
+                  {scope.kind === "meeting"
+                    ? (scopedMeeting?.title ?? "Meeting")
+                    : `${scope.meetingIds.length} meetings`}
                 </span>
                 <button
                   type="button"
@@ -296,7 +366,9 @@ export function FloatingComposer({
             placeholder={
               scope.kind === "deal"
                 ? `Ask anything about ${dealName}…`
-                : `Ask about this meeting…`
+                : scope.kind === "meeting"
+                  ? `Ask about this meeting…`
+                  : `Ask about these ${scope.meetingIds.length} meetings…`
             }
             className="flex-1 bg-transparent outline-none border-none text-[13px]"
             style={{ color: "var(--ws-ink)" }}

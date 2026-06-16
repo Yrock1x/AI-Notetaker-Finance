@@ -109,14 +109,23 @@ async def ask_question(
     session: Session = Depends(get_db),
     principal: Principal = Depends(get_principal),
 ) -> QAResponse:
-    """Ask a question scoped to a deal (RAG over all deal artefacts)."""
+    """Ask a question scoped to a deal, optionally narrowed to a subset of its
+    meetings (``meeting_ids``). No/empty list = the whole deal corpus."""
     # Authorize BEFORE running the billed embed + RAG + LLM pipeline — otherwise
     # a member of any org could spend tokens against an arbitrary deal_id (the
     # answer is discarded on the 404, but the cost/latency is already incurred).
     _require_deal_access(session, principal, deal_id)
+    # Validate any meeting-scope narrowing belongs to THIS deal before spending
+    # tokens — keeps tenant scoping intact (the deal is already org-checked).
+    if payload.meeting_ids:
+        _require_meetings_in_deal(session, deal_id, payload.meeting_ids)
     qa = QAService(session=session, llm_router=get_llm_router())
     try:
-        result = await qa.ask(deal_id=deal_id, question=payload.question)
+        result = await qa.ask(
+            deal_id=deal_id,
+            question=payload.question,
+            meeting_ids=payload.meeting_ids,
+        )
     except httpx.HTTPStatusError as exc:
         raise _llm_provider_http_error(exc) from exc
 
@@ -212,6 +221,31 @@ def _require_deal_access(session: Session, principal: Principal, deal_id: UUID) 
     org_id = deal_org_id(session, str(deal_id))
     if org_id is None or not principal.in_org(org_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found")
+
+
+def _require_meetings_in_deal(
+    session: Session, deal_id: UUID, meeting_ids: list[UUID]
+) -> None:
+    """Ensure every meeting in a Q&A scope narrowing belongs to this deal.
+
+    The deal is already org-checked by ``_require_deal_access``; meetings are
+    children of the deal, so this is enough to keep the scope tenant-safe.
+    """
+    from sqlalchemy import select
+
+    requested = {str(m) for m in meeting_ids}
+    valid = set(
+        session.scalars(
+            select(Meeting.id).where(
+                Meeting.deal_id == str(deal_id),
+                Meeting.id.in_(requested),
+            )
+        ).all()
+    )
+    if requested - valid:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found"
+        )
 
 
 @router.get("/history", response_model=PaginatedResponse[QAHistoryResponse])

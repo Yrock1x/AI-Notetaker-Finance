@@ -1,75 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
-import { ArrowRight, Briefcase, CalendarDays, Mic } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight, Search } from "lucide-react";
 import { useDeals } from "@/hooks/use-deals";
-import { isBotSessionLive } from "@/lib/meeting-status";
 import { useCalendarMeetings } from "@/hooks/use-calendar";
-import { useBotSessions } from "@/hooks/use-bot-sessions";
 import { EmptyState } from "@/components/shared/empty-state";
 import { HeroSearch } from "@/components/dashboard/hero-search";
 import { TodayAgenda } from "@/components/dashboard/today-agenda";
 import { NeedsAttention } from "@/components/dashboard/needs-attention";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { DealStatus } from "@/types";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
-
-type StatTone = "indigo" | "emerald" | "rose";
-
-const STAT_TONE_LIGHT: Record<StatTone, { bg: string; text: string; ring: string }> = {
-  indigo: { bg: "bg-indigo-50", text: "text-indigo-600", ring: "ring-indigo-100" },
-  emerald: { bg: "bg-emerald-50", text: "text-emerald-600", ring: "ring-emerald-100" },
-  rose: { bg: "bg-rose-50", text: "text-rose-600", ring: "ring-rose-100" },
-};
-
-const STAT_TONE_DARK: Record<StatTone, { bg: string; text: string; ring: string }> = {
-  indigo: { bg: "bg-indigo-500/10", text: "text-indigo-300", ring: "ring-indigo-400/20" },
-  emerald: { bg: "bg-emerald-500/10", text: "text-emerald-300", ring: "ring-emerald-400/20" },
-  rose: { bg: "bg-rose-500/10", text: "text-rose-300", ring: "ring-rose-400/20" },
-};
-
-function StatPill({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  tone: StatTone;
-}) {
-  const { isDark } = useScribeTheme();
-  const c = isDark ? STAT_TONE_DARK[tone] : STAT_TONE_LIGHT[tone];
-  return (
-    <div
-      className={`group flex items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-sm ${
-        isDark
-          ? "bg-[#121212] border-white/10 hover:border-white/20"
-          : "bg-white border-black/[0.06] hover:border-black/15"
-      }`}
-    >
-      <div
-        className={`flex h-10 w-10 items-center justify-center rounded-xl ring-4 transition-transform duration-300 group-hover:scale-105 ${c.bg} ${c.text} ${c.ring}`}
-      >
-        {icon}
-      </div>
-      <div className="flex flex-col">
-        <span
-          className={`text-[10px] font-medium tracking-[0.18em] uppercase ${
-            isDark ? "text-white/45" : "text-black/45"
-          }`}
-        >
-          {label}
-        </span>
-        <span className="font-display text-[28px] tabular-nums leading-tight">{value}</span>
-      </div>
-    </div>
-  );
-}
-
-const DEAL_PILL_DOTS = ["bg-emerald-500", "bg-indigo-500", "bg-violet-500", "bg-amber-500"];
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -82,23 +23,29 @@ export default function DashboardPage() {
   const { isDark } = useScribeTheme();
   const { data: dealsData, isLoading: dealsLoading } = useDeals();
   const { meetings } = useCalendarMeetings();
-  const { data: botSessions = [] } = useBotSessions();
+  const [query, setQuery] = useState("");
 
   const deals = dealsData?.items ?? [];
-  const activeDeals = deals.filter((d) => d.status === DealStatus.ACTIVE);
 
-  const meetingsThisWeek = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - start.getDay());
-    const ms = start.getTime();
-    return meetings.filter((m) => {
-      const t = m.meeting_date ? new Date(m.meeting_date).getTime() : 0;
-      return t >= ms;
-    }).length;
+  // Meeting count per deal, derived from the calendar feed we already load.
+  const meetingCountByDeal = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of meetings) {
+      if (!m.deal_id) continue;
+      map.set(m.deal_id, (map.get(m.deal_id) ?? 0) + 1);
+    }
+    return map;
   }, [meetings]);
 
-  const liveNow = botSessions.filter(isBotSessionLive).length;
+  const filteredDeals = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return deals;
+    return deals.filter(
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        (d.target_company ?? "").toLowerCase().includes(q),
+    );
+  }, [deals, query]);
 
   const dateLabel = new Date().toLocaleDateString(undefined, {
     weekday: "long",
@@ -107,70 +54,48 @@ export default function DashboardPage() {
   });
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <p
-          className={`font-display italic text-[20px] sm:text-[22px] leading-tight ${
-            isDark ? "text-white/55" : "text-black/55"
-          }`}
-        >
-          {greeting()},
+    <div className="flex flex-col gap-7">
+      {/* Slim header */}
+      <div className="flex flex-col gap-1">
+        <p className={`text-[13px] ${isDark ? "text-white/45" : "text-black/45"}`}>
+          {greeting()} · {dateLabel}
         </p>
-        <h1 className="text-[44px] sm:text-[60px] leading-[0.95] tracking-[-0.03em] font-medium">
-          <span
-            className={`bg-clip-text text-transparent ${
-              isDark
-                ? "bg-gradient-to-r from-white via-indigo-200 to-emerald-200"
-                : "bg-gradient-to-r from-[#0a0a0a] via-indigo-700 to-emerald-700"
-            }`}
-          >
-            Your workspace
-          </span>
+        <h1 className="text-[26px] sm:text-[30px] leading-tight tracking-[-0.02em] font-medium">
+          What do you want to know?
         </h1>
-        <p className={`text-[13px] tracking-wide ${isDark ? "text-white/40" : "text-black/40"}`}>
-          {dateLabel}
-        </p>
       </div>
 
+      {/* Hero: ask across all deals */}
       <HeroSearch />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatPill
-          icon={<Briefcase className="h-4 w-4" />}
-          label="Active deals"
-          value={activeDeals.length}
-          tone="indigo"
-        />
-        <StatPill
-          icon={<CalendarDays className="h-4 w-4" />}
-          label="Meetings this week"
-          value={meetingsThisWeek}
-          tone="emerald"
-        />
-        <StatPill
-          icon={<Mic className="h-4 w-4" />}
-          label="Live now"
-          value={liveNow}
-          tone="rose"
-        />
-      </div>
-
+      {/* Today's calls — collapses when there are none */}
       <TodayAgenda />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <NeedsAttention />
-        <RecentActivity />
-      </div>
-
-      <div className="flex flex-col gap-4">
+      {/* Deal switcher — the primary way to move between deals */}
+      <section className="flex flex-col gap-4">
         <div
-          className={`flex items-end justify-between border-b pb-3 ${
+          className={`flex items-center gap-3 flex-wrap border-b pb-3 ${
             isDark ? "border-white/5" : "border-black/[0.06]"
           }`}
         >
           <div className="flex items-center gap-3">
             <span className="inline-block h-3.5 w-1 rounded-full bg-gradient-to-b from-emerald-500 to-indigo-500" />
-            <h2 className="text-[18px] tracking-[-0.01em] font-medium">Recent deals</h2>
+            <h2 className="text-[18px] tracking-[-0.01em] font-medium">Your deals</h2>
+          </div>
+          <div
+            className={`ml-auto flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] ${
+              isDark ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-white"
+            }`}
+          >
+            <Search className={`h-3.5 w-3.5 ${isDark ? "text-white/40" : "text-black/40"}`} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a deal…"
+              className={`w-40 bg-transparent outline-none ${
+                isDark ? "text-white placeholder:text-white/30" : "text-black placeholder:text-black/30"
+              }`}
+            />
           </div>
           <Link
             href="/deals"
@@ -178,7 +103,7 @@ export default function DashboardPage() {
               isDark ? "text-white/65 hover:text-white" : "text-black/65 hover:text-black"
             }`}
           >
-            View all deals
+            View all
             <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
@@ -188,7 +113,7 @@ export default function DashboardPage() {
         ) : deals.length === 0 ? (
           <EmptyState
             title="No deals yet"
-            description="Create your first deal to start recording meetings and generating AI-powered insights."
+            description="Create your first deal to start recording meetings and asking AI across your calls."
             action={
               <Link
                 href="/deals/new"
@@ -202,30 +127,76 @@ export default function DashboardPage() {
               </Link>
             }
           />
+        ) : filteredDeals.length === 0 ? (
+          <p className={`text-sm ${isDark ? "text-white/40" : "text-black/40"}`}>
+            No deals match “{query}”.
+          </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {deals.slice(0, 8).map((deal, i) => (
-              <Link
-                key={deal.id}
-                href={`/deals/${deal.id}`}
-                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[13px] font-medium transition-all duration-200 hover:-translate-y-0.5 ${
-                  isDark
-                    ? "border-white/10 text-white/85 hover:border-white/25 hover:bg-white/[0.04]"
-                    : "border-black/10 text-black/85 hover:border-black/25 hover:bg-black/[0.03]"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${DEAL_PILL_DOTS[i % DEAL_PILL_DOTS.length]}`} />
-                {deal.name}
-                {deal.target_company && (
-                  <span className={isDark ? "text-white/40" : "text-black/40"}>
-                    · {deal.target_company}
-                  </span>
-                )}
-              </Link>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {filteredDeals.map((deal) => {
+              const count = meetingCountByDeal.get(deal.id) ?? 0;
+              const isActive = deal.status === DealStatus.ACTIVE;
+              return (
+                <Link
+                  key={deal.id}
+                  href={`/deals/${deal.id}`}
+                  className={`group rounded-2xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm ${
+                    isDark
+                      ? "border-white/10 bg-[#121212] hover:border-white/20"
+                      : "border-black/[0.06] bg-white hover:border-black/15"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                            isActive ? "bg-emerald-500" : isDark ? "bg-white/25" : "bg-black/25"
+                          }`}
+                        />
+                        <h3 className="truncate text-[15px] font-medium">{deal.name}</h3>
+                      </div>
+                      {deal.target_company && (
+                        <p
+                          className={`mt-0.5 truncate text-[12px] ${
+                            isDark ? "text-white/45" : "text-black/45"
+                          }`}
+                        >
+                          {deal.target_company}
+                        </p>
+                      )}
+                    </div>
+                    {deal.stage && (
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium ${
+                          isDark
+                            ? "bg-indigo-500/10 text-indigo-300"
+                            : "bg-indigo-50 text-indigo-600"
+                        }`}
+                      >
+                        {deal.stage}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`mt-3 flex items-center justify-between text-[11.5px] ${
+                      isDark ? "text-white/45" : "text-black/45"
+                    }`}
+                  >
+                    <span className="tabular-nums">
+                      {count} meeting{count === 1 ? "" : "s"}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
+
+      {/* Small triage: meetings not yet assigned to a deal */}
+      <NeedsAttention />
     </div>
   );
 }

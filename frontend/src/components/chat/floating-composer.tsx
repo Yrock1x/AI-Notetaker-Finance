@@ -77,11 +77,13 @@ export function FloatingComposer({
                     {activeDeal?.name ?? "Deal"}
                   </span>
                 </>
-              ) : scope?.kind === "meeting" ? (
+              ) : scope?.kind === "meeting" || scope?.kind === "meetings" ? (
                 <>
                   <Mic className="w-2.5 h-2.5" />
                   <span className="truncate max-w-[120px]">
-                    {activeMeeting?.title ?? "Meeting"}
+                    {scope.kind === "meeting"
+                      ? activeMeeting?.title ?? "Meeting"
+                      : `${scope.meetingIds.length} meetings`}
                   </span>
                   <button
                     type="button"
@@ -102,7 +104,9 @@ export function FloatingComposer({
                 scope
                   ? scope.kind === "deal"
                     ? `Ask anything about ${activeDeal?.name ?? "this deal"}…`
-                    : `Ask about this meeting…`
+                    : scope.kind === "meeting"
+                      ? `Ask about this meeting…`
+                      : `Ask about these ${scope.meetingIds.length} meetings…`
                   : "Select a deal to begin…"
               }
               className="flex-1 bg-transparent outline-none border-none text-[13.5px] placeholder:text-black/35"

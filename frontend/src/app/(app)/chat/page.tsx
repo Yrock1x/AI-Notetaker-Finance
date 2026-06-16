@@ -14,7 +14,13 @@ import { useMeetings } from "@/hooks/use-meetings";
 import { useAskQuestion, useMeetingAskQuestion } from "@/hooks/use-qa";
 import { ApiError, NetworkError, warmWorker } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
-import { SUGGESTIONS, type ChatMsg, type Scope } from "@/components/chat/types";
+import {
+  SUGGESTIONS,
+  scopeFromMeetingIds,
+  selectedMeetingIds,
+  type ChatMsg,
+  type Scope,
+} from "@/components/chat/types";
 import { ScopeRail } from "@/components/chat/scope-rail";
 import {
   Bubble,
@@ -69,7 +75,8 @@ function ChatContent() {
     }
   }, [deals, scope]);
 
-  // Sync URL so the scope is shareable + survives refresh.
+  // Sync URL so the scope is shareable + survives refresh. (A multi-meeting
+  // subset isn't encoded in the URL — it falls back to deal-wide on refresh.)
   useEffect(() => {
     if (!scope) return;
     const params = new URLSearchParams();
@@ -93,12 +100,15 @@ function ChatContent() {
       ? meetings.find((m) => m.id === scope.meetingId) ?? null
       : null;
 
-  // Drop the meeting filter if we switched deals and the meeting is no
-  // longer in the active deal.
+  // Drop any selected meetings that aren't in the active deal (e.g. after a
+  // deal switch); collapse back to the narrowest valid scope.
   useEffect(() => {
-    if (scope?.kind !== "meeting") return;
-    if (meetings.length > 0 && !meetings.some((m) => m.id === scope.meetingId)) {
-      setScope({ kind: "deal", dealId: scope.dealId });
+    if (scope?.kind !== "meeting" && scope?.kind !== "meetings") return;
+    if (meetings.length === 0) return;
+    const present = new Set(meetings.map((m) => m.id));
+    const kept = selectedMeetingIds(scope).filter((id) => present.has(id));
+    if (kept.length !== selectedMeetingIds(scope).length) {
+      setScope(scopeFromMeetingIds(scope.dealId, kept));
     }
   }, [scope, meetings]);
 
@@ -130,10 +140,15 @@ function ChatContent() {
               dealId: scope.dealId,
               payload: { question: q },
             })
-          : await meetingAsk.mutateAsync({
-              meetingId: scope.meetingId,
-              payload: { question: q },
-            });
+          : scope.kind === "meeting"
+            ? await meetingAsk.mutateAsync({
+                meetingId: scope.meetingId,
+                payload: { question: q },
+              })
+            : await dealAsk.mutateAsync({
+                dealId: scope.dealId,
+                payload: { question: q, meeting_ids: scope.meetingIds },
+              });
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiMsg.id
@@ -279,7 +294,7 @@ function ChatContent() {
           activeDeal={activeDeal ?? null}
           activeMeeting={activeMeeting}
           onClearMeetingScope={() =>
-            scope?.kind === "meeting"
+            scope && scope.kind !== "deal"
               ? setScope({ kind: "deal", dealId: scope.dealId })
               : undefined
           }

@@ -56,12 +56,16 @@ export function ConversationHeader({
             >
               {scope.kind === "deal"
                 ? activeDeal?.name ?? "Deal"
-                : activeMeeting?.title ?? "Meeting"}
+                : scope.kind === "meeting"
+                  ? activeMeeting?.title ?? "Meeting"
+                  : `${scope.meetingIds.length} meetings`}
             </span>
             {scope.kind === "deal" ? (
               <span>· deal-wide context</span>
-            ) : (
+            ) : scope.kind === "meeting" ? (
               <span>· single meeting</span>
+            ) : (
+              <span>· {scope.meetingIds.length} selected meetings</span>
             )}
           </>
         ) : (

@@ -80,15 +80,16 @@ class QAService:
         deal_id: UUID,
         question: str,
         top_k: int = DEFAULT_TOP_K,
+        meeting_ids: list[UUID] | None = None,
     ) -> QAResponse:
-        """Answer a question scoped to a whole deal.
+        """Answer a question scoped to a whole deal, or to a subset of its
+        meetings when ``meeting_ids`` is given (None/[] = the whole deal).
 
-        Context-first: if the deal's entire corpus (all meeting transcripts +
-        extracted document text) fits the budget, feed it directly to a cheap
-        model — full recall, no retrieval misses. Otherwise fall back to
-        deal-scoped RAG.
+        Context-first: if the (possibly narrowed) corpus fits the budget, feed
+        it directly to a cheap model — full recall, no retrieval misses.
+        Otherwise fall back to RAG (narrowed to the same meetings).
         """
-        blocks = self._fetch_deal_corpus(deal_id)
+        blocks = self._fetch_deal_corpus(deal_id, meeting_ids=meeting_ids)
         total_tokens = sum(b["tokens"] for b in blocks)
 
         if blocks and total_tokens <= self.DEAL_FULL_MAX_TOKENS:
@@ -126,20 +127,57 @@ class QAService:
             corpus_tokens=total_tokens,
             reason="empty" if not blocks else "too_large",
         )
-        return await self._ask_rag(deal_id, question, top_k=top_k)
+        return await self._ask_rag(
+            deal_id, question, top_k=top_k, meeting_ids=meeting_ids
+        )
 
     async def _ask_rag(
         self,
         deal_id: UUID,
         question: str,
         top_k: int = DEFAULT_TOP_K,
-        meeting_id: UUID | None = None,  # noqa: ARG002 - reserved for future filter
+        meeting_ids: list[UUID] | None = None,
     ) -> QAResponse:
         """Deal-scoped RAG: embed the question, KNN over the deal's embeddings,
-        synthesize. Used when the full corpus is too large to fit in context."""
-        query_vector = await self.llm_router.embed(question)
+        synthesize. Used when the full corpus is too large to fit in context.
 
+        When ``meeting_ids`` is given, the KNN is restricted to those meetings'
+        transcript-segment embeddings. Transcript embeddings store
+        ``source_id = TranscriptSegment.id`` (not the meeting id), so resolve the
+        meetings to their segment ids and pass that as the matcher allowlist.
+        """
         from app.db.vectors import match_embeddings_for_deal
+
+        source_ids: list[str] | None = None
+        if meeting_ids:
+            # Only finalized segments have embeddings (live partials are not
+            # embedded — see internal/transcription.embed_meeting). Mirror the
+            # is_partial=False filter from _fetch_meeting_transcript so a
+            # still-being-transcribed meeting (partials only) short-circuits to
+            # the "no transcript" answer instead of an empty KNN.
+            source_ids = [
+                str(row[0])
+                for row in self.session.query(TranscriptSegment.id)
+                .filter(
+                    TranscriptSegment.meeting_id.in_([str(m) for m in meeting_ids]),
+                    TranscriptSegment.is_partial.is_(False),
+                )
+                .all()
+            ]
+            if not source_ids:
+                # The selected meetings have no transcript segments to search —
+                # short-circuit before spending an embedding call.
+                return QAResponse(
+                    answer=(
+                        "I could not find any transcript text for the selected "
+                        "meeting(s) to answer this question."
+                    ),
+                    citations=[],
+                    confidence="low",
+                    source_coverage="No transcript available for the selected meetings.",
+                )
+
+        query_vector = await self.llm_router.embed(question)
 
         rows = match_embeddings_for_deal(
             self.session,
@@ -147,6 +185,7 @@ class QAService:
             query_vector=query_vector,
             top_k=top_k,
             min_similarity=self.MIN_SIMILARITY,
+            source_ids=source_ids,
         )
 
         search_results = [
@@ -229,10 +268,11 @@ class QAService:
                 transcript_tokens=tokens,
                 reason="empty" if not transcript.strip() else "too_large",
             )
-            # A meeting too big to fit means deal RAG, not a deal-wide context
-            # assembly (which would be even larger and also fall back).
+            # A meeting too big to fit context falls back to RAG scoped to that
+            # one meeting's transcript segments (not the whole deal — the user
+            # asked about this meeting specifically).
             return await self._ask_rag(
-                deal_id=deal_id, question=question, meeting_id=meeting_id
+                deal_id=deal_id, question=question, meeting_ids=[meeting_id]
             )
 
         # Present the whole transcript as a single source "chunk" so the shared
@@ -336,22 +376,30 @@ class QAService:
 
     # ---- helpers -----------------------------------------------------------
 
-    def _fetch_deal_corpus(self, deal_id: UUID) -> list[dict]:
-        """The deal's full Q&A corpus as per-source blocks: every meeting's
-        finalized transcript plus every document's extracted text. Blank/
-        unprocessed sources are skipped. Each block carries an `_estimate_tokens`
-        count so the caller can decide whether the whole corpus fits in context.
+    def _fetch_deal_corpus(
+        self, deal_id: UUID, meeting_ids: list[UUID] | None = None
+    ) -> list[dict]:
+        """The deal's Q&A corpus as per-source blocks: every meeting's finalized
+        transcript plus every document's extracted text. Blank/unprocessed
+        sources are skipped. Each block carries an `_estimate_tokens` count so the
+        caller can decide whether the corpus fits in context.
+
+        When ``meeting_ids`` is given the corpus is narrowed to those meetings'
+        transcripts and the deal-wide documents are skipped — a meeting-subset
+        scope is about what was said in those calls, not the whole data room.
         """
         blocks: list[dict] = []
 
-        meetings = (
-            self.session.query(
-                Meeting.id, Meeting.title, Meeting.meeting_date, Meeting.created_at
+        meetings_q = self.session.query(
+            Meeting.id, Meeting.title, Meeting.meeting_date, Meeting.created_at
+        ).filter(Meeting.deal_id == str(deal_id))
+        if meeting_ids:
+            meetings_q = meetings_q.filter(
+                Meeting.id.in_([str(m) for m in meeting_ids])
             )
-            .filter(Meeting.deal_id == str(deal_id))
-            .order_by(Meeting.meeting_date, Meeting.created_at)
-            .all()
-        )
+        meetings = meetings_q.order_by(
+            Meeting.meeting_date, Meeting.created_at
+        ).all()
         for m in meetings:
             text = self._fetch_meeting_transcript(m[0])
             if not text.strip():
@@ -370,8 +418,11 @@ class QAService:
                 }
             )
 
+        # Deal-wide documents only when not narrowed to a meeting subset.
         docs = (
-            self.session.query(
+            []
+            if meeting_ids
+            else self.session.query(
                 Document.id, Document.title, Document.extracted_text
             )
             .filter(Document.deal_id == str(deal_id))

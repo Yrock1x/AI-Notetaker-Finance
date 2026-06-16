@@ -2,7 +2,7 @@
 
 // Deal workspace shell — project header (briefcase chip + name + target +
 // stage chip + meta + team avatars + invite) followed by a sticky tab
-// bar. Tabs match the Deal Workspace design (Overview, Meetings, AI Chat,
+// bar. Tabs match the Deal Workspace design (Overview, Meetings, Ask AI,
 // Action Items, Transcripts, Settings); /team and /documents stay
 // reachable by direct URL but are not promoted into the bar.
 
@@ -19,6 +19,7 @@ import {
   initialsOf,
 } from "@/components/workspace/primitives";
 import { LiveBanner } from "@/components/workspace/live-banner";
+import { CogniVaultHeaderChip } from "@/components/deals/cognivault-header-chip";
 import { cn } from "@/lib/utils";
 
 interface TabDef {
@@ -30,7 +31,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { label: "Overview", href: "" },
   { label: "Meetings", href: "/meetings", countKey: "meetings" },
-  { label: "AI Chat", href: "/qa", countKey: "chat" },
+  { label: "Ask AI", href: "/qa", countKey: "chat" },
   { label: "Action Items", href: "/action-items", countKey: "actions" },
   { label: "Transcripts", href: "/transcripts" },
   { label: "Settings", href: "/settings" },
@@ -134,6 +135,7 @@ export default function DealLayout({
           {teamPeople.length > 0 && (
             <AvatarStack people={teamPeople} size={22} max={5} />
           )}
+          {dealId && <CogniVaultHeaderChip dealId={dealId} />}
           <Link
             href={`${basePath}/team`}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap shrink-0"

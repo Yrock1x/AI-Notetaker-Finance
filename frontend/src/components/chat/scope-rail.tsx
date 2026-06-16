@@ -6,13 +6,17 @@
 import { useMemo, useState } from "react";
 import {
   Briefcase,
+  Check,
   ChevronDown,
   ChevronRight,
-  Mic,
   Search,
 } from "lucide-react";
 import type { Deal, Meeting } from "@/types";
-import type { Scope } from "./types";
+import {
+  scopeFromMeetingIds,
+  selectedMeetingIds,
+  type Scope,
+} from "./types";
 
 export function ScopeRail({
   deals,
@@ -45,6 +49,16 @@ export function ScopeRail({
     const s = search.toLowerCase();
     return meetings.filter((m) => m.title.toLowerCase().includes(s));
   }, [meetings, search]);
+
+  const selected = selectedMeetingIds(scope);
+  const selectedSet = new Set(selected);
+  const toggleMeeting = (id: string) => {
+    if (!scope) return;
+    const next = selectedSet.has(id)
+      ? selected.filter((x) => x !== id)
+      : [...selected, id];
+    onScope(scopeFromMeetingIds(scope.dealId, next));
+  };
 
   return (
     <aside
@@ -154,6 +168,14 @@ export function ScopeRail({
               <span className="ws-eyebrow">
                 Meetings · {filteredMeetings.length}
               </span>
+              {selected.length > 0 && (
+                <span
+                  className="ml-auto px-1.5 py-px rounded text-[10px] font-semibold"
+                  style={{ background: "var(--ws-ai-tint)", color: "var(--ws-ai-ink)" }}
+                >
+                  {selected.length} selected
+                </span>
+              )}
             </button>
             {meetingsOpen && filteredMeetings.length === 0 && (
               <div
@@ -165,8 +187,7 @@ export function ScopeRail({
             )}
             {meetingsOpen &&
               filteredMeetings.map((m, i) => {
-                const active =
-                  scope.kind === "meeting" && scope.meetingId === m.id;
+                const active = selectedSet.has(m.id);
                 const d = m.meeting_date
                   ? new Date(m.meeting_date)
                   : new Date(m.created_at);
@@ -174,13 +195,7 @@ export function ScopeRail({
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() =>
-                      onScope({
-                        kind: "meeting",
-                        dealId: scope.dealId,
-                        meetingId: m.id,
-                      })
-                    }
+                    onClick={() => toggleMeeting(m.id)}
                     className="w-full grid grid-cols-[auto_1fr] gap-2.5 items-start px-3.5 py-2 text-left cursor-pointer"
                     style={{
                       background: active ? "var(--ws-ai-tint)" : "transparent",
@@ -189,12 +204,17 @@ export function ScopeRail({
                         i > 0 ? "1px solid var(--ws-border)" : undefined,
                     }}
                   >
-                    <Mic
-                      className="w-3 h-3 mt-0.5 shrink-0"
+                    <span
+                      className="w-3.5 h-3.5 mt-0.5 shrink-0 grid place-items-center rounded-[3px]"
                       style={{
-                        color: active ? "var(--ws-ai-ink)" : "var(--ws-faint)",
+                        border: `1.5px solid ${active ? "var(--ws-ai-ink)" : "var(--ws-border-strong)"}`,
+                        background: active ? "var(--ws-ai-ink)" : "transparent",
                       }}
-                    />
+                    >
+                      {active && (
+                        <Check className="w-2.5 h-2.5" style={{ color: "#fff" }} />
+                      )}
+                    </span>
                     <div className="min-w-0">
                       <div
                         className="text-[12px] font-semibold truncate"
