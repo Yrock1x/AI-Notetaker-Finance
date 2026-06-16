@@ -31,7 +31,9 @@ function LoginContent() {
   const search = useSearchParams();
   const nextPath = safeNext(search.get("next"));
 
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(
+    search.get("mode") === "signup" ? "signup" : "signin"
+  );
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
