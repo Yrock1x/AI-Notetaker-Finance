@@ -5,7 +5,10 @@
 // whose time has long passed isn't really upcoming. These helpers add a time
 // gate so the UI doesn't show months-old calls as Live / Scheduled.
 
-const STALE_LIVE_MS = 4 * 60 * 60 * 1000; // a real call won't run longer than this
+// Single source of truth for the "a real call won't run longer than this"
+// window. Exported so the calendar's live-classification reuses it instead of
+// keeping its own (divergent) constant.
+export const STALE_LIVE_MS = 4 * 60 * 60 * 1000;
 
 export type MeetingDisplayState = "live" | "scheduled" | "not_joined" | "other";
 
@@ -35,13 +38,15 @@ type BotSessionLike = {
   status: string;
   scheduled_start?: string | null;
   actual_start?: string | null;
+  actual_end?: string | null;
   created_at?: string | null;
 };
 
-// A bot session is genuinely live only if it's recording/joining AND started
-// recently — guards against stale sessions stuck in "recording".
+// A bot session is genuinely live only if it's recording/joining, hasn't ended,
+// AND started recently — guards against stale sessions stuck in "recording".
 export function isBotSessionLive(s: BotSessionLike): boolean {
   if (s.status !== "recording" && s.status !== "joining") return false;
+  if (s.actual_end) return false; // already ended
   const ref = s.actual_start || s.scheduled_start || s.created_at;
   if (!ref) return true; // no timestamp to judge by → trust the status
   const whenMs = new Date(ref).getTime();

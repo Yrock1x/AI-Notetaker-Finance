@@ -168,19 +168,9 @@ export interface QAInteraction {
   created_at: string;
 }
 
-export interface BotSession {
-  id: string;
-  meeting_id: string;
-  platform: MeetingSource;
-  status: string;
-  join_url?: string;
-  bot_user_id?: string;
-  started_at?: string;
-  ended_at?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-}
+// The canonical BotSession type lives in hooks/use-bot-sessions.ts (matching
+// the worker's actual response shape); every consumer imports it from there.
+// The stale duplicate that used to live here (join_url/started_at/…) was unused.
 
 export interface AuditLog {
   id: string;

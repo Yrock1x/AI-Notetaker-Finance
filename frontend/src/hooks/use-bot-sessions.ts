@@ -49,6 +49,11 @@ export function useBotSessions(
       return apiGet<BotSession[]>(`/bot-sessions${qs}`);
     },
     staleTime: 30 * 1000,
+    // A bot going live (or ending) is driven server-side by the Recall webhook,
+    // with no row-level push to the client. Poll so the live banner / "Live now"
+    // stat appears/clears on its own. Cheap endpoint; pauses when the tab is
+    // hidden (refetchIntervalInBackground defaults to false).
+    refetchInterval: 30 * 1000,
   });
 }
 

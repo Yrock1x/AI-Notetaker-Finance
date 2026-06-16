@@ -37,10 +37,15 @@ HANDLER_MODULES = [
 ]
 
 # Tables that carry tenant data (directly via org_id or through a meeting/deal).
+# NOTE: these strings must match the ORM class names in app/db/models.py exactly
+# (the AST check is case-sensitive). A future hardening is to derive this set
+# from the ORM registry (classes with an org_id/deal_id/meeting_id column) so it
+# can't drift — but that broadens coverage to every org-scoped model and must be
+# reconciled against the handlers first.
 TENANT_MODELS = {
     "Deal", "Meeting", "Document", "Analysis", "Transcript", "TranscriptSegment",
-    "MeetingBotSession", "MeetingParticipant", "MeetingChatMessage", "QaInteraction",
-    "Embedding", "Deliverable", "ActionItemCompletion", "IntegrationCredential",
+    "MeetingBotSession", "MeetingParticipant", "MeetingChatMessage", "QAInteraction",
+    "Embedding", "ActionItemCompletion", "IntegrationCredential",
     "GraphSubscription", "DealVdrConnection",
 }
 

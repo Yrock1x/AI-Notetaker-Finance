@@ -26,7 +26,7 @@ export function OrgSwitcher() {
       <button
         type="button"
         onClick={() => hasMultiple && setOpen((o) => !o)}
-        className="flex items-center gap-2 text-sm font-medium text-[#1A1A1A]/70 hover:text-[#1A1A1A] transition-colors disabled:cursor-default"
+        className="flex items-center gap-2 text-sm font-medium text-ink/70 hover:text-ink transition-colors disabled:cursor-default"
         disabled={!hasMultiple}
       >
         <div className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -35,7 +35,7 @@ export function OrgSwitcher() {
       </button>
 
       {open && hasMultiple && (
-        <div className="absolute left-0 top-full mt-2 min-w-[220px] rounded-lg border border-[#1A1A1A]/10 bg-white shadow-lg z-50 py-1">
+        <div className="absolute left-0 top-full mt-2 min-w-[220px] rounded-lg border border-ink/10 bg-white shadow-lg z-50 py-1">
           {orgs.map((org) => {
             const isActive = org.id === currentOrg?.id;
             return (

@@ -38,6 +38,17 @@ function formatElapsed(startedAt: string | null | undefined): string {
   return `${mm.toString().padStart(2, "0")}:${ss.toString().padStart(2, "0")}`;
 }
 
+// Owns the 1s interval in isolation so only the elapsed-timer text re-renders
+// each second — not the whole banner (title, live transcript snippet, etc.).
+function ElapsedClock({ startedAt }: { startedAt: string | null }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{formatElapsed(startedAt)}</>;
+}
+
 export function LiveBanner({ dealId }: LiveBannerProps) {
   const { data: sessions } = useBotSessions({ deal_id: dealId });
   const live = (sessions ?? []).find((s) => LIVE_STATUSES.has(s.status));
@@ -64,14 +75,6 @@ function LiveBannerInner({
 }) {
   const { data: meeting } = useMeeting(dealId, meetingId);
   const { segments, isConnected } = useLiveTranscript(meetingId);
-  // Force re-render every second so the elapsed timer ticks. We discard the
-  // counter value itself and recompute elapsed from `startedAt` directly.
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // Show last 3 segments. Filter partials so the cursor sits on the
   // newest actively-typed line.
@@ -108,7 +111,7 @@ function LiveBannerInner({
             className="ws-mono text-[12px]"
             style={{ color: "var(--ws-muted)" }}
           >
-            {formatElapsed(startedAt)}
+            <ElapsedClock startedAt={startedAt} />
           </span>
           <span
             className="text-[12px]"

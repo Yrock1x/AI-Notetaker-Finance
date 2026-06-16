@@ -4,6 +4,7 @@
 
 import type { CalendarMeeting } from "@/hooks/use-calendar";
 import type { BotSession } from "@/hooks/use-bot-sessions";
+import { isBotSessionLive, STALE_LIVE_MS } from "@/lib/meeting-status";
 
 export const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -84,7 +85,7 @@ export const BOT_STATUS_LABELS: Record<
   failed: { label: "Failed", className: "bg-red-50 text-red-500" },
   cancelled: {
     label: "Cancelled",
-    className: "bg-[#1A1A1A]/5 text-[#1A1A1A]/50",
+    className: "bg-ink/5 text-ink/50",
   },
 };
 
@@ -92,22 +93,14 @@ export function meetingTimestamp(m: CalendarMeeting): number {
   return new Date(m.meeting_date || m.created_at).getTime();
 }
 
-// A call is treated as "live" only if it's actually happening right now.
-// Without a time-window guard, any meeting whose status got stuck at
-// "recording" (bot crashed, Recall never fired its done webhook, etc.)
-// would show up in the Live Now rail forever, even on days when the
-// calendar is empty.
-export const LIVE_WINDOW_MS = 6 * 60 * 60 * 1000;
+// "Live" needs a time-window guard so a meeting whose status got stuck at
+// "recording" (bot crashed, Recall never fired its done webhook) doesn't show
+// in the Live Now rail forever. Reuse the shared window + the shared session
+// predicate so the calendar and the rest of the app agree on what "live" means.
+export const LIVE_WINDOW_MS = STALE_LIVE_MS;
 
 export function isSessionLive(session: BotSession | undefined): boolean {
-  if (!session) return false;
-  if (session.status !== "recording") return false;
-  if (session.actual_end) return false;
-  const startStr = session.actual_start ?? session.scheduled_start;
-  if (!startStr) return false;
-  const startedAt = new Date(startStr).getTime();
-  if (Number.isNaN(startedAt)) return false;
-  return Date.now() - startedAt < LIVE_WINDOW_MS;
+  return !!session && isBotSessionLive(session);
 }
 
 export function classifyStatus(

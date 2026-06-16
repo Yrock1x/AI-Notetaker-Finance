@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "@/lib/worker-api";
+import { apiPost } from "@/lib/worker-api";
 
 export interface Deliverable {
   id: string;
@@ -15,12 +15,16 @@ export interface Deliverable {
 const DELIVERABLES_KEY = "deliverables";
 
 export function useDeliverables(dealId: string | undefined) {
-  return useQuery({
+  // The worker has no persisted GET for deliverables — they're generated on
+  // demand (POST /generate). Back this list purely with the React Query cache:
+  // it starts empty and useGenerateDeliverable appends to it. (Previously this
+  // queried a nonexistent endpoint, 404'd, and the page silently showed empty.)
+  return useQuery<{ items: Deliverable[] }>({
     queryKey: [DELIVERABLES_KEY, dealId],
-    queryFn: async () => {
-      return apiGet<{ items: Deliverable[] }>(`/deals/${dealId}/deliverables`);
-    },
+    queryFn: async () => ({ items: [] }),
     enabled: !!dealId,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 
@@ -32,10 +36,13 @@ export function useGenerateDeliverable() {
         type,
       });
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: [DELIVERABLES_KEY, variables.dealId],
-      });
+    onSuccess: (data, variables) => {
+      // Append to the cached list rather than invalidating — there's no GET to
+      // refetch from, so invalidating would just reset to the empty placeholder.
+      queryClient.setQueryData<{ items: Deliverable[] }>(
+        [DELIVERABLES_KEY, variables.dealId],
+        (prev) => ({ items: [data, ...(prev?.items ?? [])] })
+      );
     },
   });
 }

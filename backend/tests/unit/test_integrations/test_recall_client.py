@@ -17,9 +17,8 @@ from app.integrations.recall.client import (
     _base_url_for_region,
 )
 
-# The client builds its base URL from the configured region. With no explicit
-# region/base_url it falls back to DEFAULT_REGION, so this is the base URL the
-# real-mode tests below expect requests to be sent to.
+# The client now derives its base URL from a region (DEFAULT_BASE_URL was
+# renamed/removed). A client constructed with no explicit region uses this.
 DEFAULT_BASE_URL = _base_url_for_region(DEFAULT_REGION)
 
 # ---------------------------------------------------------------------------

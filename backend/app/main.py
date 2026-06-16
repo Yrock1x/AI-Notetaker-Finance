@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.rate_limit import limiter
+from app.core.security_headers import SecurityHeadersMiddleware
 
 
 def _init_sentry() -> None:
@@ -63,6 +64,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         redirect_slashes=False,
     )
+
+    # Security headers on every response (nosniff / frame-deny / referrer +
+    # HSTS & CSP in prod). Pure-ASGI so it doesn't buffer SSE / file downloads.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

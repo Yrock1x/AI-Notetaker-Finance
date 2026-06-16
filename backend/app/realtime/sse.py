@@ -9,9 +9,10 @@ Tenant isolation: the meeting is scoped (``scoped_meeting_or_404``) *before* the
 streaming response begins, so a cross-tenant request fails fast with 404 rather
 than opening an empty stream.
 
-Note: browser ``EventSource`` cannot send an Authorization header, so cookie
-auth will be wired up in a later workstream; for now the standard JWT
-dependency is used.
+Note: browser ``EventSource`` cannot send an Authorization header, so auth here
+relies on the session cookie (``get_current_user`` reads it). The scope check
+runs in a short-lived session that is closed before the stream opens, so the
+open-ended generator holds no pooled DB connection.
 """
 
 from __future__ import annotations
@@ -21,10 +22,11 @@ import json
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
-from app.api.v1.store._common import get_db, get_principal, scoped_meeting_or_404
-from app.db.scope import Principal
+from app.api.v1.store._common import scoped_meeting_or_404
+from app.db.engine import get_session_factory
+from app.db.scope import load_principal
+from app.dependencies import AuthUser, get_current_user
 from app.realtime.pubsub import meeting_topic, pubsub
 
 router = APIRouter()
@@ -37,12 +39,18 @@ HEARTBEAT_INTERVAL = 15.0
 @router.get("/meetings/{meeting_id}/stream")
 def stream_meeting(
     meeting_id: str,
-    session: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    current_user: AuthUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    # Scope check runs synchronously, before any streaming starts: a request for
-    # a meeting outside the principal's org raises 404 here.
-    scoped_meeting_or_404(session, principal, meeting_id)
+    # Scope check in a SHORT-LIVED session that is closed before streaming
+    # begins. The event generator below runs for the whole (potentially
+    # hours-long) connection; holding a request-scoped get_db session would pin
+    # a pooled DB connection for that entire lifetime, exhausting the shared
+    # pool after a handful of concurrent live viewers and stalling every other
+    # endpoint. A cross-tenant request still fails fast with 404 here, before
+    # any stream opens.
+    with get_session_factory()() as scope_session:
+        principal = load_principal(scope_session, str(current_user.id))
+        scoped_meeting_or_404(scope_session, principal, meeting_id)
 
     topic = meeting_topic(meeting_id)
 

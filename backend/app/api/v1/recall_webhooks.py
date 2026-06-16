@@ -59,6 +59,11 @@ _SEEN_WEBHOOK_IDS: OrderedDict[str, float] = OrderedDict()
 _SEEN_MAX_SIZE = 10000
 _SEEN_TTL_SECONDS = 600  # 10 min — covers both Recall's 5-min ts tolerance
 
+# Reject Svix-signed webhooks whose timestamp is too far from now. This bounds
+# the replay window even after the in-process dedup LRU is cleared (e.g. a
+# deploy/restart), mirroring the Zoom/Slack handlers in webhooks.py.
+_RECALL_TIMESTAMP_TOLERANCE = 300  # 5 minutes
+
 
 # ---------------------------------------------------------------------------
 # Backpressure on the live-ingest write path
@@ -154,6 +159,20 @@ def _verify_recall_signature(
         return
 
     if svix_id and svix_timestamp and svix_signature:
+        # Freshness check first: a captured-but-stale signed webhook is rejected
+        # even if its signature still validates.
+        try:
+            skew = abs(time.time() - int(svix_timestamp))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Recall webhook timestamp",
+            ) from None
+        if skew > _RECALL_TIMESTAMP_TOLERANCE:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Recall webhook timestamp expired",
+            )
         if _verify_svix(raw_body, svix_id, svix_timestamp, svix_signature):
             return
         raise HTTPException(
@@ -476,6 +495,11 @@ async def _handle_status_change(
         # Deepgram already ran during the call, so the file-upload path
         # (``meeting/uploaded``) doesn't apply. The finalize step flips
         # meetings.status to 'uploaded' itself once the pull succeeds.
+        # Commit the status write before the Inngest send so the SQLite writer
+        # lock isn't held across that network call (this is the hot live path).
+        # Committing first also means the status persists even if the send fails
+        # and Recall retries the webhook.
+        session.commit()
         await send_event(
             "meeting/bot-completed",
             {

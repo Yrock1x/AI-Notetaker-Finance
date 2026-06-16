@@ -19,16 +19,17 @@ DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 
 def _secret() -> str:
-    secret = (
-        settings.session_jwt_secret
-        or settings.supabase_jwt_secret
-        or settings.worker_internal_token
+    if settings.session_jwt_secret:
+        return settings.session_jwt_secret
+    # Outside production only, fall back to the internal token so local dev /
+    # tests work without a dedicated SESSION_JWT_SECRET. Production boot requires
+    # SESSION_JWT_SECRET (config._require_prod_secrets), so the shared internal
+    # token is never silently used to sign sessions in prod.
+    if not settings.is_production and settings.worker_internal_token:
+        return settings.worker_internal_token
+    raise RuntimeError(
+        "No session signing secret configured (set SESSION_JWT_SECRET)"
     )
-    if not secret:
-        raise RuntimeError(
-            "No session signing secret configured (set SESSION_JWT_SECRET)"
-        )
-    return secret
 
 
 def issue_session_token(

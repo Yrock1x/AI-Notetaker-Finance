@@ -16,6 +16,7 @@ import type {
   PaginatedResponse,
 } from "@/types";
 import { apiGet, apiPatch, apiPost } from "@/lib/worker-api";
+import { sendInngestEvent } from "@/lib/inngest-send";
 
 const MEETINGS_KEY = "meetings";
 
@@ -35,12 +36,14 @@ export function useMeetings(dealId: string | undefined) {
 }
 
 // Status values that mean "pipeline is running" — used by the polling
-// fallback so the UI eventually reflects state changes.
+// fallback so the UI eventually reflects state changes. These must be real
+// MeetingStatus values (see types/enums.ts): "diarizing" was never one, and
+// "processing" was missing.
 const ACTIVE_PIPELINE_STATUSES = [
-  "transcribing",
-  "diarizing",
-  "analyzing",
   "uploading",
+  "processing",
+  "transcribing",
+  "analyzing",
 ];
 
 export function useMeeting(
@@ -185,13 +188,11 @@ export function useConfirmMeetingUpload() {
         status: "uploaded",
       });
 
-      await fetch("/api/inngest/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "meeting/uploaded",
-          data: { meeting_id: meeting.id, deal_id: payload.deal_id },
-        }),
+      // Throws on a relay rejection so the mutation reports the failure instead
+      // of leaving the meeting stuck in "uploaded" with no pipeline running.
+      await sendInngestEvent("meeting/uploaded", {
+        meeting_id: meeting.id,
+        deal_id: payload.deal_id,
       });
 
       return meeting;

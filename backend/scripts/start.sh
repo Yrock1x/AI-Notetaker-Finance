@@ -19,9 +19,23 @@ mkdir -p "$(dirname "$DB")" "${STORAGE_ROOT:-/data/storage}"
 LS_CONFIG="/app/litestream.yml"
 
 if [ -n "${LITESTREAM_REPLICA_URL:-}" ] && [ ! -f "$DB" ]; then
-  echo "[start] DB missing — restoring from Litestream replica"
-  litestream restore -if-replica-exists -config "$LS_CONFIG" "$DB" || \
-    echo "[start] no replica to restore (first boot) — continuing"
+  echo "[start] DB missing — attempting Litestream restore"
+  # -if-replica-exists makes a genuine first boot (no replica/generation in the
+  # bucket) a no-op exit 0. ANY other non-zero exit is a real failure (S3
+  # unreachable, bad credentials, corrupt/partial snapshot) — we MUST abort
+  # rather than fall through to `alembic upgrade head` on an empty DB, because
+  # `litestream replicate` below would then stream that empty DB over the only
+  # good backup (silent total data loss during disaster recovery).
+  if ! litestream restore -if-replica-exists -config "$LS_CONFIG" "$DB"; then
+    echo "[start] FATAL: litestream restore failed while a replica is configured." >&2
+    echo "[start] Refusing to boot on an empty DB (would clobber the good backup). Check LITESTREAM_* creds / S3 reachability." >&2
+    exit 1
+  fi
+  if [ -f "$DB" ]; then
+    echo "[start] restored DB from Litestream replica"
+  else
+    echo "[start] no replica found in bucket (genuine first boot) — continuing with a fresh DB"
+  fi
 fi
 
 echo "[start] alembic upgrade head"

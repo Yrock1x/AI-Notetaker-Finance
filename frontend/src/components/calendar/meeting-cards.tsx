@@ -32,19 +32,19 @@ export function UnassignedMeetingCard({
     <button
       type="button"
       onClick={onClick}
-      className="block w-full rounded-xl border border-dashed border-[#1A1A1A]/10 bg-[#F2F0E9]/40 p-2 text-left transition-colors hover:border-primary/30 hover:bg-[#F2F0E9]/70"
+      className="block w-full rounded-xl border border-dashed border-ink/10 bg-[#F2F0E9]/40 p-2 text-left transition-colors hover:border-primary/30 hover:bg-[#F2F0E9]/70"
       title="Click to assign this meeting to a deal."
     >
-      <p className="truncate text-[11px] font-semibold text-[#1A1A1A]/70">
+      <p className="truncate text-[11px] font-semibold text-ink/70">
         {meeting.title}
       </p>
       <div className="mt-0.5 flex items-center gap-1">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#1A1A1A]/20" />
-        <span className="truncate text-[10px] text-[#1A1A1A]/50">
+        <span className="h-1.5 w-1.5 rounded-full bg-ink/20" />
+        <span className="truncate text-[10px] text-ink/50">
           Click to assign
         </span>
       </div>
-      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[#1A1A1A]/40">
+      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-ink/40">
         <Clock className="h-2.5 w-2.5" />
         {formatTime(meetingTime)}
       </div>
@@ -78,11 +78,11 @@ export function MeetingCard({
           </p>
           <div className="mt-0.5 flex items-center gap-1">
             <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
-            <span className="truncate text-[10px] text-[#1A1A1A]/50">
+            <span className="truncate text-[10px] text-ink/50">
               {meeting.deal_name}
             </span>
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[#1A1A1A]/40">
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-ink/40">
             <Clock className="h-2.5 w-2.5" />
             {formatTime(meetingTime)}
           </div>

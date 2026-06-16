@@ -50,6 +50,15 @@ def read_bytes(bucket: str, key: str) -> bytes:
     return _safe_path(bucket, key).read_bytes()
 
 
+def object_path(bucket: str, key: str) -> Path:
+    """Validated (traversal-safe) filesystem path for an object.
+
+    Lets callers stream a file straight off disk (e.g. ``FileResponse``)
+    instead of buffering the whole thing into memory via :func:`read_bytes`.
+    """
+    return _safe_path(bucket, key)
+
+
 def delete(bucket: str, key: str) -> None:
     path = _safe_path(bucket, key)
     if path.exists():
@@ -62,22 +71,33 @@ def exists(bucket: str, key: str) -> bool:
 
 # ---- URL signing ----------------------------------------------------------
 def _signing_key() -> str:
-    return settings.storage_signing_key or settings.worker_internal_token
+    if settings.storage_signing_key:
+        return settings.storage_signing_key
+    # Dev/test convenience only — production boot requires STORAGE_SIGNING_KEY
+    # (config._require_prod_secrets), so storage signing never silently reuses
+    # the shared internal token in prod.
+    if not settings.is_production:
+        return settings.worker_internal_token
+    raise RuntimeError("STORAGE_SIGNING_KEY is not configured")
 
 
-def sign(bucket: str, key: str, expires_at: int) -> str:
-    msg = f"{bucket}:{key}:{expires_at}".encode()
+def sign(method: str, bucket: str, key: str, expires_at: int) -> str:
+    # Bind the HTTP method into the signature so a GET (download) URL can't be
+    # replayed as a PUT (overwrite) and vice-versa.
+    msg = f"{method.upper()}:{bucket}:{key}:{expires_at}".encode()
     return hmac.new(_signing_key().encode(), msg, hashlib.sha256).hexdigest()
 
 
-def make_signed_url(bucket: str, key: str, ttl_seconds: int = 3600) -> str:
+def make_signed_url(
+    bucket: str, key: str, *, method: str = "GET", ttl_seconds: int = 3600
+) -> str:
     exp = int(time.time()) + ttl_seconds
-    sig = sign(bucket, key, exp)
+    sig = sign(method, bucket, key, exp)
     return f"/api/v1/storage/{bucket}/{key}?expires={exp}&sig={sig}"
 
 
-def verify(bucket: str, key: str, expires_at: int, sig: str) -> bool:
+def verify(method: str, bucket: str, key: str, expires_at: int, sig: str) -> bool:
     if int(time.time()) > expires_at:
         return False
-    expected = sign(bucket, key, expires_at)
+    expected = sign(method, bucket, key, expires_at)
     return hmac.compare_digest(expected, sig)

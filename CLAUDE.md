@@ -83,10 +83,11 @@ frontend/                      — Next.js app
     lib/
       worker-api.ts             cookie-authed fetch client for the worker REST API
       inngest/                  client.ts, functions.ts (pipelines)
-      api-client.ts             legacy axios client (LLM/Q&A endpoints)
+      inngest-send.ts           shared client→relay event helper (throws on reject)
+      toast-store.ts            global toast store; mutation errors surfaced via it
       auth.ts                   OAuth login + signout helpers over the worker API
     hooks/                      React Query hooks — all call the worker REST API
-    stores/                     Zustand (auth-store shim, org-store, ui-store)
+    stores/                     Zustand (org-store, ui-store)
 
 supabase/                       LEGACY — source schema for the one-time import;
                                 retained until the cutover + rollback window close

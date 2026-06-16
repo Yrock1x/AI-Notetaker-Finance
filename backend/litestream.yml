@@ -12,6 +12,6 @@ dbs:
   - path: ${SQLITE_DB_PATH}
     replicas:
       - url: ${LITESTREAM_REPLICA_URL}
-        # Keep 24h of point-in-time restore granularity.
+        # Keep 72h of point-in-time restore history.
         retention: 72h
         snapshot-interval: 6h

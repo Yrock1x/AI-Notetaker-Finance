@@ -299,7 +299,10 @@ export default function MeetingDetailPage() {
           )}
 
           {activeTab === "insights" && hasContent && (
-            <InsightsTabContent meetingId={params.meetingId} />
+            <InsightsTabContent
+              meetingId={params.meetingId}
+              pollWhileActive={isProcessing}
+            />
           )}
 
           {activeTab === "transcript" && hasContent && (
@@ -311,7 +314,10 @@ export default function MeetingDetailPage() {
           )}
 
           {activeTab === "analysis" && hasContent && (
-            <AnalysisTabContent meetingId={params.meetingId} />
+            <AnalysisTabContent
+              meetingId={params.meetingId}
+              pollWhileActive={isProcessing}
+            />
           )}
 
           {activeTab === "chat" && hasContent && (
@@ -342,8 +348,16 @@ export default function MeetingDetailPage() {
   );
 }
 
-function AnalysisTabContent({ meetingId }: { meetingId: string }) {
-  const { data: analyses, isLoading } = useAnalyses(meetingId);
+function AnalysisTabContent({
+  meetingId,
+  pollWhileActive,
+}: {
+  meetingId: string;
+  pollWhileActive?: boolean;
+}) {
+  const { data: analyses, isLoading } = useAnalyses(meetingId, {
+    pollWhileActive,
+  });
   const runAnalysis = useRunAnalysis();
   const [selectedCallType, setSelectedCallType] = useState<CallType>(
     CallType.MANAGEMENT_PRESENTATION
@@ -395,8 +409,16 @@ function AnalysisTabContent({ meetingId }: { meetingId: string }) {
 // Insights report — auto-surfaced summary + action items + follow-ups from the
 // summarization analysis that runs automatically after every call.
 // ---------------------------------------------------------------------------
-function InsightsTabContent({ meetingId }: { meetingId: string }) {
-  const { data: analyses, isLoading } = useAnalyses(meetingId);
+function InsightsTabContent({
+  meetingId,
+  pollWhileActive,
+}: {
+  meetingId: string;
+  pollWhileActive?: boolean;
+}) {
+  const { data: analyses, isLoading } = useAnalyses(meetingId, {
+    pollWhileActive,
+  });
   if (isLoading) return <LoadingState message="Loading insights…" />;
 
   const list = analyses ?? [];

@@ -13,6 +13,7 @@ from pathlib import PurePosixPath
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.store._common import get_db, get_principal, scoped_deal_or_404
@@ -60,7 +61,7 @@ def create_upload_ticket(
     return {
         "bucket": payload.bucket,
         "key": key,
-        "upload_url": local.make_signed_url(payload.bucket, key),
+        "upload_url": local.make_signed_url(payload.bucket, key, method="PUT"),
         "method": "PUT",
     }
 
@@ -73,7 +74,7 @@ async def put_object(
     expires: int = Query(...),
     sig: str = Query(...),
 ) -> dict:
-    if not local.verify(bucket, key, expires, sig):
+    if not local.verify("PUT", bucket, key, expires, sig):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature"
         )
@@ -103,13 +104,16 @@ def get_object(
     expires: int = Query(...),
     sig: str = Query(...),
 ) -> Response:
-    if not local.verify(bucket, key, expires, sig):
+    if not local.verify("GET", bucket, key, expires, sig):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature"
         )
     if not local.exists(bucket, key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return Response(
-        content=local.read_bytes(bucket, key),
+    # Stream straight off disk (sendfile + Range support) instead of buffering
+    # the whole object — recordings can be multiple GB and would otherwise be
+    # read fully into the worker's memory per download.
+    return FileResponse(
+        path=local.object_path(bucket, key),
         media_type="application/octet-stream",
     )

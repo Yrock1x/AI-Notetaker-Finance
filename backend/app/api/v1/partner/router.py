@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,7 +34,7 @@ from app.db.models import (
     Transcript,
 )
 from app.db.scope import org_scoped
-from app.db.vectors import match_embeddings_for_deal
+from app.db.vectors import EMBEDDING_DIM, match_embeddings_for_deal
 from app.schemas.common import BaseSchema
 
 router = APIRouter()
@@ -120,8 +121,11 @@ class AnalysisResponse(BaseSchema):
 
 
 class SearchRequest(BaseSchema):
-    query_vector: list[float]
-    top_k: int | None = None
+    # Bound both inputs: the vector must match the index dimension exactly, and
+    # top_k is capped so a partner can't request an unbounded result set / pin
+    # memory with an oversized query vector.
+    query_vector: list[float] = Field(min_length=EMBEDDING_DIM, max_length=EMBEDDING_DIM)
+    top_k: int = Field(default=15, ge=1, le=100)
 
 
 class SearchHit(BaseSchema):
@@ -512,7 +516,7 @@ def search_deal(
         session,
         deal_id=deal.id,
         query_vector=payload.query_vector,
-        top_k=payload.top_k or 15,
+        top_k=payload.top_k,
     )
     record_audit(
         session,

@@ -223,9 +223,9 @@ async def embed_meeting(
             session.delete(e)
         session.flush()
 
-    count = 0
-    for chunk, vec in zip(chunks, vectors, strict=False):
-        emb = Embedding(
+    pairs = list(zip(chunks, vectors, strict=False))
+    embs = [
+        Embedding(
             org_id=meeting.org_id,
             deal_id=meeting.deal_id,
             source_type="transcript_segment",
@@ -234,14 +234,18 @@ async def embed_meeting(
             chunk_index=chunk.index,
             metadata_json=chunk.metadata,
         )
-        session.add(emb)
-        session.flush()
+        for chunk, _ in pairs
+    ]
+    # One flush to materialise all ids, then write the vectors — instead of a
+    # flush per chunk.
+    session.add_all(embs)
+    session.flush()
+    for emb, (_, vec) in zip(embs, pairs, strict=False):
         upsert_vector(
             session, embedding_id=emb.id, deal_id=meeting.deal_id, vector=vec
         )
-        count += 1
 
-    return EmbedResponse(count=count)
+    return EmbedResponse(count=len(embs))
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +337,10 @@ async def process_document(
         return ProcessDocumentResponse(embedding_count=0)
 
     doc.extracted_text = extracted
-    session.flush()
+    # Commit the extracted text before the embedding network call below so the
+    # single SQLite writer lock isn't held across llm.embed_batch (which would
+    # stall the live-transcript write path).
+    session.commit()
 
     chunker = DocumentChunker()
     chunks = chunker.chunk_text(extracted, source_id=doc.id)
@@ -355,9 +362,9 @@ async def process_document(
             session.delete(e)
         session.flush()
 
-    count = 0
-    for c, v in zip(chunks, vectors, strict=False):
-        emb = Embedding(
+    pairs = list(zip(chunks, vectors, strict=False))
+    embs = [
+        Embedding(
             org_id=doc.org_id,
             deal_id=doc.deal_id,
             source_type="document_chunk",
@@ -366,13 +373,17 @@ async def process_document(
             chunk_index=c.index,
             metadata_json=c.metadata,
         )
-        session.add(emb)
-        session.flush()
+        for c, _ in pairs
+    ]
+    # One flush to materialise all ids, then write the vectors — instead of a
+    # flush per chunk.
+    session.add_all(embs)
+    session.flush()
+    for emb, (_, vec) in zip(embs, pairs, strict=False):
         upsert_vector(
-            session, embedding_id=emb.id, deal_id=doc.deal_id, vector=v
+            session, embedding_id=emb.id, deal_id=doc.deal_id, vector=vec
         )
-        count += 1
 
-    return ProcessDocumentResponse(embedding_count=count)
+    return ProcessDocumentResponse(embedding_count=len(embs))
 
 

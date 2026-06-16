@@ -9,9 +9,10 @@
 // open_questions / pull_quotes / key_quotes / chapters) and normalize them
 // into a single shape the workspace UI can consume.
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/worker-api";
-import type { Meeting } from "@/types";
+import { useMeetings } from "./use-meetings";
 
 export interface ExtractedAction {
   id: string;
@@ -99,17 +100,19 @@ function normalizeStatus(v: unknown): ExtractedAction["status"] {
 }
 
 export function useDealExtractions(dealId: string | undefined) {
+  // Reuse the shared ["meetings", dealId] query for meeting titles/dates rather
+  // than fetching /meetings again here (it was the 3rd duplicate fetch per deal
+  // navigation); only /extractions is fetched below, once meetings are ready.
+  const meetingsQ = useMeetings(dealId);
   return useQuery<DealExtractions>({
     queryKey: ["deal-extractions", dealId],
-    enabled: !!dealId,
+    enabled: !!dealId && meetingsQ.isSuccess,
     staleTime: 60_000,
     queryFn: async () => {
-      // Meeting titles/dates for labelling, plus the completed analyses
-      // (extractions) for this deal — both from the worker REST API.
-      const [meetings, analyses] = await Promise.all([
-        apiGet<Meeting[]>(`/deals/${dealId}/meetings`),
-        apiGet<AnalysisRow[]>(`/deals/${dealId}/extractions`),
-      ]);
+      const meetings = meetingsQ.data?.items ?? [];
+      const analyses = await apiGet<AnalysisRow[]>(
+        `/deals/${dealId}/extractions`,
+      );
 
       const meetingMap = new Map<string, MeetingRow>(
         meetings.map((m) => [
