@@ -1,8 +1,8 @@
 "use client";
 
-// Direct-to-Supabase document CRUD. Uploads go to a Supabase Storage bucket
-// named `deal-documents`; the browser does the PUT directly with a signed
-// upload URL minted server-side.
+// Document CRUD via the worker REST API (cookie-authenticated). Uploads use
+// the worker storage upload-ticket (bucket `deal-documents`): mint a ticket,
+// PUT the bytes, then POST the document row.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -11,7 +11,8 @@ import type {
   DocumentUploadInitiateResponse,
   PaginatedResponse,
 } from "@/types";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet, apiPost } from "@/lib/worker-api";
+import { sendInngestEvent } from "@/lib/inngest-send";
 
 const DOCUMENTS_KEY = "documents";
 const DOCUMENTS_BUCKET = "deal-documents";
@@ -20,15 +21,9 @@ export function useDocuments(dealId: string | undefined) {
   return useQuery<PaginatedResponse<Document>>({
     queryKey: [DOCUMENTS_KEY, dealId],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data, error } = await supabase
-        .from("documents")
-        .select("*")
-        .eq("deal_id", dealId!)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
+      const items = await apiGet<Document[]>(`/deals/${dealId}/documents`);
       return {
-        items: (data ?? []) as Document[],
+        items,
         cursor: null,
         has_more: false,
       };
@@ -43,34 +38,34 @@ export function useDocument(
 ) {
   return useQuery<Document>({
     queryKey: [DOCUMENTS_KEY, documentId],
-    queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data, error } = await supabase
-        .from("documents")
-        .select("*")
-        .eq("id", documentId!)
-        .single();
-      if (error) throw error;
-      return data as Document;
-    },
+    queryFn: async () => apiGet<Document>(`/documents/${documentId}`),
     enabled: !!documentId,
   });
 }
 
+// Storage ticket shape from POST /storage/upload-ticket.
+interface UploadTicket {
+  bucket: string;
+  key: string;
+  upload_url: string;
+  method: string;
+}
+
 export function useInitiateDocumentUpload() {
   return useMutation({
-    mutationFn: async (payload: DocumentUploadInitiate) => {
-      const supabase = getBrowserSupabase();
-      const key = `${payload.deal_id}/${crypto.randomUUID()}-${payload.filename}`;
-      const { data, error } = await supabase.storage
-        .from(DOCUMENTS_BUCKET)
-        .createSignedUploadUrl(key);
-      if (error) throw error;
+    mutationFn: async (
+      payload: DocumentUploadInitiate
+    ): Promise<DocumentUploadInitiateResponse> => {
+      const ticket = await apiPost<UploadTicket>("/storage/upload-ticket", {
+        bucket: DOCUMENTS_BUCKET,
+        deal_id: payload.deal_id,
+        filename: payload.filename,
+      });
       return {
-        file_key: key,
-        upload_url: data.signedUrl,
-        token: data.token,
-      } as DocumentUploadInitiateResponse;
+        file_key: ticket.key,
+        upload_url: ticket.upload_url,
+        token: "",
+      };
     },
   });
 }
@@ -87,42 +82,22 @@ export function useConfirmDocumentUpload() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: ConfirmDocumentUploadPayload) => {
-      const supabase = getBrowserSupabase();
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) throw new Error("Not authenticated");
-
-      const { data: deal, error: dealErr } = await supabase
-        .from("deals")
-        .select("org_id")
-        .eq("id", payload.deal_id)
-        .single();
-      if (dealErr) throw dealErr;
-
-      const { data, error } = await supabase
-        .from("documents")
-        .insert({
-          org_id: deal.org_id,
-          deal_id: payload.deal_id,
+      const doc = await apiPost<Document>(
+        `/deals/${payload.deal_id}/documents`,
+        {
           title: payload.title,
           document_type: payload.document_type,
           file_key: payload.file_key,
           file_size: payload.file_size,
-          uploaded_by: auth.user.id,
-        })
-        .select()
-        .single();
-      if (error) throw error;
+        }
+      );
 
-      await fetch("/api/inngest/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "document/uploaded",
-          data: { document_id: data.id, deal_id: payload.deal_id },
-        }),
+      await sendInngestEvent("document/uploaded", {
+        document_id: doc.id,
+        deal_id: payload.deal_id,
       });
 
-      return data as Document;
+      return doc;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [DOCUMENTS_KEY] });

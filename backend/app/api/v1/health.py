@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 
-import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.core.config import settings
+from app.db.engine import get_engine
+from app.db.vectors import VEC_TABLE
 
 logger = logging.getLogger(__name__)
 
@@ -23,27 +26,35 @@ async def health_check() -> dict:
 
 @router.get("/ready", response_model=None)
 async def readiness_check() -> dict | JSONResponse:
-    """Readiness — verifies Supabase reachability.
+    """Readiness — verifies the worker-owned data layer is reachable.
 
-    The worker is ready when it can hit the Supabase Auth health endpoint.
-    Anything else (LLM / Deepgram / Recall) is external; we don't fail
-    readiness on those because they're not in the request path for every
-    endpoint.
+    The worker is ready when its SQLite database answers a trivial query, the
+    sqlite-vec embedding table exists, and the storage root is writable. LLM /
+    Deepgram / Recall are external and not on every request path, so we don't
+    fail readiness on them.
     """
     checks: dict[str, str] = {}
 
-    if settings.supabase_url:
-        try:
-            async with httpx.AsyncClient(timeout=2) as client:
-                resp = await client.get(
-                    f"{settings.supabase_url.rstrip('/')}/auth/v1/health"
-                )
-                checks["supabase"] = "ok" if resp.status_code < 500 else "degraded"
-        except Exception as e:  # noqa: BLE001
-            logger.error("readiness_check_supabase: %s", e)
-            checks["supabase"] = "error"
-    else:
-        checks["supabase"] = "not_configured"
+    # SQLite + sqlite-vec: one round-trip proves the engine, the WAL file, and
+    # the loaded extension (the vec table is a vec0 virtual table).
+    try:
+        with get_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
+            # VEC_TABLE is a trusted module constant, not user input.
+            conn.execute(text(f"SELECT count(*) FROM {VEC_TABLE}"))  # noqa: S608
+        checks["sqlite"] = "ok"
+    except Exception as e:  # noqa: BLE001
+        logger.error("readiness_check_sqlite: %s", e)
+        checks["sqlite"] = "error"
+
+    # Storage: confirm the object-storage root exists and is writable.
+    try:
+        root = settings.storage_root
+        os.makedirs(root, exist_ok=True)
+        checks["storage"] = "ok" if os.access(root, os.W_OK) else "error"
+    except Exception as e:  # noqa: BLE001
+        logger.error("readiness_check_storage: %s", e)
+        checks["storage"] = "error"
 
     has_errors = any(v == "error" for v in checks.values())
     if has_errors:

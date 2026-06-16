@@ -1,10 +1,16 @@
-// OAuth callback — Supabase redirects here after the Hosted UI consent.
-// We exchange the ?code=... for a session cookie and redirect to ?next=...
-// The session is written as httpOnly cookies by @supabase/ssr, so no client
-// JS ever touches a refresh token.
+// OBSOLETE — OAuth now runs entirely through the worker:
+//   GET ${NEXT_PUBLIC_API_URL}/api/v1/auth/login/<slug>  → provider consent
+//   GET ${NEXT_PUBLIC_API_URL}/api/v1/auth/callback       → sets the httpOnly
+//                                                            `cogni_session`
+//                                                            cookie + redirects
+//
+// The browser never lands on this Next route anymore. We keep it as a thin
+// safe redirect (rather than deleting it) so any stale provider/redirect-URI
+// configuration still pointing at `/auth/callback` lands the user on the app
+// instead of a 404. We forward `?next=` (open-redirect-guarded) and surface
+// any `?error*` to the login page.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { getServerSupabase } from "@/lib/supabase/server";
 
 const FALLBACK_NEXT = "/dashboard";
 
@@ -24,9 +30,9 @@ function safeNextPath(raw: string | null): string {
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
-  const code = url.searchParams.get("code");
   const next = safeNextPath(url.searchParams.get("next"));
-  const errorDescription = url.searchParams.get("error_description");
+  const errorDescription =
+    url.searchParams.get("error_description") || url.searchParams.get("error");
 
   if (errorDescription) {
     const login = new URL("/login", url.origin);
@@ -34,19 +40,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
-  if (!code) {
-    const login = new URL("/login", url.origin);
-    login.searchParams.set("error", "Missing authorization code");
-    return NextResponse.redirect(login);
-  }
-
-  const supabase = await getServerSupabase();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    const login = new URL("/login", url.origin);
-    login.searchParams.set("error", error.message);
-    return NextResponse.redirect(login);
-  }
-
+  // No session exchange happens here anymore — the worker already set the
+  // cookie. Just bounce to the requested destination (or the app home).
   return NextResponse.redirect(new URL(next, url.origin));
 }

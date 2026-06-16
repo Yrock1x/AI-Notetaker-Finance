@@ -4,65 +4,67 @@
 
 - Python 3.11+
 - Node.js 20+
-- Docker & Docker Compose
-- ffmpeg (for audio extraction)
+
+No Docker/Postgres/Redis needed — the data layer is a local SQLite file.
 
 ## Quick Start
 
 ```bash
-# One-command setup
-./scripts/setup-dev.sh
-
-# Or manually:
-
-# 1. Start infrastructure
-cd backend && docker compose up -d postgres redis minio
-
-# 2. Backend
+# 1. Worker (owns the SQLite DB + file storage)
 cd backend
 python -m venv .venv
-source .venv/bin/activate  # or .venv/Scripts/activate on Windows
+source .venv/bin/activate          # or .venv/Scripts/activate on Windows
 pip install -e ".[dev]"
-cp .env.example .env
-alembic upgrade head
+export SQLITE_DB_PATH=./dev.db STORAGE_ROOT=./dev-storage
+alembic upgrade head               # creates the schema + vec0 table
 uvicorn app.main:create_app --factory --port 8000 --reload
 
-# 3. Celery worker
-cd backend
-celery -A app.tasks.celery_app worker --loglevel=info
-
-# 4. Frontend
+# 2. Frontend
 cd frontend
 npm install
+cp ../.env.example .env.local      # set NEXT_PUBLIC_API_URL=http://localhost:8000
 npm run dev
+
+# 3. Inngest dev server (optional — runs pipelines locally)
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
 ```
 
 ## Local Services
 
-| Service | URL |
-|---------|-----|
-| API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-| Frontend | http://localhost:3000 |
-| Flower | http://localhost:5555 |
-| MinIO Console | http://localhost:9001 |
-| PostgreSQL | localhost:5432 |
-| Redis | localhost:6379 |
+| Service        | URL                       |
+|----------------|---------------------------|
+| Worker API     | http://localhost:8000     |
+| API Docs       | http://localhost:8000/docs |
+| Frontend       | http://localhost:3000     |
+| Inngest dev UI | http://localhost:8288     |
 
 ## Running Tests
 
 ```bash
+# Backend
 cd backend
-pytest tests/ -v
-pytest tests/unit/ -v  # unit tests only
-pytest tests/integration/ -v  # integration tests only
+pytest                  # full unit suite
+
+# Frontend
+cd frontend
+npm run type-check
+npm test
 ```
 
 ## Code Quality
 
 ```bash
+# Backend (CI gates `ruff check app` + `mypy app`)
 cd backend
-ruff check .  # linting
-ruff format .  # formatting
-mypy app/  # type checking
+ruff check app
+ruff format app
+mypy app --ignore-missing-imports
+
+# Frontend
+cd frontend
+npm run lint
 ```
+
+> macOS external-volume note: AppleDouble `._*` files can break Alembic with a
+> "null bytes" error — `find app/db/migrations/versions -name '._*' -delete`
+> first if you hit it.

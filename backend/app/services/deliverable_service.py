@@ -1,9 +1,9 @@
-"""Deal-scoped deliverable generation on top of Supabase.
+"""Deal-scoped deliverable generation on top of SQLite + local storage.
 
-Pulls analyses + document text, asks the task-routed LLM to produce a
-Markdown document, renders it to .docx via python-docx, and uploads the
-result to the ``deliverables`` bucket in Supabase Storage. Returns a
-short-lived signed download URL.
+Pulls analyses + document text via a SQLAlchemy session, asks the task-routed
+LLM to produce a Markdown document, renders it to .docx via python-docx, and
+saves the result to the ``deliverables`` bucket on local disk. Returns a
+short-lived HMAC-signed download URL.
 """
 
 from __future__ import annotations
@@ -16,10 +16,12 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.llm.router import LLMRouter, TASK_IC_MEMO
+from app.db.models import Analysis, Document, Meeting
+from app.llm.router import TASK_IC_MEMO, LLMRouter
 
 logger = structlog.get_logger(__name__)
 
@@ -61,11 +63,11 @@ _TITLES: dict[str, str] = {
 class DeliverableService:
     def __init__(
         self,
-        supabase: Client,
+        session: Session,
         settings: Settings,
         llm_router: LLMRouter,
     ) -> None:
-        self.supabase = supabase
+        self.session = session
         self.settings = settings
         self.llm_router = llm_router
 
@@ -81,21 +83,13 @@ class DeliverableService:
             markdown, title=_TITLES.get(deliverable_type, "Deliverable")
         )
 
+        from app.storage.local import make_signed_url, save_bytes
+
         file_key = f"{deal_id}/{uuid.uuid4()}.docx"
-        self.supabase.storage.from_(DELIVERABLES_BUCKET).upload(
-            file_key,
-            docx_bytes,
-            {
-                "content-type": (
-                    "application/vnd.openxmlformats-officedocument."
-                    "wordprocessingml.document"
-                ),
-            },
+        save_bytes(DELIVERABLES_BUCKET, file_key, docx_bytes)
+        download_url = self.settings.public_api_url + make_signed_url(
+            DELIVERABLES_BUCKET, file_key
         )
-        signed = self.supabase.storage.from_(DELIVERABLES_BUCKET).create_signed_url(
-            file_key, expires_in=3600
-        )
-        download_url = signed.get("signedURL") or signed.get("signed_url") or ""
 
         logger.info(
             "deliverable_generated",
@@ -123,48 +117,34 @@ class DeliverableService:
     async def _gather_context(self, deal_id: UUID) -> str:
         parts: list[str] = [f"Deal ID: {deal_id}"]
 
-        meetings = (
-            self.supabase.table("meetings")
-            .select("id, title")
-            .eq("deal_id", str(deal_id))
-            .execute()
-            .data
-            or []
-        )
+        meetings = self.session.execute(
+            select(Meeting).where(Meeting.deal_id == str(deal_id))
+        ).scalars().all()
         parts.append(f"Meetings on record: {len(meetings)}")
 
         if meetings:
-            meeting_ids = [m["id"] for m in meetings]
-            analyses = (
-                self.supabase.table("analyses")
-                .select("call_type, version, structured_output")
-                .in_("meeting_id", meeting_ids)
-                .eq("status", "completed")
-                .execute()
-                .data
-                or []
-            )
+            meeting_ids = [m.id for m in meetings]
+            analyses = self.session.execute(
+                select(Analysis)
+                .where(Analysis.meeting_id.in_(meeting_ids))
+                .where(Analysis.status == "completed")
+            ).scalars().all()
             for a in analyses:
                 parts.append(
-                    f"\n--- Analysis ({a.get('call_type','?')} v{a.get('version',1)}) ---"
+                    f"\n--- Analysis ({a.call_type or '?'} v{a.version or 1}) ---"
                 )
-                result = a.get("structured_output") or {}
+                result = a.structured_output or {}
                 parts.append(json.dumps(result, indent=2)[:4000])
 
-        docs = (
-            self.supabase.table("documents")
-            .select("title, document_type, extracted_text")
-            .eq("deal_id", str(deal_id))
-            .execute()
-            .data
-            or []
-        )
+        docs = self.session.execute(
+            select(Document).where(Document.deal_id == str(deal_id))
+        ).scalars().all()
         for doc in docs:
-            text = doc.get("extracted_text") or ""
+            text = doc.extracted_text or ""
             if not text:
                 continue
             parts.append(
-                f"\n--- Document: {doc.get('title','?')} ({doc.get('document_type','?')}) ---"
+                f"\n--- Document: {doc.title or '?'} ({doc.document_type or '?'}) ---"
             )
             parts.append(text[:4000])
 

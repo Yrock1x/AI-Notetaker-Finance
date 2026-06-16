@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMeeting, useUpdateMeeting } from "@/hooks/use-meetings";
+import { meetingDisplayState } from "@/lib/meeting-status";
 import { CallTypeSelector } from "@/components/analysis/call-type-selector";
 import { useAnalyses, useRunAnalysis } from "@/hooks/use-analysis";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -13,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MEETING_STATUS_LABELS } from "@/lib/constants";
 import { formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Check, Clock, Pencil, Play, Radio, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCircle2, Clock, Pencil, Play, Radio, Sparkles, X } from "lucide-react";
 import { CallType, MeetingStatus } from "@/types";
 
 // Lazy-load heavy tab content — only loaded when the tab is active
@@ -70,12 +71,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 type MeetingTab =
   | "live"
+  | "insights"
   | "transcript"
   | "attendees"
   | "analysis"
   | "chat";
 
 const BASE_TABS: { key: MeetingTab; label: string }[] = [
+  { key: "insights", label: "Insights" },
   { key: "transcript", label: "Transcript" },
   { key: "attendees", label: "Attendees" },
   { key: "analysis", label: "Analysis" },
@@ -91,11 +94,14 @@ export default function MeetingDetailPage() {
   // clicking "Schedule Notetaker" so they can watch the bot join.
   // 'uploading' is the default status for calendar-synced meetings that
   // are waiting on the bot to arrive; treat it as a pre-live state too.
+  // Time-aware: a months-old "recording"/"scheduled" row is a stale bot that
+  // never finalized — don't force the Live panel for it.
+  const liveState = meeting ? meetingDisplayState(meeting) : "other";
   const isLive =
-    meeting?.status === "scheduled" ||
-    meeting?.status === "recording" ||
+    liveState === "live" ||
+    liveState === "scheduled" ||
     meeting?.status === "uploading";
-  const [activeTab, setActiveTab] = useState<MeetingTab>("transcript");
+  const [activeTab, setActiveTab] = useState<MeetingTab>("insights");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
 
@@ -292,6 +298,13 @@ export default function MeetingDetailPage() {
             </div>
           )}
 
+          {activeTab === "insights" && hasContent && (
+            <InsightsTabContent
+              meetingId={params.meetingId}
+              pollWhileActive={isProcessing}
+            />
+          )}
+
           {activeTab === "transcript" && hasContent && (
             <TranscriptViewer meetingId={meeting.id} />
           )}
@@ -301,7 +314,10 @@ export default function MeetingDetailPage() {
           )}
 
           {activeTab === "analysis" && hasContent && (
-            <AnalysisTabContent meetingId={params.meetingId} />
+            <AnalysisTabContent
+              meetingId={params.meetingId}
+              pollWhileActive={isProcessing}
+            />
           )}
 
           {activeTab === "chat" && hasContent && (
@@ -332,8 +348,16 @@ export default function MeetingDetailPage() {
   );
 }
 
-function AnalysisTabContent({ meetingId }: { meetingId: string }) {
-  const { data: analyses, isLoading } = useAnalyses(meetingId);
+function AnalysisTabContent({
+  meetingId,
+  pollWhileActive,
+}: {
+  meetingId: string;
+  pollWhileActive?: boolean;
+}) {
+  const { data: analyses, isLoading } = useAnalyses(meetingId, {
+    pollWhileActive,
+  });
   const runAnalysis = useRunAnalysis();
   const [selectedCallType, setSelectedCallType] = useState<CallType>(
     CallType.MANAGEMENT_PRESENTATION
@@ -376,6 +400,158 @@ function AnalysisTabContent({ meetingId }: { meetingId: string }) {
             <AnalysisPanel key={analysis.id} analysis={analysis} />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Insights report — auto-surfaced summary + action items + follow-ups from the
+// summarization analysis that runs automatically after every call.
+// ---------------------------------------------------------------------------
+function InsightsTabContent({
+  meetingId,
+  pollWhileActive,
+}: {
+  meetingId: string;
+  pollWhileActive?: boolean;
+}) {
+  const { data: analyses, isLoading } = useAnalyses(meetingId, {
+    pollWhileActive,
+  });
+  if (isLoading) return <LoadingState message="Loading insights…" />;
+
+  const list = analyses ?? [];
+  const isSummary = (a: (typeof list)[number]) =>
+    String(a.call_type) === "summarization";
+  const summary =
+    list.find((a) => isSummary(a) && String(a.status) === "completed") ??
+    list.find(isSummary);
+  const data = summary?.structured_output ?? summary?.result;
+
+  if (!summary || !data) {
+    return (
+      <EmptyState
+        title="Insights are being generated"
+        description="A summary, action items, and follow-ups appear here automatically once the call finishes processing."
+      />
+    );
+  }
+  return <InsightsReport data={data} />;
+}
+
+function _arr(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+function _str(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  return typeof v === "object" ? "" : String(v);
+}
+function _field(item: unknown, ...keys: string[]): string {
+  if (typeof item === "string") return item;
+  if (item && typeof item === "object") {
+    const o = item as Record<string, unknown>;
+    for (const k of keys) if (o[k] != null) return _str(o[k]);
+  }
+  return _str(item);
+}
+
+function InsightsSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-white p-5">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function InsightsReport({ data }: { data: Record<string, unknown> }) {
+  const summary = _str(data.executive_summary ?? data.summary);
+  const actions = _arr(data.action_items);
+  const decisions = _arr(data.decisions_made ?? data.decisions);
+  const followUps = [
+    ..._arr(data.key_takeaways),
+    ..._arr(data.open_questions ?? data.follow_ups ?? data.next_steps),
+  ];
+
+  const empty = !summary && !actions.length && !decisions.length && !followUps.length;
+  if (empty) {
+    return (
+      <EmptyState
+        title="No insights extracted"
+        description="The summary completed but didn't surface structured items for this call."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {summary && (
+        <InsightsSection title="Summary">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {summary}
+          </p>
+        </InsightsSection>
+      )}
+
+      {actions.length > 0 && (
+        <InsightsSection title={`Action Items (${actions.length})`}>
+          <ul className="space-y-2.5">
+            {actions.map((it, i) => {
+              const text = _field(it, "action", "task", "description");
+              const owner = _field(it, "owner", "assignee");
+              const deadline = _field(it, "deadline", "due", "due_date");
+              const priority = _field(it, "priority");
+              const meta = [owner && `@${owner}`, deadline, priority]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>
+                    <span className="text-foreground">{text}</span>
+                    {meta && (
+                      <span className="ml-2 text-xs text-muted-foreground">{meta}</span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </InsightsSection>
+      )}
+
+      {decisions.length > 0 && (
+        <InsightsSection title={`Decisions (${decisions.length})`}>
+          <ul className="space-y-2">
+            {decisions.map((it, i) => {
+              const text = _field(it, "decision", "outcome");
+              const by = _field(it, "decided_by", "owner");
+              return (
+                <li key={i} className="text-sm text-foreground">
+                  {text}
+                  {by && <span className="ml-2 text-xs text-muted-foreground">— {by}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </InsightsSection>
+      )}
+
+      {followUps.length > 0 && (
+        <InsightsSection title="Follow-ups & Open Questions">
+          <ul className="space-y-1.5">
+            {followUps.map((it, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-foreground">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span>{_field(it, "takeaway", "question", "item", "text")}</span>
+              </li>
+            ))}
+          </ul>
+        </InsightsSection>
       )}
     </div>
   );

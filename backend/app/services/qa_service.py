@@ -1,18 +1,21 @@
-"""Deal-scoped RAG Q&A over Supabase-hosted embeddings."""
+"""Deal-scoped RAG Q&A over SQLite + sqlite-vec embeddings."""
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from uuid import UUID
 
 import structlog
-from supabase import Client
+from sqlalchemy.orm import Session
 
+from app.db.models import Document, Meeting, TranscriptSegment
+from app.llm.chunking import _estimate_tokens
 from app.llm.guardrails import FinancialGuardrails
 from app.llm.prompts.qa import RAG_QA
-from app.llm.router import LLMRouter, TASK_QA_RAG
+from app.llm.router import TASK_QA_MEETING, TASK_QA_RAG, LLMRouter
 
 logger = structlog.get_logger(__name__)
 
@@ -40,9 +43,9 @@ class QAResponse:
 class QAService:
     """RAG pipeline:
        1. Embed the question via the LLM router (Fireworks nomic by default)
-       2. ``supabase.rpc('match_embeddings_for_deal', ...)`` returns top-k
-          chunks filtered by ``deal_id`` (RLS makes sure the caller has
-          access to that deal).
+       2. ``app.db.vectors.match_embeddings_for_deal`` returns top-k chunks
+          filtered by ``deal_id`` (the caller's org access is enforced by the
+          endpoint before this runs).
        3. Render the RAG prompt, call the task-routed LLM.
        4. Parse citations, run grounding guardrails, return.
     """
@@ -50,12 +53,25 @@ class QAService:
     DEFAULT_TOP_K = 15
     MIN_SIMILARITY = 0.3
 
+    # Single-meeting Q&A budget: if a meeting's full transcript fits within this
+    # many estimated tokens, answer it by stuffing the whole transcript into a
+    # cheap model (no RAG). Above it, fall back to deal-scoped RAG. Sized to leave
+    # headroom for the prompt + answer inside a ~32k context window.
+    MEETING_FULL_MAX_TOKENS = int(os.getenv("QA_MEETING_FULL_MAX_TOKENS", "24000"))
+
+    # Deal-scoped Q&A budget: if the deal's ENTIRE corpus (all meeting
+    # transcripts + extracted document text) fits within this many estimated
+    # tokens, answer it by feeding the whole corpus to a cheap model — full
+    # recall, no chunk-boundary / stale-embedding / top-k misses. Above it, fall
+    # back to RAG. Same sizing rationale as MEETING_FULL_MAX_TOKENS.
+    DEAL_FULL_MAX_TOKENS = int(os.getenv("QA_DEAL_FULL_MAX_TOKENS", "24000"))
+
     def __init__(
         self,
-        supabase: Client,
+        session: Session,
         llm_router: LLMRouter,
     ) -> None:
-        self.supabase = supabase
+        self.session = session
         self.llm_router = llm_router
         self.guardrails = FinancialGuardrails()
 
@@ -64,19 +80,74 @@ class QAService:
         deal_id: UUID,
         question: str,
         top_k: int = DEFAULT_TOP_K,
+    ) -> QAResponse:
+        """Answer a question scoped to a whole deal.
+
+        Context-first: if the deal's entire corpus (all meeting transcripts +
+        extracted document text) fits the budget, feed it directly to a cheap
+        model — full recall, no retrieval misses. Otherwise fall back to
+        deal-scoped RAG.
+        """
+        blocks = self._fetch_deal_corpus(deal_id)
+        total_tokens = sum(b["tokens"] for b in blocks)
+
+        if blocks and total_tokens <= self.DEAL_FULL_MAX_TOKENS:
+            # One source "chunk" per meeting / document so the shared synthesis
+            # path (prompt, citation parsing, grounding) is fully reused and the
+            # model can cite which meeting/document a fact came from.
+            search_results = [
+                {
+                    "id": f"chunk_{i}",
+                    "source_type": b["source_type"],
+                    "source_id": b["source_id"],
+                    "text": f"## {b['label']}\n{b['text']}",
+                    "similarity": 1.0,
+                    "metadata": (
+                        {"meeting_id": b["source_id"]}
+                        if b["source_type"] == "transcript_segment"
+                        else {}
+                    ),
+                }
+                for i, b in enumerate(blocks)
+            ]
+            logger.info(
+                "qa_deal_full_context",
+                deal_id=str(deal_id),
+                sources=len(blocks),
+                corpus_tokens=total_tokens,
+            )
+            return await self._synthesize(
+                deal_id, question, search_results, TASK_QA_MEETING
+            )
+
+        logger.info(
+            "qa_deal_rag_fallback",
+            deal_id=str(deal_id),
+            corpus_tokens=total_tokens,
+            reason="empty" if not blocks else "too_large",
+        )
+        return await self._ask_rag(deal_id, question, top_k=top_k)
+
+    async def _ask_rag(
+        self,
+        deal_id: UUID,
+        question: str,
+        top_k: int = DEFAULT_TOP_K,
         meeting_id: UUID | None = None,  # noqa: ARG002 - reserved for future filter
     ) -> QAResponse:
+        """Deal-scoped RAG: embed the question, KNN over the deal's embeddings,
+        synthesize. Used when the full corpus is too large to fit in context."""
         query_vector = await self.llm_router.embed(question)
 
-        rpc = self.supabase.rpc(
-            "match_embeddings_for_deal",
-            {
-                "p_deal_id": str(deal_id),
-                "p_query": query_vector,
-                "p_top_k": top_k,
-                "p_min_similarity": self.MIN_SIMILARITY,
-            },
-        ).execute()
+        from app.db.vectors import match_embeddings_for_deal
+
+        rows = match_embeddings_for_deal(
+            self.session,
+            deal_id=str(deal_id),
+            query_vector=query_vector,
+            top_k=top_k,
+            min_similarity=self.MIN_SIMILARITY,
+        )
 
         search_results = [
             {
@@ -87,7 +158,7 @@ class QAService:
                 "similarity": row["similarity"],
                 "metadata": row.get("metadata") or {},
             }
-            for row in (rpc.data or [])
+            for row in rows
         ]
 
         # Enrich transcript_segment citations with meeting_id + start_time so
@@ -100,13 +171,15 @@ class QAService:
         ]
         if ts_ids:
             seg_rows = (
-                self.supabase.table("transcript_segments")
-                .select("id, meeting_id, start_time")
-                .in_("id", ts_ids)
-                .execute()
-                .data
-            ) or []
-            by_id = {str(row["id"]): row for row in seg_rows}
+                self.session.query(
+                    TranscriptSegment.id,
+                    TranscriptSegment.meeting_id,
+                    TranscriptSegment.start_time,
+                )
+                .filter(TranscriptSegment.id.in_(ts_ids))
+                .all()
+            )
+            by_id = {str(row[0]): row for row in seg_rows}
             for r in search_results:
                 if r["source_type"] != "transcript_segment":
                     continue
@@ -114,8 +187,8 @@ class QAService:
                 if not seg:
                     continue
                 md = dict(r.get("metadata") or {})
-                md.setdefault("meeting_id", str(seg["meeting_id"]))
-                md.setdefault("start_time", seg.get("start_time"))
+                md.setdefault("meeting_id", str(seg[1]))
+                md.setdefault("start_time", seg[2])
                 r["metadata"] = md
 
         if not search_results:
@@ -129,13 +202,76 @@ class QAService:
                 source_coverage="No relevant sources found for this question.",
             )
 
+        return await self._synthesize(
+            deal_id, question, search_results, TASK_QA_RAG
+        )
+
+    async def ask_meeting(
+        self,
+        deal_id: UUID,
+        meeting_id: UUID,
+        question: str,
+    ) -> QAResponse:
+        """Answer a question scoped to a single meeting.
+
+        For one meeting the full transcript is usually small enough to feed
+        directly to a cheap model — skipping retrieval avoids stale-embedding
+        and chunk-boundary misses entirely. If the transcript is too large (or
+        not yet transcribed), fall back to deal-scoped RAG.
+        """
+        transcript = self._fetch_meeting_transcript(meeting_id)
+        tokens = _estimate_tokens(transcript)
+
+        if not transcript.strip() or tokens > self.MEETING_FULL_MAX_TOKENS:
+            logger.info(
+                "qa_meeting_rag_fallback",
+                meeting_id=str(meeting_id),
+                transcript_tokens=tokens,
+                reason="empty" if not transcript.strip() else "too_large",
+            )
+            # A meeting too big to fit means deal RAG, not a deal-wide context
+            # assembly (which would be even larger and also fall back).
+            return await self._ask_rag(
+                deal_id=deal_id, question=question, meeting_id=meeting_id
+            )
+
+        # Present the whole transcript as a single source "chunk" so the shared
+        # synthesis path (prompt, citation parsing, grounding) is fully reused.
+        search_results = [
+            {
+                "id": "chunk_0",
+                "source_type": "transcript_segment",
+                "source_id": str(meeting_id),
+                "text": transcript,
+                "similarity": 1.0,
+                "metadata": {"meeting_id": str(meeting_id)},
+            }
+        ]
+        logger.info(
+            "qa_meeting_full_transcript",
+            meeting_id=str(meeting_id),
+            transcript_tokens=tokens,
+        )
+        return await self._synthesize(
+            deal_id, question, search_results, TASK_QA_MEETING
+        )
+
+    async def _synthesize(
+        self,
+        deal_id: UUID,
+        question: str,
+        search_results: list[dict],
+        task_type: str,
+    ) -> QAResponse:
+        """Render the RAG prompt over ``search_results``, call the task-routed
+        LLM, parse citations, and run grounding guardrails."""
         context = self._format_context(search_results)
         system_prompt, user_prompt = RAG_QA.render(
             question=question, context=context
         )
 
         response = await self.llm_router.complete(
-            task_type=TASK_QA_RAG,
+            task_type=task_type,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=4096,
@@ -199,6 +335,85 @@ class QAService:
         )
 
     # ---- helpers -----------------------------------------------------------
+
+    def _fetch_deal_corpus(self, deal_id: UUID) -> list[dict]:
+        """The deal's full Q&A corpus as per-source blocks: every meeting's
+        finalized transcript plus every document's extracted text. Blank/
+        unprocessed sources are skipped. Each block carries an `_estimate_tokens`
+        count so the caller can decide whether the whole corpus fits in context.
+        """
+        blocks: list[dict] = []
+
+        meetings = (
+            self.session.query(
+                Meeting.id, Meeting.title, Meeting.meeting_date, Meeting.created_at
+            )
+            .filter(Meeting.deal_id == str(deal_id))
+            .order_by(Meeting.meeting_date, Meeting.created_at)
+            .all()
+        )
+        for m in meetings:
+            text = self._fetch_meeting_transcript(m[0])
+            if not text.strip():
+                continue
+            when = m[2] or m[3]
+            label = f"Meeting: {m[1] or 'Untitled'}"
+            if when:
+                label += f" ({when})"
+            blocks.append(
+                {
+                    "source_type": "transcript_segment",
+                    "source_id": str(m[0]),
+                    "label": label,
+                    "text": text,
+                    "tokens": _estimate_tokens(text),
+                }
+            )
+
+        docs = (
+            self.session.query(
+                Document.id, Document.title, Document.extracted_text
+            )
+            .filter(Document.deal_id == str(deal_id))
+            .all()
+        )
+        for d in docs:
+            text = (d[2] or "").strip()
+            if not text:
+                continue
+            blocks.append(
+                {
+                    "source_type": "document_chunk",
+                    "source_id": str(d[0]),
+                    "label": f"Document: {d[1] or 'Untitled'}",
+                    "text": text,
+                    "tokens": _estimate_tokens(text),
+                }
+            )
+
+        return blocks
+
+    def _fetch_meeting_transcript(self, meeting_id: UUID) -> str:
+        """Finalized transcript segments, sorted, as speaker-attributed text."""
+        segments = (
+            self.session.query(
+                TranscriptSegment.speaker_label,
+                TranscriptSegment.speaker_name,
+                TranscriptSegment.text,
+                TranscriptSegment.start_time,
+            )
+            .filter(
+                TranscriptSegment.meeting_id == str(meeting_id),
+                TranscriptSegment.is_partial.is_(False),
+            )
+            .order_by(TranscriptSegment.start_time)
+            .all()
+        )
+        lines: list[str] = []
+        for seg in segments:
+            label = seg[1] or seg[0] or "Speaker"
+            lines.append(f"{label}: {(seg[2] or '').strip()}")
+        return "\n".join(lines)
 
     def _format_context(self, results: list[dict]) -> str:
         sections = []

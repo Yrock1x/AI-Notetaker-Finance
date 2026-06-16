@@ -24,10 +24,13 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.dependencies import AuthUser, get_current_user, get_service_supabase
+from app.db.deps import get_db
+from app.db.models import OrgMembership
+from app.dependencies import AuthUser, get_current_user
 from app.integrations.google import oauth as google_oauth
 from app.integrations.microsoft import oauth as microsoft_oauth
 from app.integrations.zoom import oauth as zoom_oauth
@@ -55,26 +58,24 @@ def _assert_supported(platform: str) -> Platform:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported platform '{platform}'",
         )
-    return cast(Platform, platform)
+    return cast("Platform", platform)
 
 
-def _resolve_default_org(sb: Client, user_id: UUID) -> UUID:
+def _resolve_default_org(session: Session, user_id: UUID) -> UUID:
     """Pick the user's first org membership as the default scope for the
     credential row. Users with multiple orgs are out of scope for v1 — they'll
     get tokens attached to whichever org comes back first."""
-    resp = (
-        sb.table("org_memberships")
-        .select("org_id")
-        .eq("user_id", str(user_id))
+    org_id = session.scalar(
+        select(OrgMembership.org_id)
+        .where(OrgMembership.user_id == str(user_id))
         .limit(1)
-        .execute()
     )
-    if not resp.data:
+    if not org_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User has no org membership; cannot connect integration",
         )
-    return UUID(resp.data[0]["org_id"])
+    return UUID(org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +86,9 @@ def _resolve_default_org(sb: Client, user_id: UUID) -> UUID:
 @router.get("")
 async def list_integrations(
     user: AuthUser = Depends(get_current_user),
-    sb: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> list[dict]:
-    return list_user_integrations(sb, user_id=user.id)
+    return list_user_integrations(session, user_id=user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -99,10 +100,10 @@ async def list_integrations(
 async def initiate_oauth(
     platform: str,
     user: AuthUser = Depends(get_current_user),
-    sb: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> dict:
     p = _assert_supported(platform)
-    org_id = _resolve_default_org(sb, user.id)
+    org_id = _resolve_default_org(session, user.id)
     state = build_state(org_id, user.id, p)
     redirect_uri = redirect_uri_for(p)
 
@@ -148,7 +149,7 @@ async def oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
-    sb: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> RedirectResponse:
     p = _assert_supported(platform)
     frontend = (settings.frontend_url or "http://localhost:3000").rstrip("/")
@@ -198,7 +199,7 @@ async def oauth_callback(
         raise HTTPException(400, f"Unsupported platform {p}")
 
     save_credentials(
-        sb,
+        session,
         org_id=org_id,
         user_id=user_id,
         platform=p,
@@ -220,9 +221,9 @@ async def oauth_callback(
 async def disconnect_integration(
     platform: str,
     user: AuthUser = Depends(get_current_user),
-    sb: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> None:
     p = _assert_supported(platform)
-    org_id = _resolve_default_org(sb, user.id)
-    deactivate_credentials(sb, org_id=org_id, user_id=user.id, platform=p)
+    org_id = _resolve_default_org(session, user.id)
+    deactivate_credentials(session, org_id=org_id, user_id=user.id, platform=p)
     logger.info("oauth_disconnected", platform=p, user_id=str(user.id))

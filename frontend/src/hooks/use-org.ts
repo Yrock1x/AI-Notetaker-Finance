@@ -1,70 +1,47 @@
 "use client";
 
-// Org list + switcher. RLS ensures we only see orgs we're a member of.
-// useOrgs returns the list from Supabase. useOrg returns the resolved current
-// org + switchOrg action. The selection lives in Zustand + localStorage; the
-// data lives in React Query.
+// Org list + switcher via the worker REST API (GET /orgs). The worker scopes
+// to the caller's memberships. useOrgs returns the list; useOrg returns the
+// resolved current org + switchOrg action. The selection lives in Zustand +
+// localStorage; the data lives in React Query.
 
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Organization } from "@/types";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet } from "@/lib/worker-api";
 import { useOrgSelection } from "@/stores/org-store";
 
-interface MembershipRow {
-  org_id: string;
+// Shape returned by GET /api/v1/orgs.
+interface OrgResponse {
+  id: string;
+  name: string;
+  slug: string;
   role: string;
-  organization: {
-    id: string;
-    name: string;
-    slug: string | null;
-    domain: string | null;
-    settings: Record<string, unknown> | null;
-    created_at: string;
-    updated_at: string;
-  } | null;
 }
 
-// Queries that hold per-org data. switchOrg drops these to avoid showing the
-// previous org's rows while the new org's queries refetch.
-const ORG_SCOPED_KEYS = [
-  "deals",
-  "meetings",
-  "documents",
-  "analyses",
-  "qa",
-  "calendar",
-  "bot-sessions",
-  "deliverables",
-  "transcripts",
-];
+// Query-key roots that are NOT org-scoped and must survive an org switch:
+// the org list itself and the auth session. Everything else holds per-org data
+// and is dropped on switch (see switchOrg). Using a denylist of global keys —
+// rather than an allowlist of org-scoped ones — means a newly-added org-scoped
+// hook is cleared automatically instead of silently leaking the previous org's
+// rows until someone remembers to extend a list.
+const GLOBAL_QUERY_KEYS = new Set(["orgs", "auth"]);
 
 export function useOrgs() {
   return useQuery<Organization[]>({
     queryKey: ["orgs"],
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) return [];
-      const { data, error } = await supabase
-        .from("org_memberships")
-        .select(
-          "org_id, role, organization:organizations(id, name, slug, domain, settings, created_at, updated_at)"
-        )
-        .eq("user_id", auth.user.id)
-        .returns<MembershipRow[]>();
-      if (error) throw error;
-      return (data ?? [])
-        .map((row) => row.organization)
-        .filter((o): o is NonNullable<MembershipRow["organization"]> => o !== null)
-        .map((o) => ({
-          id: o.id,
-          name: o.name,
-          slug: o.slug ?? "",
-          settings: o.settings ?? {},
-          created_at: o.created_at,
-          updated_at: o.updated_at,
-        }));
+      const rows = await apiGet<OrgResponse[]>("/orgs");
+      // The worker returns a slim shape; fill the remaining Organization
+      // fields with defaults so the existing type/consumers are satisfied.
+      return rows.map((o) => ({
+        id: o.id,
+        name: o.name,
+        slug: o.slug ?? "",
+        settings: {},
+        created_at: "",
+        updated_at: "",
+      }));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -89,9 +66,14 @@ export function useOrg() {
   const switchOrg = (orgId: string) => {
     if (!orgs.some((o) => o.id === orgId) || orgId === currentOrgId) return;
     setCurrentOrgId(orgId);
-    for (const key of ORG_SCOPED_KEYS) {
-      queryClient.removeQueries({ queryKey: [key] });
-    }
+    // Drop every org-scoped query so the UI can't show the previous org's rows
+    // while the new org refetches. Keep only the genuinely-global queries.
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const root = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey;
+        return typeof root !== "string" || !GLOBAL_QUERY_KEYS.has(root);
+      },
+    });
   };
 
   return { currentOrg, orgs, switchOrg };

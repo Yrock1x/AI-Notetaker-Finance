@@ -3,8 +3,9 @@ transcript events and bot lifecycle events.
 
 Transcript events (``transcript.partial`` / ``transcript.final``) upsert
 into ``transcript_segments`` keyed on ``recall_segment_id`` so partials get
-replaced in place by their finalized text. Supabase Realtime broadcasts
-each change to the Live panel.
+replaced in place by their finalized text. The worker's in-process pub/sub
+(``publish_meeting_event``) broadcasts each change to the Live panel's SSE
+stream.
 
 Lifecycle events (``bot.status_change``) flip ``meeting_bot_sessions.status``
 and, when the call ends, fire ``meeting/uploaded`` into Inngest so the
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -25,11 +27,20 @@ import time
 from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.dependencies import get_service_supabase
+from app.db.deps import get_db
+from app.db.models import (
+    Meeting,
+    MeetingBotSession,
+    MeetingChatMessage,
+    MeetingParticipant,
+    TranscriptSegment,
+)
 from app.integrations.inngest import send_event
+from app.realtime.pubsub import publish_meeting_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,17 +59,21 @@ _SEEN_WEBHOOK_IDS: OrderedDict[str, float] = OrderedDict()
 _SEEN_MAX_SIZE = 10000
 _SEEN_TTL_SECONDS = 600  # 10 min — covers both Recall's 5-min ts tolerance
 
+# Reject Svix-signed webhooks whose timestamp is too far from now. This bounds
+# the replay window even after the in-process dedup LRU is cleared (e.g. a
+# deploy/restart), mirroring the Zoom/Slack handlers in webhooks.py.
+_RECALL_TIMESTAMP_TOLERANCE = 300  # 5 minutes
+
 
 # ---------------------------------------------------------------------------
-# Backpressure on Postgres-bound writes
+# Backpressure on the live-ingest write path
 #
-# Each transcript partial upserts a row; the supabase-py client's underlying
-# httpx call is sync-ish (PostgREST round-trip) and at burst — 50 concurrent
-# live meetings stacking partials — can saturate the pool and starve other
-# request types. Cap concurrent writes per worker process; once full, new
-# webhook handlers wait, which gives Recall natural backpressure rather than
-# letting us amplify the spike. 8 keeps healthy headroom under PgBouncer's
-# default transaction-mode pool while still serving steady-state load.
+# Each transcript partial upserts a row into the worker-owned SQLite DB;
+# writes serialize there, and at burst — 50 concurrent live meetings stacking
+# partials — uncapped concurrency can starve other request types. Cap
+# concurrent writes per worker process; once full, new webhook handlers wait,
+# which gives Recall natural backpressure rather than letting us amplify the
+# spike. 8 keeps healthy headroom while still serving steady-state load.
 # ---------------------------------------------------------------------------
 _WRITE_SEMAPHORE = asyncio.Semaphore(8)
 
@@ -144,6 +159,20 @@ def _verify_recall_signature(
         return
 
     if svix_id and svix_timestamp and svix_signature:
+        # Freshness check first: a captured-but-stale signed webhook is rejected
+        # even if its signature still validates.
+        try:
+            skew = abs(time.time() - int(svix_timestamp))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Recall webhook timestamp",
+            ) from None
+        if skew > _RECALL_TIMESTAMP_TOLERANCE:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Recall webhook timestamp expired",
+            )
         if _verify_svix(raw_body, svix_id, svix_timestamp, svix_signature):
             return
         raise HTTPException(
@@ -173,16 +202,14 @@ def _verify_recall_signature(
 # ---------------------------------------------------------------------------
 # Shared: look up the bot session row for a bot_id
 # ---------------------------------------------------------------------------
-def _session_for_bot(service_supabase: Client, bot_id: str) -> dict | None:
-    rows = (
-        service_supabase.table("meeting_bot_sessions")
-        .select("id, meeting_id, deal_id, org_id, status")
-        .eq("recall_bot_id", bot_id)
+def _session_for_bot(session: Session, bot_id: str) -> MeetingBotSession | None:
+    if not bot_id:
+        return None
+    return session.scalar(
+        select(MeetingBotSession)
+        .where(MeetingBotSession.recall_bot_id == bot_id)
         .limit(1)
-        .execute()
-        .data
     )
-    return rows[0] if rows else None
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +226,7 @@ async def recall_webhook(
     webhook_id: str | None = Header(default=None),
     webhook_timestamp: str | None = Header(default=None),
     webhook_signature: str | None = Header(default=None),
-    service_supabase: Client = Depends(get_service_supabase),
+    session: Session = Depends(get_db),
 ) -> dict:
     raw_body = await request.body()
     # Recall's dashboard uses the Standard Webhooks ``webhook-*`` header
@@ -249,7 +276,7 @@ async def recall_webhook(
     # processing completes — we just ACK those; the real work happens on
     # ``bot.done`` via /internal/bot/finalize.
     if event in ("transcript.data", "transcript.partial_data"):
-        return await _handle_transcript(event, data, service_supabase)
+        return await _handle_transcript(event, data, session)
     if event.startswith("transcript."):
         return {"received": True, "handled": False, "event": event}
 
@@ -259,17 +286,15 @@ async def recall_webhook(
     # endpoints, if ever configured, use ``bot.status_change`` with a nested
     # ``data.status.code``. Both end up in _handle_status_change.
     if event.startswith("bot."):
-        return await _handle_status_change(event, data, service_supabase)
+        return await _handle_status_change(event, data, session)
 
     # --- Participant join / leave -------------------------------------------
-    if event.startswith("participant_events.") or event.startswith(
-        "participant."
-    ):
-        return await _handle_participant(event, data, service_supabase)
+    if event.startswith(("participant_events.", "participant.")):
+        return await _handle_participant(event, data, session)
 
     # --- In-meeting chat -----------------------------------------------------
-    if event.startswith("chat_messages.") or event.startswith("chat."):
-        return await _handle_chat(event, data, service_supabase)
+    if event.startswith(("chat_messages.", "chat.")):
+        return await _handle_chat(event, data, session)
 
     # ``recording.done`` / ``meeting_metadata.done`` / ``video_mixed.done``
     # etc. — just ACK. /internal/bot/finalize pulls whatever media shortcuts
@@ -279,7 +304,7 @@ async def recall_webhook(
 
 
 async def _handle_transcript(
-    event: str, data: dict, service_supabase: Client
+    event: str, data: dict, session: Session
 ) -> dict:
     # Recall sends transcript events in two very different shapes:
     #  1. Legacy per-bot push: {"event":"transcript.partial", "data":
@@ -287,7 +312,7 @@ async def _handle_transcript(
     #  2. realtime_endpoints push: {"event":"transcript.partial_data", "data":
     #     {"bot":{"id","metadata"}, "data":{"participant":{…},"words":[…]}}}
     # Normalise both into the same row before upsert so the DB stays uniform.
-    is_partial = event.endswith(".partial") or event.endswith(".partial_data")
+    is_partial = event.endswith((".partial", ".partial_data"))
 
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
@@ -295,11 +320,11 @@ async def _handle_transcript(
     inner = data.get("data") if isinstance(data.get("data"), dict) else None
     segment = data.get("segment") or {}
 
-    session = _session_for_bot(service_supabase, bot_id)
-    if not session:
+    bot_session = _session_for_bot(session, bot_id)
+    if not bot_session:
         logger.warning("recall_webhook_unknown_bot bot_id=%s", bot_id)
         return {"received": True, "handled": False, "reason": "unknown_bot"}
-    meeting_id = session.get("meeting_id")
+    meeting_id = bot_session.meeting_id
     if not meeting_id:
         logger.warning("recall_webhook_no_meeting bot_id=%s", bot_id)
         return {"received": True, "handled": False, "reason": "no_meeting"}
@@ -349,16 +374,30 @@ async def _handle_transcript(
         }
 
     async with _WRITE_SEMAPHORE:
-        (
-            service_supabase.table("transcript_segments")
-            .upsert(row, on_conflict="recall_segment_id")
-            .execute()
+        # UPSERT keyed on recall_segment_id so a partial gets replaced in
+        # place by its finalized text instead of inserting a new row.
+        existing = session.scalar(
+            select(TranscriptSegment).where(
+                TranscriptSegment.recall_segment_id == row["recall_segment_id"]
+            )
         )
+        if existing is not None:
+            for key, value in row.items():
+                setattr(existing, key, value)
+        else:
+            session.add(TranscriptSegment(**row))
+        session.flush()
+
+    # Broadcast to the worker's in-process pub/sub so the new SSE stream
+    # delivers live segments. Never let a pub/sub hiccup fail the webhook.
+    with contextlib.suppress(Exception):
+        await publish_meeting_event(meeting_id, "transcript_segment", row)
+
     return {"received": True, "handled": True, "is_partial": is_partial}
 
 
 async def _handle_status_change(
-    event: str, data: dict, service_supabase: Client
+    event: str, data: dict, session: Session
 ) -> dict:
     """Bot lifecycle handoff.
 
@@ -385,8 +424,8 @@ async def _handle_status_change(
         or event_suffix
     )
 
-    session = _session_for_bot(service_supabase, bot_id)
-    if not session:
+    bot_session = _session_for_bot(session, bot_id)
+    if not bot_session:
         logger.warning("recall_status_unknown_bot bot_id=%s", bot_id)
         return {"received": True, "handled": False, "reason": "unknown_bot"}
 
@@ -412,43 +451,61 @@ async def _handle_status_change(
         )
         return {"received": True, "handled": False, "recall_status": recall_status}
 
-    update = {"status": next_status}
-    if next_status == "recording":
-        update["actual_start"] = data.get("updated_at") or "now()"
-    elif next_status in ("completed", "failed"):
-        update["actual_end"] = data.get("updated_at") or "now()"
-
-    # Supabase-py rejects "now()" as a value — use None and let the trigger
-    # default to the current timestamp via ``updated_at`` instead; fall back
-    # to client-side ISO when we have a real timestamp from Recall.
-    update.pop("actual_start", None) if update.get("actual_start") == "now()" else None
-    update.pop("actual_end", None) if update.get("actual_end") == "now()" else None
-
+    # Only set a real timestamp from Recall; otherwise leave the column for
+    # the row's own ``updated_at`` default rather than writing a literal.
+    real_ts = data.get("updated_at")
     async with _WRITE_SEMAPHORE:
-        service_supabase.table("meeting_bot_sessions").update(update).eq(
-            "id", session["id"]
-        ).execute()
+        bot_session.status = next_status
+        if next_status == "recording" and real_ts:
+            bot_session.actual_start = real_ts
+        elif next_status in ("completed", "failed") and real_ts:
+            bot_session.actual_end = real_ts
+        session.flush()
+
+    meeting_id = bot_session.meeting_id
+    if meeting_id:
+        with contextlib.suppress(Exception):
+            await publish_meeting_event(
+                meeting_id,
+                "bot_session",
+                {
+                    "id": bot_session.id,
+                    "meeting_id": meeting_id,
+                    "deal_id": bot_session.deal_id,
+                    "status": next_status,
+                },
+            )
 
     # Keep meetings.status in sync with the bot's real lifecycle. bot_start
     # intentionally leaves the meeting at 'scheduled' until Recall confirms
     # the bot is in-call, so the Live tab's "waiting" state is truthful.
-    if next_status == "recording" and session.get("meeting_id"):
+    if next_status == "recording" and meeting_id:
         async with _WRITE_SEMAPHORE:
-            service_supabase.table("meetings").update({"status": "recording"}).eq(
-                "id", session["meeting_id"]
-            ).execute()
-    elif next_status == "completed" and session.get("meeting_id"):
+            meeting = session.get(Meeting, meeting_id)
+            if meeting is not None:
+                meeting.status = "recording"
+                session.flush()
+        with contextlib.suppress(Exception):
+            await publish_meeting_event(
+                meeting_id, "meeting", {"id": meeting_id, "status": "recording"}
+            )
+    elif next_status == "completed" and meeting_id:
         # Bot meetings take a dedicated pipeline that pulls the authoritative
         # transcript + participants from Recall's recording shortcuts —
         # Deepgram already ran during the call, so the file-upload path
         # (``meeting/uploaded``) doesn't apply. The finalize step flips
         # meetings.status to 'uploaded' itself once the pull succeeds.
+        # Commit the status write before the Inngest send so the SQLite writer
+        # lock isn't held across that network call (this is the hot live path).
+        # Committing first also means the status persists even if the send fails
+        # and Recall retries the webhook.
+        session.commit()
         await send_event(
             "meeting/bot-completed",
             {
-                "session_id": session["id"],
-                "meeting_id": session["meeting_id"],
-                "deal_id": session.get("deal_id", ""),
+                "session_id": bot_session.id,
+                "meeting_id": meeting_id,
+                "deal_id": bot_session.deal_id or "",
             },
         )
 
@@ -461,7 +518,7 @@ async def _handle_status_change(
 
 
 async def _handle_participant(
-    event: str, data: dict, service_supabase: Client
+    event: str, data: dict, session: Session
 ) -> dict:
     """Upsert ``meeting_participants`` from Recall participant_events.*.
 
@@ -471,11 +528,13 @@ async def _handle_participant(
     """
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_inner = data.get("data")
+    inner: dict = raw_inner if isinstance(raw_inner, dict) else {}
 
-    session = _session_for_bot(service_supabase, bot_id)
-    if not session or not session.get("meeting_id"):
+    bot_session = _session_for_bot(session, bot_id)
+    if not bot_session or not bot_session.meeting_id:
         return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
+    meeting_id = bot_session.meeting_id
 
     participant = inner.get("participant") or data.get("participant") or {}
     participant_id = participant.get("id") or participant.get("participant_id")
@@ -498,13 +557,10 @@ async def _handle_participant(
         or data.get("timestamp")
         or data.get("updated_at")
     )
-    if isinstance(raw_ts, dict):
-        timestamp = raw_ts.get("absolute")
-    else:
-        timestamp = raw_ts
+    timestamp = raw_ts.get("absolute") if isinstance(raw_ts, dict) else raw_ts
 
     row: dict = {
-        "meeting_id": session["meeting_id"],
+        "meeting_id": meeting_id,
         "recall_participant_id": str(participant_id),
         "speaker_label": participant.get("name") or f"Participant {participant_id}",
         "speaker_name": participant.get("name"),
@@ -515,30 +571,30 @@ async def _handle_participant(
     elif action == "leave" and timestamp:
         row["left_at"] = timestamp
 
-    # meeting_participants has a *partial* unique index on
-    # (meeting_id, recall_participant_id) which PostgREST can't match via
-    # on_conflict. Fall back to select → update-or-insert.
-    existing = (
-        service_supabase.table("meeting_participants")
-        .select("id")
-        .eq("meeting_id", session["meeting_id"])
-        .eq("recall_participant_id", str(participant_id))
-        .limit(1)
-        .execute()
-        .data
-    )
+    # meeting_participants has a partial unique index on
+    # (meeting_id, recall_participant_id) — select → update-or-insert to
+    # keep repeated deliveries idempotent.
     async with _WRITE_SEMAPHORE:
-        if existing:
-            service_supabase.table("meeting_participants").update(row).eq(
-                "id", existing[0]["id"]
-            ).execute()
+        existing = session.scalar(
+            select(MeetingParticipant)
+            .where(MeetingParticipant.meeting_id == meeting_id)
+            .where(MeetingParticipant.recall_participant_id == str(participant_id))
+            .limit(1)
+        )
+        if existing is not None:
+            for key, value in row.items():
+                setattr(existing, key, value)
         else:
-            service_supabase.table("meeting_participants").insert(row).execute()
+            session.add(MeetingParticipant(**row))
+        session.flush()
+
+    with contextlib.suppress(Exception):
+        await publish_meeting_event(meeting_id, "participant", row)
     return {"received": True, "handled": True, "action": action}
 
 
 async def _handle_chat(
-    _event: str, data: dict, service_supabase: Client
+    _event: str, data: dict, session: Session
 ) -> dict:
     """Insert in-meeting chat messages captured by Recall.
 
@@ -548,11 +604,13 @@ async def _handle_chat(
     """
     bot = data.get("bot") or {}
     bot_id = bot.get("id") or data.get("bot_id") or ""
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_inner = data.get("data")
+    inner: dict = raw_inner if isinstance(raw_inner, dict) else {}
 
-    session = _session_for_bot(service_supabase, bot_id)
-    if not session or not session.get("meeting_id"):
+    bot_session = _session_for_bot(session, bot_id)
+    if not bot_session or not bot_session.meeting_id:
         return {"received": True, "handled": False, "reason": "unknown_bot_or_meeting"}
+    meeting_id = bot_session.meeting_id
 
     message = (
         inner.get("message")
@@ -568,8 +626,8 @@ async def _handle_chat(
 
     sender = message.get("sender") or message.get("participant") or {}
     row = {
-        "meeting_id": session["meeting_id"],
-        "org_id": session["org_id"],
+        "meeting_id": meeting_id,
+        "org_id": bot_session.org_id,
         "sender_name": sender.get("name"),
         "sender_email": sender.get("email"),
         "text": text,
@@ -584,13 +642,24 @@ async def _handle_chat(
         # Can't insert without a sent_at (NOT NULL). Skip.
         return {"received": True, "handled": False, "reason": "no_timestamp"}
 
+    # meeting_chat_messages has a unique index on recall_message_id — when
+    # present, select → update-or-insert so a replay collapses in place;
+    # otherwise straight insert.
     async with _WRITE_SEMAPHORE:
+        existing = None
         if row["recall_message_id"]:
-            (
-                service_supabase.table("meeting_chat_messages")
-                .upsert(row, on_conflict="recall_message_id")
-                .execute()
+            existing = session.scalar(
+                select(MeetingChatMessage).where(
+                    MeetingChatMessage.recall_message_id == row["recall_message_id"]
+                )
             )
+        if existing is not None:
+            for key, value in row.items():
+                setattr(existing, key, value)
         else:
-            service_supabase.table("meeting_chat_messages").insert(row).execute()
+            session.add(MeetingChatMessage(**row))
+        session.flush()
+
+    with contextlib.suppress(Exception):
+        await publish_meeting_event(meeting_id, "chat", row)
     return {"received": True, "handled": True}

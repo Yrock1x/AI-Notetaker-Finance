@@ -3,17 +3,13 @@ metadata via Microsoft Graph.
 
 Uses the ``common`` tenant so both work and personal Microsoft accounts can
 authenticate. For tenant-locked deployments switch ``common`` to the tenant
-GUID.
+GUID. The shared flow lives in :mod:`app.integrations.oauth_flow`.
 """
 
 from __future__ import annotations
 
-from urllib.parse import urlencode
-
-import httpx
-import structlog
-
-logger = structlog.get_logger(__name__)
+from app.integrations import oauth_flow
+from app.integrations.oauth_flow import OAuthProvider
 
 AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"  # noqa: S105 - public OAuth endpoint
@@ -39,82 +35,35 @@ SCOPES = [
     "Chat.Read",
 ]
 
+PROVIDER = OAuthProvider(
+    name="microsoft",
+    authorize_url=AUTHORIZE_URL,
+    token_url=TOKEN_URL,
+    scopes=SCOPES,
+    client_id_setting="microsoft_client_id",
+    client_secret_setting="microsoft_client_secret",  # noqa: S106 - settings attr name, not a secret
+    send_scope_in_token_request=True,
+    extra_authorize_params={"response_mode": "query", "prompt": "consent"},
+)
 
-def build_authorize_url(
-    *, client_id: str, redirect_uri: str, state: str
-) -> str:
-    params = {
-        "client_id": client_id,
-        "response_type": "code",
-        "redirect_uri": redirect_uri,
-        "response_mode": "query",
-        "scope": " ".join(SCOPES),
-        "state": state,
-        "prompt": "consent",
-    }
-    return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+def build_authorize_url(*, client_id: str, redirect_uri: str, state: str) -> str:
+    return oauth_flow.build_authorize_url(
+        PROVIDER, client_id=client_id, redirect_uri=redirect_uri, state=state
+    )
 
 
 async def exchange_code(
     *, client_id: str, client_secret: str, redirect_uri: str, code: str
 ) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "scope": " ".join(SCOPES),
-            },
-        )
-        if resp.status_code >= 400:
-            logger.error(
-                "microsoft_code_exchange_failed",
-                status=resp.status_code,
-                body=resp.text[:500],
-            )
-            resp.raise_for_status()
-        data = resp.json()
-        return {
-            "access_token": data["access_token"],
-            "refresh_token": data.get("refresh_token"),
-            "expires_in": data.get("expires_in"),
-            "scope": data.get("scope"),
-            "token_type": data.get("token_type", "Bearer"),
-            "id_token": data.get("id_token"),
-        }
+    return await oauth_flow.exchange_code(
+        PROVIDER,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        code=code,
+    )
 
 
 async def refresh_microsoft(refresh_token: str) -> dict:
-    """Exchange a refresh token for a new access token. Reads client creds
-    from settings so callers don't need to plumb them through."""
-    from app.core.config import settings
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={
-                "client_id": settings.microsoft_client_id,
-                "client_secret": settings.microsoft_client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "scope": " ".join(SCOPES),
-            },
-        )
-        if resp.status_code >= 400:
-            logger.error(
-                "microsoft_refresh_failed",
-                status=resp.status_code,
-                body=resp.text[:500],
-            )
-            resp.raise_for_status()
-        data = resp.json()
-        return {
-            "access_token": data["access_token"],
-            "refresh_token": data.get("refresh_token"),
-            "expires_in": data.get("expires_in"),
-            "scope": data.get("scope"),
-        }
+    return await oauth_flow.refresh(PROVIDER, refresh_token)

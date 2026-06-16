@@ -4,24 +4,16 @@
 // kind filter, table/timeline toggle, expandable rows with AI extractions,
 // and the existing schedule + upload buttons mounted as workspace pills.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import {
-  Bot,
-  Clock,
-  Download,
-  List,
-  Mic,
-  Play,
-  Sparkles,
-  Upload,
-} from "lucide-react";
+import { Bot, Mic, Play, Sparkles, Upload } from "lucide-react";
 import {
   useMeetings,
   useToggleMeetingBot,
 } from "@/hooks/use-meetings";
 import { useDealExtractions } from "@/hooks/use-deal-extractions";
+import { meetingDisplayState } from "@/lib/meeting-status";
 import { UploadDialog } from "@/components/meetings/upload-dialog";
 import { ScheduleBotDialog } from "@/components/meetings/schedule-bot-dialog";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -31,13 +23,11 @@ import {
   KindPill,
   LiveDot,
   PillButton,
-  Segmented,
   WSCard,
   avatarColor,
 } from "@/components/workspace/primitives";
 import type { Meeting } from "@/types";
 
-type View = "table" | "timeline";
 type KindFilter = "All" | "External" | "Internal" | "Legal" | "Expert";
 
 function meetingKind(m: Meeting): KindFilter {
@@ -66,59 +56,30 @@ export default function MeetingsPage() {
   const { data: extractions } = useDealExtractions(dealId);
   const toggleBot = useToggleMeetingBot(dealId);
 
-  const [view, setView] = useState<View>("table");
-  const [kind, setKind] = useState<KindFilter>("All");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, boolean>>({});
 
   const meetings = data?.items ?? [];
-  const filtered = useMemo(
-    () => (kind === "All" ? meetings : meetings.filter((m) => meetingKind(m) === kind)),
-    [kind, meetings],
-  );
 
   return (
     <div
       className="flex flex-col gap-4 px-7 pt-4 pb-10"
       style={{ background: "var(--ws-sub)", minHeight: "100%" }}
     >
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3">
         <h2 className="m-0 text-[16px] font-semibold" style={{ color: "var(--ws-ink)" }}>
-          All meetings
+          Meetings
         </h2>
         <span className="text-[12px]" style={{ color: "var(--ws-muted)" }}>
-          {filtered.length} of {meetings.length}
+          {meetings.length}
         </span>
         <div className="flex-1" />
-        <Segmented<KindFilter>
-          value={kind}
-          onChange={setKind}
-          size="sm"
-          options={[
-            { value: "All", label: "All" },
-            { value: "External", label: "External" },
-            { value: "Internal", label: "Internal" },
-            { value: "Legal", label: "Legal" },
-            { value: "Expert", label: "Expert" },
-          ]}
-        />
-        <Segmented<View>
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "table", label: "Table", icon: <List className="w-3 h-3" /> },
-            { value: "timeline", label: "Timeline", icon: <Clock className="w-3 h-3" /> },
-          ]}
-        />
         <PillButton onClick={() => setScheduleOpen(true)}>
           <Bot className="w-3 h-3" /> Schedule
         </PillButton>
         <PillButton variant="primary" onClick={() => setUploadOpen(true)}>
           <Upload className="w-3 h-3" /> Upload
-        </PillButton>
-        <PillButton>
-          <Download className="w-3 h-3" /> Export
         </PillButton>
       </div>
 
@@ -140,10 +101,10 @@ export default function MeetingsPage() {
             Schedule a notetaker bot or upload a recording to get started.
           </p>
         </div>
-      ) : view === "table" ? (
+      ) : (
         <MeetingsTable
           dealId={dealId}
-          list={filtered}
+          list={meetings}
           extractions={extractions}
           botOverrides={botOverrides}
           onToggleBot={async (id, current) => {
@@ -156,8 +117,6 @@ export default function MeetingsPage() {
             }
           }}
         />
-      ) : (
-        <MeetingsTimeline dealId={dealId} list={filtered} extractions={extractions} />
       )}
 
       <UploadDialog
@@ -256,8 +215,9 @@ function MeetingRow({
 }) {
   const counts = meetingExtractionCounts(m.id, extractions);
   const d = m.meeting_date ? new Date(m.meeting_date) : new Date(m.created_at);
-  const isLive = m.status === "recording";
-  const showBot = Boolean(m.source_url) && (m.status === "scheduled" || m.status === "recording");
+  const state = meetingDisplayState(m);
+  const isLive = state === "live";
+  const showBot = Boolean(m.source_url) && (state === "scheduled" || state === "live");
   const enabled = botOverride ?? m.bot_enabled ?? true;
   const stack = attendeesFromTitle(m).map((init) => ({
     initials: init,
@@ -322,14 +282,17 @@ function MeetingRow({
               {counts.decisions} decision{counts.decisions === 1 ? "" : "s"} ·{" "}
               {counts.questions} open question{counts.questions === 1 ? "" : "s"}
             </p>
-          ) : m.status === "scheduled" || m.status === "recording" ? (
-            <p
-              className="m-0 text-[12px]"
-              style={{ color: "var(--ws-muted)" }}
-            >
-              {m.status === "recording"
-                ? "Recording in progress — extractions will appear after the call ends."
-                : "Scheduled. Bot will join automatically."}
+          ) : state === "live" ? (
+            <p className="m-0 text-[12px]" style={{ color: "var(--ws-muted)" }}>
+              Recording in progress — extractions will appear after the call ends.
+            </p>
+          ) : state === "scheduled" ? (
+            <p className="m-0 text-[12px]" style={{ color: "var(--ws-muted)" }}>
+              Scheduled. Bot will join automatically.
+            </p>
+          ) : state === "not_joined" ? (
+            <p className="m-0 text-[12px] italic" style={{ color: "var(--ws-faint)" }}>
+              Bot did not join this meeting.
             </p>
           ) : (
             <p
@@ -384,136 +347,12 @@ function MeetingRow({
             ? `${Math.floor(m.duration_seconds / 60)}:${(m.duration_seconds % 60)
                 .toString()
                 .padStart(2, "0")}`
-            : m.status === "scheduled"
-              ? "—"
-              : m.status === "recording"
-                ? "live"
-                : "—"}
+            : isLive
+              ? "live"
+              : "—"}
         </span>
         <span></span>
       </Link>
     </div>
   );
 }
-
-function MeetingsTimeline({
-  dealId,
-  list,
-  extractions,
-}: {
-  dealId: string;
-  list: Meeting[];
-  extractions: ExtractionsBundle | undefined;
-}) {
-  const byDay = new Map<string, Meeting[]>();
-  for (const m of list) {
-    const d = new Date(m.meeting_date || m.created_at);
-    const key = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    const arr = byDay.get(key) ?? [];
-    arr.push(m);
-    byDay.set(key, arr);
-  }
-  const days = [...byDay.entries()];
-  return (
-    <div
-      className="ws-card"
-      style={{ padding: "16px 24px 24px" }}
-    >
-      <div className="relative pl-[110px]">
-        <div
-          className="absolute top-1 bottom-1 w-px"
-          style={{ left: 92, background: "var(--ws-border)" }}
-        />
-        {days.map(([day, items]) => (
-          <div key={day} className="relative mb-5">
-            <div
-              className="absolute top-1 -left-[110px] w-[80px] text-right text-[11px] font-bold uppercase tracking-wider ws-mono"
-              style={{ color: "var(--ws-ink2)" }}
-            >
-              {day}
-            </div>
-            <div
-              className="absolute top-1.5 -left-[22px] w-[11px] h-[11px] rounded-full"
-              style={{
-                background: "var(--ws-bg)",
-                border: "2px solid var(--ws-accent)",
-              }}
-            />
-            <div className="flex flex-col gap-2">
-              {items.map((m) => {
-                const counts = meetingExtractionCounts(m.id, extractions);
-                const t = (m.meeting_date
-                  ? new Date(m.meeting_date)
-                  : new Date(m.created_at)
-                ).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
-                const isLive = m.status === "recording";
-                return (
-                  <Link
-                    key={m.id}
-                    href={`/deals/${dealId}/meetings/${m.id}`}
-                    className="rounded-md px-3 py-2.5"
-                    style={{
-                      background: "var(--ws-surface)",
-                      border: "1px solid var(--ws-border)",
-                    }}
-                  >
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span
-                        className="ws-mono text-[10.5px]"
-                        style={{ color: "var(--ws-faint)", minWidth: 38 }}
-                      >
-                        {t}
-                      </span>
-                      <span
-                        className="text-[13px] font-semibold"
-                        style={{ color: "var(--ws-ink)" }}
-                      >
-                        {m.title}
-                      </span>
-                      <KindPill kind={meetingKind(m)} />
-                      {isLive && (
-                        <span
-                          className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wider"
-                          style={{ color: "var(--ws-danger)" }}
-                        >
-                          <LiveDot size={5} /> Live
-                        </span>
-                      )}
-                      <span className="flex-1" />
-                      {m.duration_seconds && (
-                        <span
-                          className="ws-mono text-[10.5px]"
-                          style={{ color: "var(--ws-muted)" }}
-                        >
-                          {Math.floor(m.duration_seconds / 60)}m
-                        </span>
-                      )}
-                    </div>
-                    {(counts.actions || counts.decisions || counts.questions) > 0 ? (
-                      <div
-                        className="flex gap-2 mt-1 flex-wrap text-[10.5px] ws-mono"
-                        style={{ color: "var(--ws-muted)" }}
-                      >
-                        <span>
-                          <Sparkles
-                            className="w-2.5 h-2.5 inline align-middle mr-0.5"
-                            style={{ color: "var(--ws-ai-ink)" }}
-                          />
-                          {counts.actions}A · {counts.decisions}D · {counts.questions}Q
-                        </span>
-                      </div>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-

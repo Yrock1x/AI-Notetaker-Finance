@@ -9,8 +9,10 @@
 // open_questions / pull_quotes / key_quotes / chapters) and normalize them
 // into a single shape the workspace UI can consume.
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { apiGet } from "@/lib/worker-api";
+import { useMeetings } from "./use-meetings";
 
 export interface ExtractedAction {
   id: string;
@@ -22,6 +24,8 @@ export interface ExtractedAction {
   meetingTitle: string;
   meetingDate?: string | null;
   timestamp?: string;
+  // Source analysis row — needed by the completion-persistence FK.
+  analysisId: string;
 }
 
 export interface ExtractedDecision {
@@ -96,41 +100,33 @@ function normalizeStatus(v: unknown): ExtractedAction["status"] {
 }
 
 export function useDealExtractions(dealId: string | undefined) {
+  // Reuse the shared ["meetings", dealId] query for meeting titles/dates rather
+  // than fetching /meetings again here (it was the 3rd duplicate fetch per deal
+  // navigation); only /extractions is fetched below, once meetings are ready.
+  const meetingsQ = useMeetings(dealId);
   return useQuery<DealExtractions>({
     queryKey: ["deal-extractions", dealId],
-    enabled: !!dealId,
+    enabled: !!dealId && meetingsQ.isSuccess,
     staleTime: 60_000,
     queryFn: async () => {
-      const supabase = getBrowserSupabase();
-
-      const { data: meetings, error: mErr } = await supabase
-        .from("meetings")
-        .select("id, title, meeting_date")
-        .eq("deal_id", dealId!);
-      if (mErr) throw mErr;
+      const meetings = meetingsQ.data?.items ?? [];
+      const analyses = await apiGet<AnalysisRow[]>(
+        `/deals/${dealId}/extractions`,
+      );
 
       const meetingMap = new Map<string, MeetingRow>(
-        (meetings ?? []).map((m) => [m.id, m as MeetingRow]),
+        meetings.map((m) => [
+          m.id,
+          { id: m.id, title: m.title ?? null, meeting_date: m.meeting_date ?? null },
+        ]),
       );
-      const ids = (meetings ?? []).map((m) => m.id);
-      if (ids.length === 0) {
-        return { actions: [], decisions: [], questions: [], quotes: [] };
-      }
-
-      const { data: analyses, error: aErr } = await supabase
-        .from("analyses")
-        .select("id, meeting_id, structured_output, created_at")
-        .in("meeting_id", ids)
-        .eq("status", "completed")
-        .order("created_at", { ascending: false });
-      if (aErr) throw aErr;
 
       const actions: ExtractedAction[] = [];
       const decisions: ExtractedDecision[] = [];
       const questions: ExtractedQuestion[] = [];
       const quotes: ExtractedQuote[] = [];
 
-      for (const a of (analyses ?? []) as AnalysisRow[]) {
+      for (const a of analyses) {
         const m = meetingMap.get(a.meeting_id);
         const meetingTitle = m?.title || "Untitled meeting";
         const meetingDate = m?.meeting_date ?? null;
@@ -149,6 +145,7 @@ export function useDealExtractions(dealId: string | undefined) {
             if (!text) return;
             actions.push({
               id: `${a.id}-act-${i}`,
+              analysisId: a.id,
               text,
               owner: str(pick(r, ["owner", "assignee", "responsible"])),
               due: str(pick(r, ["due", "due_date", "deadline"])),
@@ -161,6 +158,7 @@ export function useDealExtractions(dealId: string | undefined) {
           } else if (typeof raw === "string" && raw.trim()) {
             actions.push({
               id: `${a.id}-act-${i}`,
+              analysisId: a.id,
               text: raw,
               status: "open",
               meetingId: a.meeting_id,

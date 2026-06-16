@@ -23,6 +23,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.core.config import settings
 from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 
 logger = structlog.get_logger(__name__)
@@ -32,10 +33,10 @@ FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 # Module-level concurrency cap on outbound Fireworks calls. Without this, a
 # burst of QA requests can hit Fireworks faster than its rate limiter
 # allows, producing a stampede of 429s and amplifying the original spike.
-# 20 is a sane default for a single worker process; multiplied across
-# uvicorn workers (WEB_CONCURRENCY=4) we cap at ~80 in-flight, well under
-# Fireworks' per-account RPM ceilings.
-_FIREWORKS_SEMAPHORE = asyncio.Semaphore(20)
+# The default (20) is a sane single-process cap; multiplied across uvicorn
+# workers (WEB_CONCURRENCY=4) that's ~80 in-flight, well under Fireworks'
+# per-account RPM ceilings. Override via FIREWORKS_MAX_CONCURRENCY.
+_FIREWORKS_SEMAPHORE = asyncio.Semaphore(settings.fireworks_max_concurrency)
 
 
 def _is_retryable_http(exc: BaseException) -> bool:
@@ -159,33 +160,32 @@ class FireworksProvider(LLMProvider):
         log = logger.bind(provider="fireworks", model=self.model)
         log.info("fireworks_stream_start")
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{FIREWORKS_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    payload = line[len("data: ") :].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        import json as _json
+        async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+            "POST",
+            f"{FIREWORKS_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                payload = line[len("data: ") :].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    import json as _json
 
-                        chunk = _json.loads(payload)
-                    except ValueError:
-                        continue
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta = (choice.get("delta") or {}).get("content")
-                    if delta:
-                        yield delta
+                    chunk = _json.loads(payload)
+                except ValueError:
+                    continue
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = (choice.get("delta") or {}).get("content")
+                if delta:
+                    yield delta
 
         log.info("fireworks_stream_complete")
 
@@ -220,22 +220,32 @@ class FireworksEmbeddingProvider(EmbeddingProvider):
         log = logger.bind(provider="fireworks", model=self.model, n=len(texts))
         log.info("fireworks_embed_batch_start")
 
-        all_vectors: list[list[float]] = []
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            for start in range(0, len(texts), self.MAX_BATCH_SIZE):
-                batch = texts[start : start + self.MAX_BATCH_SIZE]
-                resp = await client.post(
-                    f"{FIREWORKS_BASE_URL}/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": self.model, "input": batch},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                for row in data.get("data", []):
-                    all_vectors.append(row["embedding"])
+        batches = [
+            texts[start : start + self.MAX_BATCH_SIZE]
+            for start in range(0, len(texts), self.MAX_BATCH_SIZE)
+        ]
+        # Run the batches concurrently (a large ingest can be many batches) but
+        # cap concurrency so we don't spike the provider. gather preserves order,
+        # so the flattened result still lines up with `texts`.
+        sem = asyncio.Semaphore(4)
 
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+
+            async def _embed_one(batch: list[str]) -> list[list[float]]:
+                async with sem:
+                    resp = await client.post(
+                        f"{FIREWORKS_BASE_URL}/embeddings",
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"model": self.model, "input": batch},
+                    )
+                resp.raise_for_status()
+                return [row["embedding"] for row in resp.json().get("data", [])]
+
+            results = await asyncio.gather(*(_embed_one(b) for b in batches))
+
+        all_vectors = [vec for batch_vecs in results for vec in batch_vecs]
         log.info("fireworks_embed_batch_success", total=len(all_vectors))
         return all_vectors

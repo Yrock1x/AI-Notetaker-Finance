@@ -1,7 +1,7 @@
-"""Runtime configuration — tuned for the Supabase + Fireworks + Railway worker.
+"""Runtime configuration for the worker-owned SQLite stack.
 
-No AWS, no Cognito, no RDS, no Redis. This worker only needs:
-- Supabase URL + service-role key (DB, Auth JWKS, Storage)
+This worker needs:
+- Session JWT + storage signing + internal M2M secrets (auth, signed URLs, Inngest)
 - Fireworks / Anthropic API keys for LLM calls
 - Deepgram + Recall for transcription/bots
 - OAuth client secrets for Zoom, Microsoft (Teams + Outlook + Calendar), Google
@@ -35,18 +35,11 @@ class Settings(BaseSettings):
     # every one. Empty = no regex matching, only the explicit list applies.
     cors_origin_regex: str = ""
 
-    # Supabase
-    supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
-    supabase_jwt_jwks_url: str = ""   # usually {SUPABASE_URL}/auth/v1/.well-known/jwks.json
-    # HS256 signing secret. Set in local dev (Supabase CLI issues HS256 tokens
-    # by default) and as a fallback in prod if JWKS is unavailable. Hosted
-    # Supabase exposes this as the "JWT Secret" in API settings.
-    supabase_jwt_secret: str = ""
-
     # LLM — Fireworks (default)
     fireworks_api_key: str = ""
+    # Cap on concurrent outbound Fireworks calls per worker process — prevents a
+    # request burst from stampeding Fireworks' rate limiter into 429s.
+    fireworks_max_concurrency: int = 20
 
     # LLM — Anthropic (opt-in, gated by PREMIUM_LLM_ENABLED)
     premium_llm_enabled: bool = False
@@ -83,9 +76,20 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
-    slack_client_id: str = ""
-    slack_client_secret: str = ""
+    # Slack: only the signing secret is used (to verify the inbound slash-command
+    # / events webhook in app/api/v1/webhooks.py).
     slack_signing_secret: str = ""
+
+    # CogniVault — this worker acts as an OAuth *client* of CogniVault for the
+    # "Connect a deal to a VDR" flow. CogniVault's consent screen enforces that
+    # the user is an admin of the chosen VDR (we never model VDR roles here); the
+    # token exchange returns the chosen ``vdr_id``, which we store on a per-deal
+    # connection. Separately, CogniVault holds a partner API key (partner_api_keys)
+    # to PULL the shared deal data from /partner/v1.
+    cognivault_client_id: str = ""
+    cognivault_client_secret: str = ""
+    cognivault_authorize_url: str = ""  # e.g. https://app.cognivault.com/oauth/authorize
+    cognivault_token_url: str = ""  # e.g. https://app.cognivault.com/oauth/token
 
     # Public URL of the Next.js frontend — where we bounce users back after
     # the OAuth consent screen (e.g. https://app.example.com).
@@ -98,6 +102,19 @@ class Settings(BaseSettings):
 
     # Fernet key for integration_credentials.access_token_encrypted
     token_encryption_key: str = ""
+
+    # ---- SQLite migration (worker-owned data layer) ----
+    # Path to the SQLite database file. On Fly.io this is on the attached volume.
+    sqlite_db_path: str = "/data/app.db"
+    # Filesystem root for object storage (replaces Supabase Storage buckets).
+    storage_root: str = "/data/storage"
+    # HMAC key for signing storage upload/download URLs. Falls back to
+    # worker_internal_token if unset (see storage module).
+    storage_signing_key: str = ""
+    # Secret used to sign self-issued session JWTs (replaces Supabase Auth).
+    session_jwt_secret: str = ""
+    # Cookie name for the self-issued session token.
+    session_cookie_name: str = "cogni_session"
 
     # Shared secret between Inngest functions (on Vercel) and the worker.
     # Every /api/v1/internal/* request must include this in X-Internal-Token.
@@ -115,14 +132,6 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
-
-    @property
-    def jwks_url(self) -> str:
-        if self.supabase_jwt_jwks_url:
-            return self.supabase_jwt_jwks_url
-        if self.supabase_url:
-            return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
-        return ""
 
     # ------------------------------------------------------------------
     @model_validator(mode="after")
@@ -146,18 +155,48 @@ class Settings(BaseSettings):
             return self
 
         missing: list[str] = []
-        if not self.supabase_url:
-            missing.append("SUPABASE_URL")
-        if not self.supabase_service_role_key:
-            missing.append("SUPABASE_SERVICE_ROLE_KEY")
         if not self.token_encryption_key:
             missing.append("TOKEN_ENCRYPTION_KEY")
         if not self.fireworks_api_key:
             missing.append("FIREWORKS_API_KEY")
+        # Signing / auth secrets. Without these the worker silently collapses
+        # session-JWT signing AND storage-URL signing onto worker_internal_token
+        # (the broadly-shared M2M token, also placed in Vercel/Inngest) — so a
+        # single leaked token would forge sessions and signed storage URLs.
+        # Require them explicitly and fail fast.
+        if not self.session_jwt_secret:
+            missing.append("SESSION_JWT_SECRET")
+        if not self.storage_signing_key:
+            missing.append("STORAGE_SIGNING_KEY")
+        if not self.worker_internal_token:
+            missing.append("WORKER_INTERNAL_TOKEN")
+        # Recall webhooks are only verified (vs. accepted unsigned) when a bot
+        # integration is configured, so the secret is required only then.
+        if self.recall_api_key and not self.recall_webhook_secret:
+            missing.append("RECALL_WEBHOOK_SECRET")
 
         if missing:
             raise ValueError(
                 "Missing required production env vars: " + ", ".join(missing)
+            )
+
+        # The three signing/auth secrets must be distinct and reasonably long so
+        # compromise of one (e.g. the shared internal token) can't forge the
+        # others.
+        signing_secrets = {
+            "SESSION_JWT_SECRET": self.session_jwt_secret,
+            "STORAGE_SIGNING_KEY": self.storage_signing_key,
+            "WORKER_INTERNAL_TOKEN": self.worker_internal_token,
+        }
+        for name, value in signing_secrets.items():
+            if len(value) < 32:
+                raise ValueError(
+                    f"{name} must be at least 32 characters in production"
+                )
+        if len(set(signing_secrets.values())) != len(signing_secrets):
+            raise ValueError(
+                "SESSION_JWT_SECRET, STORAGE_SIGNING_KEY, and "
+                "WORKER_INTERNAL_TOKEN must all be distinct in production"
             )
 
         if self.token_encryption_key:

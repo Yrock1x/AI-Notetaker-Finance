@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import structlog
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 from deepgram import AsyncDeepgramClient as DGClient
 
 from app.integrations.deepgram.config import DEEPGRAM_CONFIG
@@ -84,7 +80,7 @@ class DeepgramClient:
 
             return response.model_dump()
 
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             logger.error(
                 "deepgram.transcribe_file.timeout",
                 audio_url=audio_url,
@@ -149,7 +145,7 @@ class DeepgramClient:
 
             return response.model_dump()
 
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             logger.error(
                 "deepgram.transcribe_bytes.timeout",
                 mimetype=mimetype,
@@ -166,9 +162,3 @@ class DeepgramClient:
                 error=str(exc),
             )
             raise
-
-    async def transcribe_stream(
-        self, audio_stream, config: dict | None = None
-    ) -> AsyncIterator[dict]:
-        """Transcribe a live audio stream using Deepgram."""
-        raise NotImplementedError

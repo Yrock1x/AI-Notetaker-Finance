@@ -1,25 +1,58 @@
 import "server-only";
 
-// Inngest orchestration. step.run blocks are small HTTP calls: either to the
-// Python worker (Deepgram, LLM routing, docx rendering) or straight to
-// Supabase via the service-role client for status updates.
+// Inngest orchestration. step.run blocks are small HTTP calls to the Python
+// worker (Deepgram, LLM routing, docx rendering, and meeting-status writes).
+// All meeting-status updates now go through the worker's internal API instead
+// of a direct service-role Supabase write, so this runtime no longer needs the
+// Supabase service-role key.
 
-import { createClient } from "@supabase/supabase-js";
+import type { ZodType } from "zod";
 import { inngest } from "./client";
+import {
+  activeIntegrationsResponseSchema,
+  autoScheduleDueResponseSchema,
+  calendarSyncResponseSchema,
+  ensureSubscriptionResponseSchema,
+  transcribeResponseSchema,
+  zoomIngestResponseSchema,
+} from "@/lib/worker-contracts";
 
 const WORKER_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
-function serviceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Inngest functions"
-    );
-  }
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
+// Call an internal worker endpoint and validate the JSON body against its
+// schema (see worker-contracts.ts). A mismatch throws inside step.run, so
+// Inngest retries loudly instead of fanning out malformed payloads.
+async function workerJson<T>(
+  path: string,
+  schema: ZodType<T>,
+  opts?: { method?: "GET" | "POST"; body?: unknown }
+): Promise<T> {
+  const r = await fetch(`${WORKER_URL}/api/v1${path}`, {
+    method: opts?.method ?? "POST",
+    headers: internalHeaders(),
+    body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
+  if (!r.ok) throw new Error(`${path} failed: ${r.status}`);
+  return schema.parse(await r.json());
+}
+
+// Push a meeting's pipeline status to the worker, which owns the DB write
+// (POST /internal/meeting-status, X-Internal-Token authenticated).
+async function setMeetingStatus(
+  meetingId: string,
+  status: string,
+  errorMessage?: string
+): Promise<void> {
+  const r = await fetch(`${WORKER_URL}/api/v1/internal/meeting-status`, {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({
+      meeting_id: meetingId,
+      status,
+      error_message: errorMessage ?? null,
+    }),
+  });
+  if (!r.ok) throw new Error(`meeting-status (${status}) failed: ${r.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -34,33 +67,22 @@ export const processMeeting = inngest.createFunction(
   { event: "meeting/uploaded" },
   async ({ event, step }) => {
     const { meeting_id } = event.data;
-    const sb = serviceSupabase();
 
     await step.run("mark-transcribing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "transcribing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "transcribing");
     });
 
     // Deepgram call lives on the Python worker — too much SDK ergonomics
     // to rewrite in TS. The worker writes the transcript row directly via
     // service-role client and returns the transcript id.
-    const { transcript_id } = await step.run("deepgram-transcribe", async () => {
-      const resp = await fetch(`${WORKER_URL}/api/v1/internal/transcribe`, {
-        method: "POST",
-        headers: internalHeaders(),
-        body: JSON.stringify({ meeting_id }),
-      });
-      if (!resp.ok) throw new Error(`transcribe failed: ${resp.status}`);
-      return (await resp.json()) as { transcript_id: string };
-    });
+    const { transcript_id } = await step.run("deepgram-transcribe", async () =>
+      workerJson("/internal/transcribe", transcribeResponseSchema, {
+        body: { meeting_id },
+      })
+    );
 
     await step.run("mark-diarizing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "diarizing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "diarizing");
     });
 
     // Diarization is part of Deepgram's response; the worker parses it in
@@ -70,10 +92,7 @@ export const processMeeting = inngest.createFunction(
 
     // Parallel fan-out: embed + analyze.
     await step.run("mark-analyzing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzing");
     });
 
     await Promise.all([
@@ -96,10 +115,7 @@ export const processMeeting = inngest.createFunction(
     ]);
 
     await step.run("mark-analyzed", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzed" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzed");
     });
 
     return { meeting_id, status: "analyzed" };
@@ -173,14 +189,10 @@ export const autoScheduleDueBots = inngest.createFunction(
   { cron: "TZ=UTC */5 * * * *" },
   async ({ step }) => {
     const scheduled = await step.run("find-due", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/bot/auto-schedule-due`,
-        { method: "POST", headers: internalHeaders() }
+      const body = await workerJson(
+        "/internal/bot/auto-schedule-due",
+        autoScheduleDueResponseSchema
       );
-      if (!r.ok) throw new Error(`auto-schedule-due failed: ${r.status}`);
-      const body = (await r.json()) as {
-        scheduled: { session_id: string; meeting_id: string; deal_id: string }[];
-      };
       return body.scheduled;
     });
     if (scheduled.length === 0) return { scheduled: 0 };
@@ -208,14 +220,10 @@ export const autoScheduleDueBotsOnDemand = inngest.createFunction(
   { event: "bot/auto-schedule.requested" },
   async ({ step }) => {
     const scheduled = await step.run("find-due", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/bot/auto-schedule-due`,
-        { method: "POST", headers: internalHeaders() }
+      const body = await workerJson(
+        "/internal/bot/auto-schedule-due",
+        autoScheduleDueResponseSchema
       );
-      if (!r.ok) throw new Error(`auto-schedule-due failed: ${r.status}`);
-      const body = (await r.json()) as {
-        scheduled: { session_id: string; meeting_id: string; deal_id: string }[];
-      };
       return body.scheduled;
     });
     if (scheduled.length === 0) return { scheduled: 0 };
@@ -255,12 +263,8 @@ export const processBotMeeting = inngest.createFunction(
       if (!r.ok) throw new Error(`bot finalize failed: ${r.status}`);
     });
 
-    const sb = serviceSupabase();
     await step.run("mark-analyzing", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzing" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzing");
     });
 
     await Promise.all([
@@ -283,10 +287,7 @@ export const processBotMeeting = inngest.createFunction(
     ]);
 
     await step.run("mark-analyzed", async () => {
-      await sb
-        .from("meetings")
-        .update({ status: "analyzed" })
-        .eq("id", meeting_id);
+      await setMeetingStatus(meeting_id, "analyzed");
     });
 
     return { meeting_id, status: "analyzed" };
@@ -344,20 +345,21 @@ export const ingestZoomRecording = inngest.createFunction(
   { event: "zoom/recording.completed" },
   async ({ event, step }) => {
     const { zoom_meeting_id, download_url } = event.data;
-    const meeting_id = await step.run("download-and-store", async () => {
-      const r = await fetch(`${WORKER_URL}/api/v1/internal/zoom/ingest`, {
-        method: "POST",
-        headers: internalHeaders(),
-        body: JSON.stringify({ zoom_meeting_id, download_url }),
-      });
-      if (!r.ok) throw new Error(`zoom ingest failed: ${r.status}`);
-      return ((await r.json()) as { meeting_id: string }).meeting_id;
-    });
+    const { meeting_id, status } = await step.run(
+      "download-and-store",
+      async () =>
+        workerJson("/internal/zoom/ingest", zoomIngestResponseSchema, {
+          body: { zoom_meeting_id, download_url },
+        })
+    );
+    // meeting_id is null when no stored Zoom credential could download the
+    // recording — nothing was ingested, so don't fire the pipeline.
+    if (!meeting_id) return { meeting_id: null, status };
     await step.sendEvent("meeting-uploaded", {
       name: "meeting/uploaded",
       data: { meeting_id, deal_id: "" },
     });
-    return { meeting_id };
+    return { meeting_id, status };
   }
 );
 
@@ -379,14 +381,11 @@ export const syncCalendars = inngest.createFunction(
   { cron: "TZ=UTC */30 * * * *" },
   async ({ step }) => {
     const integrations = await step.run("list-active-integrations", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
-        { headers: internalHeaders() }
+      const body = await workerJson(
+        "/internal/calendar/list-active-integrations",
+        activeIntegrationsResponseSchema,
+        { method: "GET" }
       );
-      if (!r.ok) throw new Error(`list-active-integrations failed: ${r.status}`);
-      const body = (await r.json()) as {
-        integrations: { org_id: string; user_id: string; platform: string }[];
-      };
       return body.integrations;
     });
 
@@ -408,24 +407,13 @@ export const syncCalendarForUser = inngest.createFunction(
   { id: "sync-calendar-for-user", concurrency: { limit: 4 } },
   { event: "calendar/sync.requested" },
   async ({ event, step }) => {
-    const { org_id, user_id, platform } = event.data as {
-      org_id: string;
-      user_id: string;
-      platform: string;
-    };
-    const result = await step.run("worker-sync", async () => {
-      const r = await fetch(`${WORKER_URL}/api/v1/internal/calendar/sync`, {
-        method: "POST",
-        headers: internalHeaders(),
-        body: JSON.stringify({ org_id, user_id, platform }),
-      });
-      if (!r.ok) throw new Error(`calendar sync failed: ${r.status}`);
-      return (await r.json()) as {
-        events_seen: number;
-        meetings_upserted: number;
-      };
-    });
-    return { platform, user_id, ...result };
+    const { org_id, user_id, platform } = event.data;
+    const result = await step.run("worker-sync", async () =>
+      workerJson("/internal/calendar/sync", calendarSyncResponseSchema, {
+        body: { org_id, user_id, platform },
+      })
+    );
+    return { user_id, ...result };
   }
 );
 
@@ -450,14 +438,11 @@ export const refreshCalendarForUser = inngest.createFunction(
     const { org_id, user_id } = event.data;
 
     const integrations = await step.run("list-user-integrations", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
-        { headers: internalHeaders() }
+      const body = await workerJson(
+        "/internal/calendar/list-active-integrations",
+        activeIntegrationsResponseSchema,
+        { method: "GET" }
       );
-      if (!r.ok) throw new Error(`list failed: ${r.status}`);
-      const body = (await r.json()) as {
-        integrations: { org_id: string; user_id: string; platform: string }[];
-      };
       return body.integrations.filter(
         (i) => i.org_id === org_id && i.user_id === user_id
       );
@@ -489,14 +474,11 @@ export const renewMicrosoftSubscriptions = inngest.createFunction(
   { cron: "TZ=UTC 0 */12 * * *" },
   async ({ step }) => {
     const integrations = await step.run("list-microsoft", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/calendar/list-active-integrations`,
-        { headers: internalHeaders() }
+      const body = await workerJson(
+        "/internal/calendar/list-active-integrations",
+        activeIntegrationsResponseSchema,
+        { method: "GET" }
       );
-      if (!r.ok) throw new Error(`list failed: ${r.status}`);
-      const body = (await r.json()) as {
-        integrations: { org_id: string; user_id: string; platform: string }[];
-      };
       return body.integrations.filter((i) => i.platform === "microsoft");
     });
 
@@ -517,26 +499,14 @@ export const ensureMicrosoftSubscription = inngest.createFunction(
   { id: "ensure-microsoft-subscription", concurrency: { limit: 4 } },
   { event: "microsoft/subscription.ensure" },
   async ({ event, step }) => {
-    const { org_id, user_id } = event.data as {
-      org_id: string;
-      user_id: string;
-    };
-    const result = await step.run("worker-ensure", async () => {
-      const r = await fetch(
-        `${WORKER_URL}/api/v1/internal/microsoft/ensure-subscription`,
-        {
-          method: "POST",
-          headers: internalHeaders(),
-          body: JSON.stringify({ org_id, user_id }),
-        }
-      );
-      if (!r.ok) throw new Error(`ensure failed: ${r.status}`);
-      return (await r.json()) as {
-        subscription_id: string;
-        expiration: string;
-        action: string;
-      };
-    });
+    const { org_id, user_id } = event.data;
+    const result = await step.run("worker-ensure", async () =>
+      workerJson(
+        "/internal/microsoft/ensure-subscription",
+        ensureSubscriptionResponseSchema,
+        { body: { org_id, user_id } }
+      )
+    );
     return { user_id, ...result };
   }
 );

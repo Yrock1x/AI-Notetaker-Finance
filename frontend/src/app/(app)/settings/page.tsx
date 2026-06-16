@@ -2,13 +2,13 @@
 
 import { useEffect } from "react";
 import {
-  useSupabaseSession,
+  useSession,
   userDisplayName,
-} from "@/hooks/use-supabase-session";
+} from "@/hooks/use-session";
 import { useUIStore } from "@/stores/ui-store";
 
 export default function SettingsPage() {
-  const { user } = useSupabaseSession();
+  const { user } = useSession();
   const displayName = userDisplayName(user);
   const { theme, setTheme } = useUIStore();
 

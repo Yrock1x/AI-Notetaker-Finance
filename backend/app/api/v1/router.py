@@ -2,12 +2,12 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     analysis,
-    auth,
+    auth_native,
+    cognivault,
     deliverables,
     health,
     integrations,
     internal,
-    meetings_upload,
     qa,
     recall_webhooks,
     webhooks,
@@ -16,17 +16,14 @@ from app.api.v1.qa import meeting_qa_router
 
 api_router = APIRouter()
 
-# Identity — only /me and /logout remain; sign-in is handled by Supabase Auth
-# directly from the frontend. The worker just verifies the JWT.
+# Identity — self-hosted OAuth login, session introspection, and signout.
+# (Replaces Supabase Auth; the old Supabase-only /auth router was removed.)
 api_router.include_router(health.router, prefix="/health", tags=["Health"])
-api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+api_router.include_router(auth_native.router, prefix="/auth", tags=["Authentication"])
 
 # Server-mediated actions (need secret API keys or service-role writes).
-api_router.include_router(
-    meetings_upload.router,
-    prefix="/meetings",
-    tags=["Meetings"],
-)
+# Meeting/document uploads use the generic POST /storage/upload-ticket
+# (app/api/v1/store/files.py); the old /meetings/upload-ticket was removed.
 api_router.include_router(
     analysis.router,
     prefix="/meetings/{meeting_id}/analyses",
@@ -47,6 +44,11 @@ api_router.include_router(
     integrations.router, prefix="/integrations", tags=["Integrations"]
 )
 
+# CogniVault — connect a deal to a VDR (OAuth client flow) + per-deal share toggles.
+api_router.include_router(
+    cognivault.router, prefix="/cognivault", tags=["CogniVault"]
+)
+
 # Inbound webhooks.
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 api_router.include_router(
@@ -54,6 +56,14 @@ api_router.include_router(
     prefix="/webhooks/recall",
     tags=["Webhooks", "Live Transcription"],
 )
+
+# Store endpoints — REST over the worker-owned SQLite DB (replaces the
+# frontend's former direct-to-Supabase reads/writes). Additive during migration.
+from app.api.v1.store.router import store_router  # noqa: E402
+from app.realtime.sse import router as sse_router  # noqa: E402
+
+api_router.include_router(store_router)
+api_router.include_router(sse_router, tags=["Realtime"])
 
 # Service-to-service endpoints — Inngest calls these with X-Internal-Token.
 api_router.include_router(internal.router, prefix="/internal", tags=["Internal"])

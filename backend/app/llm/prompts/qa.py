@@ -57,9 +57,11 @@ approximation (e.g., "approximately $10M" not "$10M").
 both views and note the conflict.
 
 ## RESPONSE FORMAT
-- BE EXTREMELY CONCISE. 1-3 sentences by default. No preamble, no "Based on the sources…", no disclaimers, no confidence notes, no restating of the question.
+- BE EXTREMELY CONCISE. 1-3 sentences by default. No preamble, no "Based on the
+  sources…", no disclaimers, no confidence notes, no restating of the question.
 - For list-style questions, use a bullet list — nothing else above or below it.
-- Only expand beyond 3 sentences if the user explicitly asks for detail ("summarize in depth", "explain", "walk me through…").
+- Only expand beyond 3 sentences if the user explicitly asks for detail
+  ("summarize in depth", "explain", "walk me through…").
 - Present numbers inline exactly as stated in the sources.
 - Never volunteer tangential information. Answer only what was asked.
 

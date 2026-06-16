@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import apiClient from "@/lib/api-client";
+import { apiGet, apiPatch } from "@/lib/worker-api";
 import { LoadingState } from "@/components/shared/loading-state";
 
 export default function AdminSettingsPage() {
@@ -12,7 +12,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function fetchSettings() {
       try {
-        const { data } = await apiClient.get("/admin/settings");
+        const data = await apiGet<Record<string, unknown>>("/admin/settings");
         setSettings(data);
       } catch {
         // ignore
@@ -26,7 +26,10 @@ export default function AdminSettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { data } = await apiClient.patch("/admin/settings", settings);
+      const data = await apiPatch<Record<string, unknown>>(
+        "/admin/settings",
+        settings
+      );
       setSettings(data);
     } finally {
       setSaving(false);

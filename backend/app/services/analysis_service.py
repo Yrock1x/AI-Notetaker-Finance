@@ -1,9 +1,16 @@
-"""LLM-driven meeting analyses on Supabase.
+"""LLM-driven meeting analyses on the SQLite layer.
 
 Fetches the meeting's transcript segments, renders a call-type-specific
 prompt, calls the task-routed LLM, parses the structured JSON output, and
 writes an ``analyses`` row. Versioning works the same as before — each
 (meeting_id, call_type) tuple is independently versioned.
+
+DB work is synchronous SQLAlchemy on the request-scoped ``Session``. The
+methods stay ``async`` so callers can keep awaiting them (and so the LLM
+call inside can be awaited); the session calls inside are plain sync calls.
+The service never commits — the ``get_db`` dependency commits on success
+(and the internal pipeline caller commits its own session). We ``flush`` so
+generated ids / column defaults are populated.
 """
 
 from __future__ import annotations
@@ -12,13 +19,15 @@ import json
 from uuid import UUID
 
 import structlog
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.db.models import Analysis, Deal, Meeting, TranscriptSegment
 from app.llm.prompts.base import BasePromptTemplate
 from app.llm.router import (
-    LLMRouter,
     TASK_IC_MEMO,
     TASK_SUMMARIZATION,
+    LLMRouter,
 )
 
 logger = structlog.get_logger(__name__)
@@ -60,10 +69,10 @@ def _load_prompt(call_type: str) -> BasePromptTemplate:
 
 
 class AnalysisService:
-    """Runs + persists analyses against the Supabase-backed schema."""
+    """Runs + persists analyses against the SQLite-backed schema."""
 
-    def __init__(self, supabase: Client, llm_router: LLMRouter) -> None:
-        self.supabase = supabase
+    def __init__(self, session: Session, llm_router: LLMRouter) -> None:
+        self.session = session
         self.llm_router = llm_router
 
     # ------------------------------------------------------------------ run
@@ -77,23 +86,19 @@ class AnalysisService:
     ) -> dict:
         version = await self._next_version(meeting_id, call_type)
 
-        insert_row = {
-            "meeting_id": str(meeting_id),
-            "org_id": str(org_id),
-            "call_type": call_type,
-            "model_used": "",
-            "prompt_version": "v1",
-            "status": "running",
-            "version": version,
-            "requested_by": str(requested_by) if requested_by else None,
-        }
-        analysis = (
-            self.supabase.table("analyses")
-            .insert(insert_row)
-            .execute()
-            .data[0]
+        analysis = Analysis(
+            meeting_id=str(meeting_id),
+            org_id=str(org_id),
+            call_type=call_type,
+            model_used="",
+            prompt_version="v1",
+            status="running",
+            version=version,
+            requested_by=str(requested_by) if requested_by else None,
         )
-        analysis_id = analysis["id"]
+        self.session.add(analysis)
+        self.session.flush()  # populate id / created_at / updated_at defaults
+        analysis_id = analysis.id
 
         try:
             transcript_text = await self._fetch_transcript_text(meeting_id)
@@ -123,23 +128,16 @@ class AnalysisService:
             structured_output = self._parse_llm_output(response.content)
             status_ = (
                 "partial"
-                if isinstance(structured_output, dict) and structured_output.get("parse_error")
+                if isinstance(structured_output, dict)
+                and structured_output.get("parse_error")
                 else "completed"
             )
 
-            (
-                self.supabase.table("analyses")
-                .update(
-                    {
-                        "structured_output": structured_output,
-                        "model_used": response.model,
-                        "prompt_version": prompt_template.version,
-                        "status": status_,
-                    }
-                )
-                .eq("id", analysis_id)
-                .execute()
-            )
+            analysis.structured_output = structured_output
+            analysis.model_used = response.model
+            analysis.prompt_version = prompt_template.version
+            analysis.status = status_
+            self.session.flush()
 
             logger.info(
                 "analysis_completed",
@@ -148,15 +146,16 @@ class AnalysisService:
                 call_type=call_type,
                 model=response.model,
             )
-            return {**analysis, "structured_output": structured_output, "status": status_}
+            return self._to_dict(analysis)
 
         except Exception as exc:
-            (
-                self.supabase.table("analyses")
-                .update({"status": "failed", "error_message": str(exc)})
-                .eq("id", analysis_id)
-                .execute()
-            )
+            analysis.status = "failed"
+            analysis.error_message = str(exc)
+            # Commit (not just flush) so the failed status survives — the
+            # request's get_db dependency rolls the transaction back on the
+            # re-raise below, which would otherwise discard this write and leave
+            # the row stuck in "running".
+            self.session.commit()
             logger.error(
                 "analysis_failed",
                 analysis_id=analysis_id,
@@ -180,88 +179,89 @@ class AnalysisService:
         )
 
     async def get_analysis(self, analysis_id: UUID) -> dict:
-        rows = (
-            self.supabase.table("analyses")
-            .select("*")
-            .eq("id", str(analysis_id))
-            .limit(1)
-            .execute()
-            .data
+        analysis = self.session.scalar(
+            select(Analysis).where(Analysis.id == str(analysis_id))
         )
-        if not rows:
+        if analysis is None:
             raise LookupError(f"analysis {analysis_id} not found")
-        return rows[0]
+        return self._to_dict(analysis)
 
     async def list_analyses(self, meeting_id: UUID) -> list[dict]:
-        return (
-            self.supabase.table("analyses")
-            .select("*")
-            .eq("meeting_id", str(meeting_id))
-            .order("created_at", desc=True)
-            .execute()
-            .data
-            or []
-        )
+        rows = self.session.scalars(
+            select(Analysis)
+            .where(Analysis.meeting_id == str(meeting_id))
+            .order_by(Analysis.created_at.desc())
+        ).all()
+        return [self._to_dict(a) for a in rows]
 
     # --------------------------------------------------------------- helpers
 
     async def _next_version(self, meeting_id: UUID, call_type: str) -> int:
-        rows = (
-            self.supabase.table("analyses")
-            .select("version")
-            .eq("meeting_id", str(meeting_id))
-            .eq("call_type", call_type)
-            .order("version", desc=True)
+        latest = self.session.scalar(
+            select(Analysis.version)
+            .where(
+                Analysis.meeting_id == str(meeting_id),
+                Analysis.call_type == call_type,
+            )
+            .order_by(Analysis.version.desc())
             .limit(1)
-            .execute()
-            .data
-            or []
         )
-        return (rows[0]["version"] + 1) if rows else 1
+        return (latest + 1) if latest is not None else 1
 
     async def _fetch_transcript_text(self, meeting_id: UUID) -> str:
         """Finalized transcript segments, sorted, as speaker-attributed text."""
-        segments = (
-            self.supabase.table("transcript_segments")
-            .select("speaker_label, speaker_name, text, start_time")
-            .eq("meeting_id", str(meeting_id))
-            .eq("is_partial", False)
-            .order("start_time")
-            .execute()
-            .data
-            or []
-        )
+        segments = self.session.scalars(
+            select(TranscriptSegment)
+            .where(
+                TranscriptSegment.meeting_id == str(meeting_id),
+                TranscriptSegment.is_partial == False,  # noqa: E712
+            )
+            .order_by(TranscriptSegment.start_time)
+        ).all()
         lines: list[str] = []
         for seg in segments:
-            label = seg.get("speaker_name") or seg.get("speaker_label") or "Speaker"
-            lines.append(f"{label}: {seg.get('text','').strip()}")
+            label = seg.speaker_name or seg.speaker_label or "Speaker"
+            lines.append(f"{label}: {(seg.text or '').strip()}")
         return "\n".join(lines)
 
     def _fetch_meeting_with_deal(self, meeting_id: UUID) -> dict | None:
-        meeting_rows = (
-            self.supabase.table("meetings")
-            .select("id, deal_id, title")
-            .eq("id", str(meeting_id))
-            .limit(1)
-            .execute()
-            .data
-            or []
+        meeting = self.session.scalar(
+            select(Meeting).where(Meeting.id == str(meeting_id))
         )
-        if not meeting_rows:
+        if meeting is None:
             return None
-        meeting = meeting_rows[0]
-        deal_rows = (
-            self.supabase.table("deals")
-            .select("name")
-            .eq("id", meeting["deal_id"])
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
+        deal_name = "Unknown"
+        if meeting.deal_id:
+            deal_name = (
+                self.session.scalar(
+                    select(Deal.name).where(Deal.id == meeting.deal_id)
+                )
+                or "Unknown"
+            )
         return {
-            **meeting,
-            "deal_name": (deal_rows[0]["name"] if deal_rows else "Unknown"),
+            "id": meeting.id,
+            "deal_id": meeting.deal_id,
+            "title": meeting.title,
+            "deal_name": deal_name,
+        }
+
+    @staticmethod
+    def _to_dict(analysis: Analysis) -> dict:
+        return {
+            "id": analysis.id,
+            "meeting_id": analysis.meeting_id,
+            "org_id": analysis.org_id,
+            "call_type": analysis.call_type,
+            "structured_output": analysis.structured_output,
+            "model_used": analysis.model_used,
+            "prompt_version": analysis.prompt_version,
+            "grounding_score": analysis.grounding_score,
+            "status": analysis.status,
+            "error_message": analysis.error_message,
+            "requested_by": analysis.requested_by,
+            "version": analysis.version,
+            "created_at": analysis.created_at,
+            "updated_at": analysis.updated_at,
         }
 
     @staticmethod

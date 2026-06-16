@@ -1,13 +1,13 @@
 "use client";
 
-// Live participants + in-meeting chat. Both are populated by Recall.ai
-// webhooks → ``meeting_participants`` and ``meeting_chat_messages``. We
-// subscribe via Supabase Realtime so users watching the Live tab see
-// joiners and chat in real time.
+// Live participants + in-meeting chat, via the worker. Initial state comes
+// from the REST endpoints (GET /meetings/{id}/participants and .../chat);
+// live updates arrive on the shared SSE stream
+// (GET /meetings/{id}/stream) as `participant` / `chat` events. A slow poll
+// bridges any stream outage.
 
 import { useEffect, useRef, useState } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { API_BASE } from "@/lib/worker-api";
 
 export interface MeetingParticipant {
   id: string;
@@ -30,113 +30,161 @@ export interface MeetingChatMessage {
   recall_message_id: string | null;
 }
 
+interface StreamEvent {
+  kind: string;
+  payload: unknown;
+}
+
+const POLL_INTERVAL_MS = 8000;
+
+async function fetchJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function useMeetingParticipants(meetingId: string | undefined) {
   const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  // Surfaced so the UI can tell "live over SSE" from "bridging via the slow
+  // poll" — data still arrives either way, just with higher latency.
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!meetingId) {
       setParticipants([]);
+      setIsStreamConnected(false);
       return;
     }
-    const supabase = getBrowserSupabase();
     let cancelled = false;
+    let streamUp = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    supabase
-      .from("meeting_participants")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .order("joined_at", { ascending: true })
-      .then(({ data }) => {
-        if (cancelled) return;
-        setParticipants((data ?? []) as MeetingParticipant[]);
-      });
+    const load = async () => {
+      const data = await fetchJson<MeetingParticipant[]>(
+        `/meetings/${meetingId}/participants`
+      );
+      if (!cancelled && data) setParticipants(data);
+    };
+    void load();
 
-    const channel = supabase
-      .channel(`participants:${meetingId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "meeting_participants",
-          filter: `meeting_id=eq.${meetingId}`,
-        },
-        (payload) => {
-          const row = payload.new as MeetingParticipant | undefined;
-          if (!row) return;
-          setParticipants((prev) => {
-            const idx = prev.findIndex((p) => p.id === row.id);
-            if (idx >= 0) {
-              const copy = prev.slice();
-              copy[idx] = row;
-              return copy;
-            }
-            return [...prev, row];
-          });
+    const es = new EventSource(`${API_BASE}/meetings/${meetingId}/stream`, {
+      withCredentials: true,
+    });
+    esRef.current = es;
+    es.onopen = () => {
+      streamUp = true;
+      if (!cancelled) setIsStreamConnected(true);
+    };
+    es.onerror = () => {
+      streamUp = false;
+      if (!cancelled) setIsStreamConnected(false);
+    };
+    es.onmessage = (ev: MessageEvent) => {
+      if (cancelled) return;
+      let parsed: StreamEvent;
+      try {
+        parsed = JSON.parse(ev.data) as StreamEvent;
+      } catch {
+        return;
+      }
+      if (parsed.kind !== "participant") return;
+      const row = parsed.payload as MeetingParticipant | undefined;
+      if (!row) return;
+      setParticipants((prev) => {
+        const idx = prev.findIndex((p) => p.id === row.id);
+        if (idx >= 0) {
+          const copy = prev.slice();
+          copy[idx] = row;
+          return copy;
         }
-      )
-      .subscribe();
-    channelRef.current = channel;
+        return [...prev, row];
+      });
+    };
+
+    pollTimer = setInterval(() => {
+      if (cancelled || streamUp) return;
+      void load();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      channel.unsubscribe();
-      channelRef.current = null;
+      if (pollTimer) clearInterval(pollTimer);
+      es.close();
+      esRef.current = null;
     };
   }, [meetingId]);
 
-  return { participants };
+  return { participants, isStreamConnected };
 }
 
 export function useMeetingChat(meetingId: string | undefined) {
   const [messages, setMessages] = useState<MeetingChatMessage[]>([]);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!meetingId) {
       setMessages([]);
+      setIsStreamConnected(false);
       return;
     }
-    const supabase = getBrowserSupabase();
     let cancelled = false;
+    let streamUp = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    supabase
-      .from("meeting_chat_messages")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .order("sent_at", { ascending: true })
-      .limit(500)
-      .then(({ data }) => {
-        if (cancelled) return;
-        setMessages((data ?? []) as MeetingChatMessage[]);
-      });
+    const load = async () => {
+      const data = await fetchJson<MeetingChatMessage[]>(
+        `/meetings/${meetingId}/chat`
+      );
+      if (!cancelled && data) setMessages(data);
+    };
+    void load();
 
-    const channel = supabase
-      .channel(`chat:${meetingId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "meeting_chat_messages",
-          filter: `meeting_id=eq.${meetingId}`,
-        },
-        (payload) => {
-          const row = payload.new as MeetingChatMessage | undefined;
-          if (!row) return;
-          setMessages((prev) => [...prev, row]);
-        }
-      )
-      .subscribe();
-    channelRef.current = channel;
+    const es = new EventSource(`${API_BASE}/meetings/${meetingId}/stream`, {
+      withCredentials: true,
+    });
+    esRef.current = es;
+    es.onopen = () => {
+      streamUp = true;
+      if (!cancelled) setIsStreamConnected(true);
+    };
+    es.onerror = () => {
+      streamUp = false;
+      if (!cancelled) setIsStreamConnected(false);
+    };
+    es.onmessage = (ev: MessageEvent) => {
+      if (cancelled) return;
+      let parsed: StreamEvent;
+      try {
+        parsed = JSON.parse(ev.data) as StreamEvent;
+      } catch {
+        return;
+      }
+      if (parsed.kind !== "chat") return;
+      const row = parsed.payload as MeetingChatMessage | undefined;
+      if (!row) return;
+      setMessages((prev) =>
+        prev.some((m) => m.id === row.id) ? prev : [...prev, row]
+      );
+    };
+
+    pollTimer = setInterval(() => {
+      if (cancelled || streamUp) return;
+      void load();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      channel.unsubscribe();
-      channelRef.current = null;
+      if (pollTimer) clearInterval(pollTimer);
+      es.close();
+      esRef.current = null;
     };
   }, [meetingId]);
 
-  return { messages };
+  return { messages, isStreamConnected };
 }

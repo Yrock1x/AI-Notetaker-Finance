@@ -34,7 +34,9 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
               {CALL_TYPE_LABELS[analysis.call_type] ?? analysis.call_type}
             </h3>
             <p className="text-xs text-muted-foreground">
-              {new Date(analysis.created_at).toLocaleString()} · {analysis.model_version}
+              {new Date(analysis.created_at).toLocaleString()}
+              {(analysis.model_used ?? analysis.model_version) &&
+                ` · ${analysis.model_used ?? analysis.model_version}`}
             </p>
           </div>
         </div>
@@ -44,9 +46,9 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
         </div>
       </button>
 
-      {expanded && analysis.result && (
+      {expanded && (analysis.structured_output ?? analysis.result) && (
         <div className="border-t px-4 py-4">
-          <AnalysisResult data={analysis.result} />
+          <AnalysisResult data={analysis.structured_output ?? analysis.result ?? {}} />
         </div>
       )}
     </div>

@@ -1,0 +1,21 @@
+# macOS AppleDouble / metadata (this repo lives on a non-HFS volume that
+# creates ._* sidecars; the build-context sender can't xattr them).
+._*
+**/._*
+.DS_Store
+**/.DS_Store
+
+# Local dev / secrets / caches — never ship these into the image.
+.env
+.env.*
+.venv/
+venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+*.db
+*.db-wal
+*.db-shm

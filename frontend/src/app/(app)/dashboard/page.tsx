@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { ArrowRight, Briefcase, CalendarDays, Mic } from "lucide-react";
 import { useDeals } from "@/hooks/use-deals";
+import { isBotSessionLive } from "@/lib/meeting-status";
 import { useCalendarMeetings } from "@/hooks/use-calendar";
 import { useBotSessions } from "@/hooks/use-bot-sessions";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -97,7 +98,7 @@ export default function DashboardPage() {
     }).length;
   }, [meetings]);
 
-  const liveNow = botSessions.filter((b) => b.status === "recording").length;
+  const liveNow = botSessions.filter(isBotSessionLive).length;
 
   const dateLabel = new Date().toLocaleDateString(undefined, {
     weekday: "long",

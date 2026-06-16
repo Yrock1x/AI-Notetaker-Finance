@@ -6,6 +6,7 @@ import { useDeal, useUpdateDeal, useDeleteDeal } from "@/hooks/use-deals";
 import { LoadingState } from "@/components/shared/loading-state";
 import { DealStatus } from "@/types";
 import { DEAL_STATUS_LABELS } from "@/lib/constants";
+import { CogniVaultShareCard } from "./cognivault-share-card";
 
 export default function DealSettingsPage() {
   const params = useParams<{ dealId: string }>();
@@ -58,6 +59,9 @@ export default function DealSettingsPage() {
           ))}
         </select>
       </div>
+
+      {/* CogniVault VDR sharing */}
+      <CogniVaultShareCard dealId={params.dealId} />
 
       {/* Danger zone */}
       <div className="rounded-lg border border-red-200 bg-white p-6">

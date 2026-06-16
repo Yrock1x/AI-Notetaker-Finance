@@ -237,9 +237,9 @@ describe("Enums", () => {
       expect(MeetingStatus.FAILED).toBe("failed");
     });
 
-    it("should have exactly 9 members", () => {
+    it("should have exactly 11 members", () => {
       const values = Object.values(MeetingStatus);
-      expect(values).toHaveLength(9);
+      expect(values).toHaveLength(11);
     });
   });
 
@@ -301,7 +301,7 @@ describe("Constants", () => {
     });
 
     it("should have specific expected labels", () => {
-      expect(MEETING_STATUS_LABELS[MeetingStatus.SCHEDULED]).toBe("Scheduled");
+      expect(MEETING_STATUS_LABELS[MeetingStatus.SCHEDULED]).toBe("Upcoming");
       expect(MEETING_STATUS_LABELS[MeetingStatus.READY]).toBe("Ready");
       expect(MEETING_STATUS_LABELS[MeetingStatus.FAILED]).toBe("Failed");
     });

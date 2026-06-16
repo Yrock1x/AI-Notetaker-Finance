@@ -37,8 +37,8 @@ export function ToggleSwitch({
         onToggle();
       }}
       disabled={disabled}
-      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-[#1A1A1A]/10 transition-colors duration-200 ease-in-out focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-        enabled ? colorClass : "bg-[#1A1A1A]/10"
+      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-ink/10 transition-colors duration-200 ease-in-out focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+        enabled ? colorClass : "bg-ink/10"
       }`}
       role="switch"
       aria-checked={enabled}

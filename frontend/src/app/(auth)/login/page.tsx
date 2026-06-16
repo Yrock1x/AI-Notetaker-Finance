@@ -1,14 +1,15 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight } from "lucide-react";
-import { signInWithOAuth } from "@/lib/auth";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { ArrowRight, Loader2 } from "lucide-react";
+import {
+  registerWithPassword,
+  signInWithOAuth,
+  signInWithPassword,
+} from "@/lib/auth";
+import { ApiError } from "@/lib/worker-api";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
-import { Eyebrow } from "@/components/cogniscribe/primitives";
-
-type AuthMode = "signin" | "signup";
 
 export default function LoginPage() {
   return (
@@ -18,129 +19,121 @@ export default function LoginPage() {
   );
 }
 
+type Mode = "signin" | "signup";
+
+function safeNext(path: string | null): string {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return "/dashboard";
+  return path;
+}
+
 function LoginContent() {
   const { isDark } = useScribeTheme();
-  const router = useRouter();
   const search = useSearchParams();
-  const nextPath = search.get("next") || "/dashboard";
+  const nextPath = safeNext(search.get("next"));
 
-  const [mode, setMode] = useState<AuthMode>("signin");
+  const [mode, setMode] = useState<Mode>("signin");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "azure" | null>(null);
-  const [emailLoading, setEmailLoading] = useState(false);
+  // Seed the banner from ?error= so OAuth failures (which redirect back here)
+  // are explained instead of silently dropped.
+  const [error, setError] = useState<string | null>(() => search.get("error"));
 
-  const resetMessages = () => {
+  // bfcache restore (back button after an OAuth redirect) can leave the buttons
+  // stuck in their loading state — clear it when the page is shown again.
+  useEffect(() => {
+    const reset = () => setOauthLoading(null);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
+
+  const handleOAuth = (provider: "google" | "azure") => {
     setError(null);
-    setNotice(null);
-  };
-
-  const handleOAuth = async (provider: "google" | "azure") => {
-    resetMessages();
     setOauthLoading(provider);
-    try {
-      await signInWithOAuth(provider, nextPath);
-    } catch (e: unknown) {
-      setOauthLoading(null);
-      setError(e instanceof Error ? e.message : "Sign in failed. Please try again.");
-    }
+    // Full-page navigation to the worker, which runs the provider dance and
+    // sets the `cogni_session` cookie before redirecting back.
+    signInWithOAuth(provider, nextPath);
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    resetMessages();
-    setEmailLoading(true);
-    const supabase = getBrowserSupabase();
-
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
     try {
-      if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          setError(error.message);
-        } else {
-          router.push(nextPath);
-          router.refresh();
-        }
+      if (mode === "signup") {
+        await registerWithPassword(email, password, name);
       } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { full_name: fullName || email.split("@")[0] },
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
-          },
-        });
-        if (error) {
-          setError(error.message);
-        } else if (data.session) {
-          router.push(nextPath);
-          router.refresh();
-        } else {
-          setNotice(`Check ${email} for a confirmation link.`);
-        }
+        await signInWithPassword(email, password);
       }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Try again.");
-    } finally {
-      setEmailLoading(false);
+      // Cookie is set on the response; a full navigation re-runs the session
+      // probe and lands the user on their destination cleanly authenticated.
+      window.location.assign(nextPath);
+    } catch (err: unknown) {
+      setSubmitting(false);
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again."
+      );
     }
   };
 
-  const busy = emailLoading || oauthLoading !== null;
+  const toggleMode = () => {
+    setError(null);
+    setPassword("");
+    setMode((m) => (m === "signin" ? "signup" : "signin"));
+  };
 
-  const inputCls = `w-full rounded-xl border px-4 py-3 text-[14px] outline-none transition-colors ${
+  const inputClass = `w-full rounded-xl border px-4 py-3 text-[13px] outline-none transition-colors ${
     isDark
-      ? "bg-white/[0.03] border-white/10 text-white placeholder-white/30 focus:border-emerald-500/40"
-      : "bg-[#fafafa] border-black/[0.08] text-black placeholder-black/30 focus:border-emerald-500/40"
+      ? "bg-white/[0.03] border-white/10 text-white placeholder:text-white/35 focus:border-white/30"
+      : "bg-white border-black/[0.08] text-black placeholder:text-black/35 focus:border-black/30"
   }`;
+
+  const oauthBtnClass = `group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
+    isDark
+      ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
+      : "bg-white border-black/[0.08] hover:border-black/20"
+  }`;
+
+  const busy = submitting || oauthLoading !== null;
 
   return (
     <div className="flex flex-col gap-7">
       <div className="text-center flex flex-col gap-2">
         <h1 className="text-[40px] leading-[1.05] tracking-[-0.02em] font-medium">
-          Welcome
-          <br />
-          <span
-            className="font-display italic font-normal"
-            style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
-          >
-            {mode === "signin" ? "back." : "aboard."}
-          </span>
+          {mode === "signin" ? (
+            <>
+              Welcome
+              <br />
+              <span
+                className="font-display italic font-normal"
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
+              >
+                back.
+              </span>
+            </>
+          ) : (
+            <>
+              Create your
+              <br />
+              <span
+                className="font-display italic font-normal"
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)" }}
+              >
+                account.
+              </span>
+            </>
+          )}
         </h1>
         <p className={`text-[13px] ${isDark ? "text-white/55" : "text-black/55"}`}>
-          {mode === "signin" ? "Sign in to your CogniSuite workspace." : "Create your CogniSuite workspace."}
+          {mode === "signin"
+            ? "Sign in to your CogniSuite workspace."
+            : "Set up your CogniSuite workspace in seconds."}
         </p>
-      </div>
-
-      <div
-        className={`flex rounded-full p-1 border ${
-          isDark ? "bg-white/[0.03] border-white/10" : "bg-[#fafafa] border-black/[0.06]"
-        }`}
-      >
-        {(["signin", "signup"] as AuthMode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              setMode(m);
-              resetMessages();
-            }}
-            className={`flex-1 py-2 text-[12px] font-medium rounded-full transition-colors ${
-              mode === m
-                ? isDark
-                  ? "bg-white text-[#0a0a0a]"
-                  : "bg-[#0a0a0a] text-white"
-                : isDark
-                ? "text-white/55 hover:text-white/80"
-                : "text-black/55 hover:text-black/80"
-            }`}
-          >
-            {m === "signin" ? "Sign in" : "Sign up"}
-          </button>
-        ))}
       </div>
 
       {error && (
@@ -154,88 +147,78 @@ function LoginContent() {
           {error}
         </div>
       )}
-      {notice && (
-        <div
-          className={`rounded-xl px-4 py-3 text-[12px] border ${
-            isDark
-              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
-              : "bg-emerald-50 text-emerald-700 border-emerald-200/70"
-          }`}
-        >
-          {notice}
-        </div>
-      )}
 
-      <form onSubmit={handleEmailSubmit} className="flex flex-col gap-3.5">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
         {mode === "signup" && (
-          <div className="flex flex-col gap-1.5">
-            <Eyebrow>Full name</Eyebrow>
-            <input
-              id="full-name"
-              type="text"
-              autoComplete="name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Jane Smith"
-              className={inputCls}
-            />
-          </div>
+          <input
+            type="text"
+            autoComplete="name"
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={busy}
+            className={inputClass}
+          />
         )}
-
-        <div className="flex flex-col gap-1.5">
-          <Eyebrow>Email</Eyebrow>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@yourfirm.com"
-            className={inputCls}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Eyebrow>Password</Eyebrow>
-          <input
-            id="password"
-            type="password"
-            required
-            minLength={6}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            className={inputCls}
-          />
-        </div>
-
+        <input
+          type="email"
+          autoComplete="email"
+          required
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+          className={inputClass}
+        />
+        <input
+          type="password"
+          autoComplete={mode === "signin" ? "current-password" : "new-password"}
+          required
+          minLength={mode === "signup" ? 8 : undefined}
+          placeholder={mode === "signup" ? "Password (min. 8 characters)" : "Password"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={busy}
+          className={inputClass}
+        />
         <button
           type="submit"
-          disabled={busy || !email || !password}
-          className={`mt-2 inline-flex items-center justify-center gap-2 h-11 rounded-full text-[13px] font-medium transition-colors disabled:opacity-50 ${
-            isDark ? "bg-white text-[#0a0a0a] hover:bg-white/90" : "bg-[#0a0a0a] text-white hover:bg-black/90"
+          disabled={busy}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-[13px] font-medium transition-colors disabled:opacity-50 ${
+            isDark ? "bg-white text-black hover:bg-white/90" : "bg-black text-white hover:bg-black/90"
           }`}
         >
-          {emailLoading
-            ? mode === "signin"
-              ? "Signing in…"
-              : "Creating account…"
-            : mode === "signin"
-            ? "Sign in"
-            : "Create account"}
-          <ArrowRight className="w-4 h-4" />
+          {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+          {mode === "signin" ? "Sign in" : "Create account"}
         </button>
       </form>
 
-      <div
-        className={`flex items-center gap-3 text-[10px] font-mono uppercase tracking-[0.22em] ${
-          isDark ? "text-white/30" : "text-black/30"
-        }`}
-      >
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={toggleMode}
+          disabled={busy}
+          className={`text-[12px] transition-colors disabled:opacity-50 ${
+            isDark ? "text-white/55 hover:text-white/80" : "text-black/55 hover:text-black/80"
+          }`}
+        >
+          {mode === "signin" ? (
+            <>
+              Don&apos;t have an account?{" "}
+              <span className="font-medium underline underline-offset-2">Create one</span>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <span className="font-medium underline underline-offset-2">Sign in</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3">
         <div className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-black/10"}`} />
-        <span>or continue with</span>
+        <span className={`text-[11px] ${isDark ? "text-white/40" : "text-black/40"}`}>or</span>
         <div className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-black/10"}`} />
       </div>
 
@@ -244,11 +227,7 @@ function LoginContent() {
           type="button"
           onClick={() => handleOAuth("google")}
           disabled={busy}
-          className={`group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
-            isDark
-              ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
-              : "bg-white border-black/[0.08] hover:border-black/20"
-          }`}
+          className={oauthBtnClass}
         >
           <div className="flex items-center gap-3">
             <GoogleIcon />
@@ -267,11 +246,7 @@ function LoginContent() {
           type="button"
           onClick={() => handleOAuth("azure")}
           disabled={busy}
-          className={`group w-full flex items-center justify-between gap-3 rounded-xl border py-3 px-4 text-[13px] transition-colors disabled:opacity-50 ${
-            isDark
-              ? "bg-white/[0.03] border-white/10 hover:border-white/25 hover:bg-white/[0.06]"
-              : "bg-white border-black/[0.08] hover:border-black/20"
-          }`}
+          className={oauthBtnClass}
         >
           <div className="flex items-center gap-3">
             <MicrosoftIcon />
@@ -286,14 +261,6 @@ function LoginContent() {
           />
         </button>
       </div>
-
-      <p
-        className={`text-center text-[10px] font-mono tracking-[0.22em] uppercase ${
-          isDark ? "text-white/30" : "text-black/30"
-        }`}
-      >
-        Authentication by Supabase
-      </p>
     </div>
   );
 }

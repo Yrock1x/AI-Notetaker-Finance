@@ -31,6 +31,30 @@ jobs:
         run: ruff check app
       - name: Type check
         run: mypy app --ignore-missing-imports
+      - name: Test (full suite)
+        # The whole unit suite now gates the PR — including the app-layer
+        # multi-tenancy tripwire (test_scope_guard_lint), the store/webhook/
+        # internal/llm suites, and the realtime/storage tests. (Previously
+        # scoped to auth+security while test_llm / extract-text stubs / a stale
+        # recall import were broken; that rot is now fixed.)
+        run: pytest
+        env:
+          SQLITE_DB_PATH: /tmp/ci.db
+          STORAGE_ROOT: /tmp/ci-storage
+      - name: Migration check
+        # Exercise the migration chain on a fresh DB (it was never run in CI
+        # before) and assert the ORM models are in sync with it (`alembic check`).
+        # sqlite-vec's vec0 tables are excluded via env.py include_name.
+        # NB: 0001 materializes the schema via create_all, so a brand-new model
+        # without a paired migration is NOT caught here (it would need 0001
+        # frozen to explicit DDL); this still catches broken migrations and any
+        # explicit migration that drifts from the models.
+        run: |
+          alembic upgrade head
+          alembic check
+        env:
+          SQLITE_DB_PATH: /tmp/drift.db
+          STORAGE_ROOT: /tmp/drift-storage
       - name: Parse sanity
         run: python -c "import ast, glob; [ast.parse(open(f).read(), filename=f) for f in glob.glob('app/**/*.py', recursive=True)]; print('ok')"
 
@@ -51,12 +75,16 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run type-check
+      - name: Test
+        run: npm test
       - name: Lint
         run: ESLINT_USE_FLAT_CONFIG=false npm run lint
       - name: Build
         run: npm run build
         env:
-          # Public placeholder values — real secrets come from Vercel at deploy.
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          # Placeholder values — real secrets come from Vercel at deploy. The
+          # /api/inngest route fails the build without a signing key (its
+          # production fail-fast), which is exactly what we want on Vercel but
+          # not here; the placeholder satisfies the compile-time check only.
           NEXT_PUBLIC_API_URL: https://worker.example.com
+          INNGEST_SIGNING_KEY: signkey-test-ci-placeholder

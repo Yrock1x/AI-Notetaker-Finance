@@ -74,7 +74,7 @@ def _verify_zoom_signature(request: Request, raw_body: bytes, settings) -> None:
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid timestamp") from None
 
-    message = f"v0:{timestamp}:{raw_body.decode()}"
+    message = f"v0:{timestamp}:{raw_body.decode('utf-8', 'replace')}"
     expected = "v0=" + hmac.new(
         settings.zoom_webhook_secret_token.encode(),
         message.encode(),
@@ -103,7 +103,7 @@ def _verify_slack_signature(request: Request, raw_body: bytes, settings) -> None
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid timestamp") from None
 
-    sig_basestring = f"v0:{timestamp}:{raw_body.decode()}"
+    sig_basestring = f"v0:{timestamp}:{raw_body.decode('utf-8', 'replace')}"
     expected = "v0=" + hmac.new(
         settings.slack_signing_secret.encode(),
         sig_basestring.encode(),
@@ -124,15 +124,15 @@ async def zoom_webhook(
 ) -> JSONResponse:
     """Handle Zoom webhook events (recording.completed, meeting.ended, etc.)."""
     raw_body = await request.body()
-    body = await request.json()
-    event = body.get("event", "")
-
-    logger.info("Zoom webhook received: %s", event)
-
     settings = get_settings()
 
-    # Verify signature for ALL requests including challenges
+    # Verify the signature against the raw body BEFORE parsing untrusted JSON
+    # (for ALL requests, including the url_validation challenge).
     _verify_zoom_signature(request, raw_body, settings)
+
+    body = await request.json()
+    event = body.get("event", "")
+    logger.info("Zoom webhook received: %s", event)
 
     # Zoom URL validation challenge — must return plainToken + encryptedToken
     if event == "endpoint.url_validation":
@@ -250,11 +250,13 @@ async def slack_events(
     and event callbacks for subscribed events.
     """
     raw_body = await request.body()
-    body = await request.json()
-
-    # Verify signature for ALL requests including challenges
     settings = get_settings()
+
+    # Verify the signature against the raw body BEFORE parsing untrusted JSON
+    # (for ALL requests, including the url_verification challenge).
     _verify_slack_signature(request, raw_body, settings)
+
+    body = await request.json()
 
     # Slack URL verification — return the challenge value
     if body.get("type") == "url_verification":

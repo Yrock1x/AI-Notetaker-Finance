@@ -6,6 +6,7 @@ The router picks a model based on a task → model table:
     summarization  → fireworks/...glm-5p1                    (cheap, default)
     action_items   → fireworks/...glm-5p1
     qa_rag         → fireworks/...deepseek-v4-pro             (stronger reasoning)
+    qa_meeting     → fireworks/...glm-5p1                     (cheap, full transcript)
     ic_memo        → fireworks/...deepseek-v4-pro
     general        → fireworks/...glm-5p1
 
@@ -28,6 +29,9 @@ from app.llm.provider import EmbeddingProvider, LLMProvider, LLMResponse
 TASK_SUMMARIZATION = "summarization"
 TASK_ACTION_ITEMS = "action_items"
 TASK_QA_RAG = "qa_rag"
+# Single-meeting Q&A: stuff the whole transcript into a cheap model instead of
+# RAG retrieval. No embeddings/chunk-boundary failure modes, and far cheaper.
+TASK_QA_MEETING = "qa_meeting"
 TASK_IC_MEMO = "ic_memo"
 TASK_GENERAL = "general"
 TASK_EMBEDDING = "embedding"
@@ -42,6 +46,7 @@ _DEFAULT_TASK_MODEL_MAP: dict[str, str] = {
     TASK_SUMMARIZATION: _FIREWORKS_GLM,
     TASK_ACTION_ITEMS: _FIREWORKS_GLM,
     TASK_QA_RAG: _FIREWORKS_DEEPSEEK,
+    TASK_QA_MEETING: _FIREWORKS_GLM,
     TASK_IC_MEMO: _FIREWORKS_DEEPSEEK,
     TASK_GENERAL: _FIREWORKS_GLM,
     TASK_EMBEDDING: _FIREWORKS_NOMIC,
@@ -51,6 +56,7 @@ _ENV_OVERRIDE_KEYS: dict[str, str] = {
     TASK_SUMMARIZATION: "LLM_MODEL_FOR_SUMMARIZATION",
     TASK_ACTION_ITEMS: "LLM_MODEL_FOR_ACTION_ITEMS",
     TASK_QA_RAG: "LLM_MODEL_FOR_QA_RAG",
+    TASK_QA_MEETING: "LLM_MODEL_FOR_QA_MEETING",
     TASK_IC_MEMO: "LLM_MODEL_FOR_IC_MEMO",
     TASK_GENERAL: "LLM_MODEL_FOR_GENERAL",
     TASK_EMBEDDING: "LLM_MODEL_FOR_EMBEDDING",
@@ -91,6 +97,31 @@ class LLMRouter:
         self, name: str, provider: EmbeddingProvider
     ) -> None:
         self._embedding_providers[name] = provider
+
+    def validate_routing(self) -> None:
+        """Fail fast if any routed task resolves to an unregistered provider or
+        a malformed model spec. Call at startup so a misconfigured deploy dies
+        immediately instead of 500ing on the first request that hits the task.
+
+        Anthropic-routed tasks are skipped while ``PREMIUM_LLM_ENABLED`` is off
+        — they're allowed to be absent until something actually routes to them
+        (``complete`` raises a clear error then).
+        """
+        for task in _DEFAULT_TASK_MODEL_MAP:
+            provider_name, _ = _resolve_model(task)  # raises on a malformed spec
+            if provider_name == "anthropic" and not _premium_llm_enabled():
+                continue
+            registry = (
+                self._embedding_providers
+                if task == TASK_EMBEDDING
+                else self._providers
+            )
+            if provider_name not in registry:
+                raise RuntimeError(
+                    f"LLM task '{task}' routes to provider '{provider_name}', "
+                    "which is not registered. Check the provider API keys "
+                    "(and PREMIUM_LLM_ENABLED for Anthropic)."
+                )
 
     async def complete(
         self,

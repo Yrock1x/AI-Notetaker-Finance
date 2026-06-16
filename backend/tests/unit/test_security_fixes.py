@@ -15,89 +15,53 @@ import time
 import uuid
 
 import pytest
-from fastapi import HTTPException
-from jose import jwt as jose_jwt
 from pydantic import ValidationError
 
-from app.api.v1.meetings_upload import MAX_UPLOAD_SIZE_BYTES, UploadTicketRequest
 from app.api.v1.recall_webhooks import (
     _SEEN_TTL_SECONDS,
     _SEEN_WEBHOOK_IDS,
     _is_replay,
 )
-from app.dependencies import _verify_supabase_jwt
+from app.auth.tokens import issue_session_token, verify_session_token
 from app.core.config import settings
 
-
 # =============================================================================
-# P0 #1 — JWT signature verification (regression for verify_signature=False)
+# Session-JWT signature verification (self-issued HS256 tokens)
 # =============================================================================
 
 
-class TestJwtHs256Verification:
-    """Guard against the verify_signature=False regression in
-    backend/app/dependencies.py:_verify_supabase_jwt.
-
-    Before the fix, ANY HS256 token decoded as authentic. After the fix:
-    - HS256 path requires SUPABASE_JWT_SECRET to be configured
-    - Tokens are verified cryptographically against that secret
-    - A token signed with the wrong secret raises 401
+class TestSessionTokenVerification:
+    """The self-issued session JWT must be cryptographically verified: a token
+    signed with a different secret (e.g. after a key rotation, or a forgery)
+    must not authenticate.
     """
 
     @pytest.fixture(autouse=True)
     def _restore_settings(self):
-        """Snapshot settings.supabase_jwt_secret around each test."""
-        original = settings.supabase_jwt_secret
+        original = settings.session_jwt_secret
         try:
             yield
         finally:
-            settings.supabase_jwt_secret = original
+            settings.session_jwt_secret = original
 
-    def _make_hs256(self, secret: str, sub: str | None = None) -> str:
-        return jose_jwt.encode(
-            {"sub": sub or str(uuid.uuid4()), "email": "u@example.com"},
-            secret,
-            algorithm="HS256",
-        )
-
-    @pytest.mark.asyncio
-    async def test_rejects_when_no_secret_configured(self):
-        """HS256 token must be rejected when SUPABASE_JWT_SECRET is unset.
-
-        Before the fix this path silently accepted unverified tokens.
-        """
-        settings.supabase_jwt_secret = ""
-        token = self._make_hs256("any-secret-here")
-
-        with pytest.raises(HTTPException) as exc:
-            await _verify_supabase_jwt(token)
-        assert exc.value.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_rejects_token_signed_with_wrong_secret(self):
-        """A forged HS256 token with the wrong secret must 401.
-
-        This is the core regression: before the fix verify_signature=False
-        meant any HS256 token decoded successfully regardless of its key.
-        """
-        settings.supabase_jwt_secret = "the-real-secret"
-        forged = self._make_hs256("attacker-controlled-secret", sub=str(uuid.uuid4()))
-
-        with pytest.raises(HTTPException) as exc:
-            await _verify_supabase_jwt(forged)
-        assert exc.value.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_accepts_correctly_signed_token(self):
-        """A token signed with the configured secret returns the claims."""
-        secret = "matching-secret"
-        settings.supabase_jwt_secret = secret
+    def test_accepts_correctly_signed_token(self):
+        settings.session_jwt_secret = "the-real-session-secret"
         sub = str(uuid.uuid4())
-        token = self._make_hs256(secret, sub=sub)
+        token = issue_session_token(sub, email="u@example.com")
 
-        claims = await _verify_supabase_jwt(token)
+        claims = verify_session_token(token)
+        assert claims is not None
         assert claims["sub"] == sub
         assert claims["email"] == "u@example.com"
+
+    def test_rejects_token_signed_with_wrong_secret(self):
+        """A token minted under one secret must stop verifying once the signing
+        secret changes — i.e. signatures are actually checked."""
+        settings.session_jwt_secret = "secret-A-original"
+        token = issue_session_token(str(uuid.uuid4()))
+
+        settings.session_jwt_secret = "secret-B-rotated-different"
+        assert verify_session_token(token) is None
 
 
 # =============================================================================
@@ -152,54 +116,9 @@ class TestRecallReplayDedupe:
         assert "old" not in _SEEN_WEBHOOK_IDS
 
 
-# =============================================================================
-# P2 — meetings_upload size cap + Pydantic schema discipline
-# =============================================================================
-
-
-class TestUploadTicketSizeCap:
-    """Guard the 5GB application-level cap on meeting uploads."""
-
-    def _payload(self, size: int) -> dict:
-        return {
-            "deal_id": str(uuid.uuid4()),
-            "filename": "video.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": size,
-        }
-
-    def test_accepts_under_cap(self):
-        body = UploadTicketRequest(**self._payload(100_000_000))
-        assert body.size_bytes == 100_000_000
-
-    def test_accepts_at_cap(self):
-        body = UploadTicketRequest(**self._payload(MAX_UPLOAD_SIZE_BYTES))
-        assert body.size_bytes == MAX_UPLOAD_SIZE_BYTES
-
-    def test_rejects_above_cap(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(MAX_UPLOAD_SIZE_BYTES + 1))
-
-    def test_rejects_zero_size(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(0))
-
-    def test_rejects_negative_size(self):
-        with pytest.raises(ValidationError):
-            UploadTicketRequest(**self._payload(-1))
-
-    def test_size_required(self):
-        """size_bytes was added as a required field — omitting it must
-        fail loudly so callers can't bypass the cap.
-        """
-        body_without_size = {
-            "deal_id": str(uuid.uuid4()),
-            "filename": "video.mp4",
-            "content_type": "video/mp4",
-        }
-        with pytest.raises(ValidationError) as exc:
-            UploadTicketRequest(**body_without_size)
-        assert "size_bytes" in str(exc.value)
+# NOTE: the upload size cap moved from the (removed) /meetings/upload-ticket
+# endpoint to the signed PUT handler — the real ingress point. Its regression
+# test now lives in tests/unit/test_storage/test_files_api.py.
 
 
 # =============================================================================
@@ -214,9 +133,9 @@ class TestBaseSchemaForbidExtra:
 
     def test_base_schema_forbids_extra_keys(self):
         """Any schema extending BaseSchema must reject unknown keys."""
-        from app.schemas.organization import OrgCreate
+        from app.schemas.qa import QARequest
 
         with pytest.raises(ValidationError) as exc:
-            OrgCreate(name="Org", slug="org", surprise_field="x")
+            QARequest(question="hello", surprise_field="x")
         # Pydantic v2 phrasing: "Extra inputs are not permitted"
         assert "extra" in str(exc.value).lower() or "permitted" in str(exc.value).lower()
