@@ -642,14 +642,14 @@ export function LandingCTA() {
           the difference on the first request list.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <a
-            href="#signup"
+          <Link
+            href="/login?mode=signup"
             className={`inline-flex items-center gap-2 h-12 px-7 rounded-full text-[14px] font-medium whitespace-nowrap ${
               isDark ? "bg-white text-[#0a0a0a] hover:bg-white/90" : "bg-[#0a0a0a] text-white hover:bg-black/90"
             }`}
           >
             Get started free <I.Arrow size={14} />
-          </a>
+          </Link>
           <a
             href="#talk"
             className={`inline-flex items-center gap-2 h-12 px-7 rounded-full text-[14px] font-medium whitespace-nowrap border ${

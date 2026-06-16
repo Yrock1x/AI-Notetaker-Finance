@@ -888,13 +888,13 @@ export function ScribeCTA() {
           Connect your calendar and watch every call turn into a first-class asset. 14-day trial, no credit card.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <a
-            href="#signup"
+          <Link
+            href="/login?mode=signup"
             className="inline-flex items-center gap-2 h-12 px-7 rounded-full text-[14px] font-medium whitespace-nowrap"
             style={{ background: accentSolid, color: "#3a1e00" }}
           >
             Start free <I.Arrow size={14} />
-          </a>
+          </Link>
           <a
             href="#talk"
             className={`inline-flex items-center gap-2 h-12 px-7 rounded-full text-[14px] font-medium whitespace-nowrap border ${
