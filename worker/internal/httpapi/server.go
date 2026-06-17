@@ -14,6 +14,7 @@ import (
 
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/config"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/db"
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/llm"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -23,6 +24,7 @@ import (
 type Server struct {
 	Cfg *config.Config
 	DB  *sql.DB
+	LLM *llm.Client
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -72,6 +74,10 @@ func (s *Server) Router() http.Handler {
 		// the capability, so these live outside the requireAuth group.
 		s.RegisterStorageObjects(r)
 	})
+
+	// CogniVault partner API (M2M, partner-key auth) lives at /partner/v1, not
+	// under /api/v1 — registered on the root router.
+	s.RegisterPartner(r)
 	return r
 }
 

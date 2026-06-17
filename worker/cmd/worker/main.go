@@ -15,6 +15,7 @@ import (
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/config"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/db"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/httpapi"
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/llm"
 )
 
 func main() {
@@ -38,7 +39,7 @@ func main() {
 	}
 	log.Info("sqlite opened + migrated", "path", cfg.SQLiteDBPath, "storage_root", cfg.StorageRoot)
 
-	srv := &httpapi.Server{Cfg: cfg, DB: conn}
+	srv := &httpapi.Server{Cfg: cfg, DB: conn, LLM: llm.New(cfg.FireworksAPIKey, 0)}
 	readT, writeT, idleT := httpapi.DefaultTimeouts()
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
