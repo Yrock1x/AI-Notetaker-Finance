@@ -36,6 +36,10 @@ type Config struct {
 	// Encryption (Fernet) for stored OAuth refresh tokens
 	TokenEncryptionKey string
 
+	// CogniVault OAuth (this worker is the client). Empty client id => the
+	// connect flow reports "not configured" (same as the Python worker).
+	CognivaultClientID string
+
 	// Web / CORS
 	CORSOrigins     string // comma-separated
 	CORSOriginRegex string
@@ -80,6 +84,7 @@ func Load() *Config {
 		RecallAPIKey:        env("RECALL_API_KEY", ""),
 		RecallWebhookSecret: env("RECALL_WEBHOOK_SECRET", ""),
 		TokenEncryptionKey:  env("TOKEN_ENCRYPTION_KEY", ""),
+		CognivaultClientID:  env("COGNIVAULT_CLIENT_ID", ""),
 		CORSOrigins:         env("CORS_ORIGINS", "http://localhost:3000"),
 		CORSOriginRegex:     env("CORS_ORIGIN_REGEX", ""),
 		FrontendURL:         env("FRONTEND_URL", "http://localhost:3000"),

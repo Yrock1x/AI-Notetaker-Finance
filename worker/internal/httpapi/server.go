@@ -70,6 +70,8 @@ func (s *Server) Router() http.Handler {
 			s.RegisterUploadTicket(r)
 			s.RegisterQA(r)
 			s.RegisterAnalysis(r)
+			s.RegisterCognivault(r)
+			s.RegisterIntegrations(r)
 		})
 
 		// Signed object PUT/GET — NOT session-authed; a valid HMAC signature is
