@@ -1,10 +1,11 @@
 // Package db opens the worker-owned SQLite database with the sqlite-vec
-// extension loaded, mirroring app/db/engine.py (WAL, busy_timeout, foreign_keys)
-// and the vec0 virtual table from app/db/vectors.py.
+// extension loaded (mirroring app/db/engine.py) and owns the schema migration
+// (the exact DDL the Python worker produced — see schema.sql).
 package db
 
 import (
 	"database/sql"
+	_ "embed"
 	"fmt"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -14,43 +15,37 @@ import (
 // EmbeddingDim must match the stored vectors (Fireworks nomic-embed-text-v1.5).
 const EmbeddingDim = 768
 
-// CreateVecTableSQL is the EXACT vec0 DDL from the Python worker
-// (app/db/vectors.py) — cosine KNN, partitioned per deal for efficient scoping.
-const CreateVecTableSQL = `CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
-	embedding_id TEXT PRIMARY KEY,
-	deal_id TEXT PARTITION KEY,
-	embedding FLOAT[768] distance_metric=cosine
-)`
+//go:embed schema.sql
+var schemaSQL string
 
-// Open opens the SQLite database at path with sqlite-vec registered, applies the
-// connection pragmas, verifies the extension, and ensures the vec0 table exists.
-//
-// SQLite has a single writer; with WAL, many readers + one writer coexist. We do
-// not cap MaxOpenConns to 1 (that would serialize reads); the busy_timeout pragma
-// handles writer contention.
+// Open opens the SQLite database at path with sqlite-vec registered and the
+// connection pragmas applied (WAL + many readers / one writer; busy_timeout
+// handles writer contention; foreign_keys on).
 func Open(path string) (*sql.DB, error) {
-	// Register vec0 to auto-load on every new connection (process-global).
-	sqlite_vec.Auto()
+	sqlite_vec.Auto() // auto-load vec0 on every new connection (process-global)
 
-	// _busy_timeout + _journal_mode + _foreign_keys are honoured by mattn's DSN.
 	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL", path)
 	conn, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-
 	var vecVersion string
 	if err := conn.QueryRow("select vec_version()").Scan(&vecVersion); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("sqlite-vec not loaded: %w", err)
 	}
-
-	if _, err := conn.Exec(CreateVecTableSQL); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("ensure vec_embeddings: %w", err)
-	}
-
 	return conn, nil
+}
+
+// Migrate applies the embedded schema (idempotent — IF NOT EXISTS). It is a
+// no-op against the existing prod DB and builds a fresh dev/staging DB from zero.
+// The vec0 virtual table is created here too (the extension is already loaded by
+// Open).
+func Migrate(conn *sql.DB) error {
+	if _, err := conn.Exec(schemaSQL); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
+	}
+	return nil
 }
 
 // Ping verifies the DB and the vec extension are responsive (used by readiness).

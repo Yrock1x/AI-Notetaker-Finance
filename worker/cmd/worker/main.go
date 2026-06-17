@@ -32,7 +32,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer conn.Close()
-	log.Info("sqlite opened", "path", cfg.SQLiteDBPath, "storage_root", cfg.StorageRoot)
+	if err := db.Migrate(conn); err != nil {
+		log.Error("schema migration failed", "err", err)
+		os.Exit(1)
+	}
+	log.Info("sqlite opened + migrated", "path", cfg.SQLiteDBPath, "storage_root", cfg.StorageRoot)
 
 	srv := &httpapi.Server{Cfg: cfg, DB: conn}
 	readT, writeT, idleT := httpapi.DefaultTimeouts()
