@@ -29,6 +29,8 @@ func testServer(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
 		SessionCookieName: "cogni_session",
 		CORSOrigins:       "http://localhost:3000",
 		FrontendURL:       "http://localhost:3000",
+		StorageRoot:       t.TempDir(),
+		StorageSigningKey: testStorageKey,
 	}
 	ts := httptest.NewServer((&Server{Cfg: cfg, DB: conn}).Router())
 	jar, _ := cookiejar.New(nil)

@@ -65,7 +65,12 @@ func (s *Server) Router() http.Handler {
 			s.RegisterBotSessions(r)
 			s.RegisterOrgs(r)
 			s.RegisterDashboard(r)
+			s.RegisterUploadTicket(r)
 		})
+
+		// Signed object PUT/GET — NOT session-authed; a valid HMAC signature is
+		// the capability, so these live outside the requireAuth group.
+		s.RegisterStorageObjects(r)
 	})
 	return r
 }
