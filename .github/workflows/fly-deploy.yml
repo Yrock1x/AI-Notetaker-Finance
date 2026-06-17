@@ -23,12 +23,18 @@ jobs:
     name: Deploy to Fly.io
     needs: [ci]
     runs-on: ubuntu-latest
+    # Production currently runs on Railway (auto-deploys on push to main); this
+    # Fly path is staged for the SQLITE_MIGRATION cutover. Until FLY_API_TOKEN is
+    # configured the deploy step skips (instead of red-failing every push); it
+    # activates automatically once the secret is set.
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - if: ${{ env.FLY_API_TOKEN != '' }}
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --remote-only

@@ -3,8 +3,8 @@
 // Deal workspace shell — project header (briefcase chip + name + target +
 // stage chip + meta + team avatars + invite) followed by a sticky tab
 // bar. Tabs match the Deal Workspace design (Overview, Meetings, Ask AI,
-// Action Items, Transcripts, Settings); /team and /documents stay
-// reachable by direct URL but are not promoted into the bar.
+// Action Items, Transcripts, Documents, Settings); /team stays reachable by
+// direct URL but is not promoted into the bar.
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
@@ -34,6 +34,7 @@ const TABS: TabDef[] = [
   { label: "Ask AI", href: "/qa", countKey: "chat" },
   { label: "Action Items", href: "/action-items", countKey: "actions" },
   { label: "Transcripts", href: "/transcripts" },
+  { label: "Documents", href: "/documents" },
   { label: "Settings", href: "/settings" },
 ];
 
