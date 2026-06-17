@@ -1,0 +1,8 @@
+# compiled binary
+/worker
+/bin/
+# local data / db
+*.db
+*.db-wal
+*.db-shm
+dev-storage/
