@@ -68,11 +68,18 @@ func (s *Server) Router() http.Handler {
 			s.RegisterOrgs(r)
 			s.RegisterDashboard(r)
 			s.RegisterUploadTicket(r)
+			s.RegisterQA(r)
+			s.RegisterAnalysis(r)
 		})
 
 		// Signed object PUT/GET — NOT session-authed; a valid HMAC signature is
 		// the capability, so these live outside the requireAuth group.
 		s.RegisterStorageObjects(r)
+		// Self-applying auth: internal (X-Internal-Token), deliverables (own
+		// requireAuth group), realtime (SSE self-auths, webhook is public).
+		s.RegisterInternal(r)
+		s.RegisterDeliverables(r)
+		s.RegisterRealtime(r)
 	})
 
 	// CogniVault partner API (M2M, partner-key auth) lives at /partner/v1, not
