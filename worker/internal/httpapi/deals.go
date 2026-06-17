@@ -55,18 +55,19 @@ func storeError(w http.ResponseWriter, err error) bool {
 	return true
 }
 
-// RegisterDeals mounts the deals + members routes (all auth-required).
+// RegisterDeals mounts the deals + members routes (all auth-required). Flat
+// patterns (not a Mount) so other resources can register sibling routes under
+// the shared /deals/{dealID}/... prefix. The deal path param is {dealID}
+// everywhere (chi requires a consistent param name at each path position).
 func (s *Server) RegisterDeals(r chi.Router) {
-	r.Route("/deals", func(r chi.Router) {
-		r.Get("/", s.listDeals)
-		r.Post("/", s.createDeal)
-		r.Get("/{dealID}", s.getDeal)
-		r.Patch("/{dealID}", s.patchDeal)
-		r.Delete("/{dealID}", s.deleteDeal)
-		r.Get("/{dealID}/members", s.listDealMembers)
-		r.Post("/{dealID}/members", s.addDealMember)
-		r.Delete("/{dealID}/members/{userID}", s.removeDealMember)
-	})
+	r.Get("/deals", s.listDeals)
+	r.Post("/deals", s.createDeal)
+	r.Get("/deals/{dealID}", s.getDeal)
+	r.Patch("/deals/{dealID}", s.patchDeal)
+	r.Delete("/deals/{dealID}", s.deleteDeal)
+	r.Get("/deals/{dealID}/members", s.listDealMembers)
+	r.Post("/deals/{dealID}/members", s.addDealMember)
+	r.Delete("/deals/{dealID}/members/{userID}", s.removeDealMember)
 }
 
 func (s *Server) listDeals(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +130,7 @@ func (s *Server) createDeal(w http.ResponseWriter, r *http.Request) {
 
 type dealPatchBody struct {
 	Name          *string `json:"name"`
-	Description    *string `json:"description"`
+	Description   *string `json:"description"`
 	TargetCompany *string `json:"target_company"`
 	DealType      *string `json:"deal_type"`
 	Stage         *string `json:"stage"`

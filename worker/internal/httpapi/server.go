@@ -59,6 +59,12 @@ func (s *Server) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
 			s.RegisterDeals(r)
+			s.RegisterMeetings(r)
+			s.RegisterDocuments(r)
+			s.RegisterTranscripts(r)
+			s.RegisterBotSessions(r)
+			s.RegisterOrgs(r)
+			s.RegisterDashboard(r)
 		})
 	})
 	return r
