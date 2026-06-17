@@ -3,6 +3,13 @@
 # extension compiled into the binary via mattn/go-sqlite3 + asg017 bindings).
 
 FROM golang:1.23-bookworm AS build
+# sqlite-vec's cgo bindings #include "sqlite3.h" at compile time (the SQLite C
+# API headers). golang:bookworm has gcc but not the SQLite headers, so add them.
+# Only the header is needed — mattn/go-sqlite3 statically provides the SQLite
+# symbols, so nothing is linked against the system libsqlite3.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libsqlite3-dev \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
