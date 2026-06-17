@@ -31,3 +31,28 @@ type OrgMembership struct {
 	Role     string
 	JoinedAt string
 }
+
+type Deal struct {
+	ID            string
+	OrgID         string
+	Name          string
+	Description   *string
+	TargetCompany *string
+	DealType      string
+	Stage         *string
+	Status        string
+	CreatedBy     string
+	DeletedAt     *string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+type DealMembership struct {
+	ID      string
+	DealID  string
+	UserID  string
+	OrgID   string
+	Role    string
+	AddedBy *string
+	AddedAt string
+}

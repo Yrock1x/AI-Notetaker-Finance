@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
@@ -13,7 +14,7 @@ import (
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/db"
 )
 
-func testServer(t *testing.T) (*httptest.Server, *http.Client) {
+func testServer(t *testing.T) (*httptest.Server, *http.Client, *sql.DB) {
 	t.Helper()
 	conn, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -32,7 +33,7 @@ func testServer(t *testing.T) (*httptest.Server, *http.Client) {
 	ts := httptest.NewServer((&Server{Cfg: cfg, DB: conn}).Router())
 	jar, _ := cookiejar.New(nil)
 	t.Cleanup(func() { ts.Close(); conn.Close() })
-	return ts, &http.Client{Jar: jar}
+	return ts, &http.Client{Jar: jar}, conn
 }
 
 func postJSON(t *testing.T, c *http.Client, url string, body any) *http.Response {
@@ -46,7 +47,7 @@ func postJSON(t *testing.T, c *http.Client, url string, body any) *http.Response
 }
 
 func TestAuthFlow(t *testing.T) {
-	ts, c := testServer(t)
+	ts, c, _ := testServer(t)
 	base := ts.URL + "/api/v1/auth"
 
 	// register

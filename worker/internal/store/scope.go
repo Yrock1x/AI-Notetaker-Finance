@@ -12,8 +12,15 @@ import (
 	"strings"
 )
 
-// ErrAccessDenied is returned by the Require* guards; handlers map it to 403/404.
+// ErrAccessDenied is returned by the Require* guards; handlers map it to 403.
 var ErrAccessDenied = errors.New("access denied")
+
+// ErrNotFound is returned by scoped lookups for a missing/foreign/deleted row;
+// handlers map it to 404 (a foreign row is indistinguishable from a missing one).
+var ErrNotFound = errors.New("not found")
+
+// ErrConflict is returned on a uniqueness/duplicate violation; handlers map to 409.
+var ErrConflict = errors.New("conflict")
 
 // Principal is the authenticated caller's tenancy: the orgs they belong to and
 // the subset they administer. Loaded once per request from org_memberships.

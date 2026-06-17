@@ -53,6 +53,13 @@ func (s *Server) Router() http.Handler {
 			r.Get("/callback/{provider}", s.oauthCallback)
 			r.With(s.requireAuth).Get("/session", s.authSession)
 		})
+
+		// Authed store CRUD. Each resource registers its own routes; more are
+		// added here as later phases port them (meetings, documents, ...).
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuth)
+			s.RegisterDeals(r)
+		})
 	})
 	return r
 }
