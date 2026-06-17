@@ -89,6 +89,7 @@ func (s *Server) RegisterDashboard(r chi.Router) {
 	r.Get("/deals/{dealID}/extractions", s.listExtractions)
 	r.Get("/deals/{dealID}/action-items", s.listActionItems)
 	r.Post("/deals/{dealID}/action-items", s.upsertActionItem)
+	r.Delete("/deals/{dealID}/action-items/{actionKey}", s.deleteActionItem)
 }
 
 func (s *Server) listActivity(w http.ResponseWriter, r *http.Request) {
@@ -150,4 +151,16 @@ func (s *Server) upsertActionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, toActionItemJSON(item))
+}
+
+// deleteActionItem removes an action-item completion (ports delete_action_item).
+// 204 whether or not the (deal, action_key) existed, matching the Python handler.
+func (s *Server) deleteActionItem(w http.ResponseWriter, r *http.Request) {
+	p := principalFromCtx(r.Context())
+	err := store.DeleteActionItem(r.Context(), s.DB, p,
+		chi.URLParam(r, "dealID"), chi.URLParam(r, "actionKey"))
+	if storeError(w, err) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

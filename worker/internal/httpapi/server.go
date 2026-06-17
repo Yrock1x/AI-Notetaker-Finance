@@ -163,5 +163,9 @@ func storageWritable(root string) error {
 // DefaultTimeouts returns http.Server timeouts. SSE streaming endpoints (added in
 // a later phase) will be mounted on a handler whose WriteTimeout is disabled.
 func DefaultTimeouts() (read, write, idle time.Duration) {
-	return 15 * time.Second, 30 * time.Second, 60 * time.Second
+	// WriteTimeout=0 (disabled): SSE streams are long-lived and synchronous LLM
+	// handlers (qa/analysis/deliverables) routinely exceed 30s — a write deadline
+	// would truncate both. uvicorn (the Python worker) has no per-response write
+	// timeout either. ReadTimeout + IdleTimeout still bound idle/slowloris.
+	return 15 * time.Second, 0, 120 * time.Second
 }

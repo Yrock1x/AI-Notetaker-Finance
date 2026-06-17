@@ -155,3 +155,73 @@ func UpdateMeeting(ctx context.Context, conn *sql.DB, p *Principal, meetingID st
 	}
 	return ScopedMeeting(ctx, conn, p, meetingID)
 }
+
+// meetingColsWith returns the meeting column list prefixed with a table alias,
+// for joins where bare column names (id, org_id, status, ...) would collide with
+// the deals table.
+func meetingColsWith(alias string) string {
+	parts := strings.Split(meetingCols, ", ")
+	for i, c := range parts {
+		parts[i] = alias + "." + c
+	}
+	return strings.Join(parts, ", ")
+}
+
+// CalendarMeetingRow is a meeting plus its optional deal {id,name} ref (ports
+// CalendarMeetingResponse). DealID/DealName are nil for unassigned meetings.
+type CalendarMeetingRow struct {
+	Meeting  model.Meeting
+	DealID   *string
+	DealName *string
+}
+
+// CalendarMeetings returns every meeting in the principal's orgs ordered by
+// meeting_date, each LEFT JOINed to its deal so unassigned meetings still appear
+// (ports calendar_meetings). Org-scoped on meetings.org_id.
+func CalendarMeetings(ctx context.Context, conn *sql.DB, p *Principal) ([]CalendarMeetingRow, error) {
+	pred, args := p.OrgFilter("m.org_id")
+	q := "SELECT " + meetingColsWith("m") + ", d.id, d.name FROM meetings m " +
+		"LEFT JOIN deals d ON d.id = m.deal_id WHERE " + pred + " ORDER BY m.meeting_date"
+	rows, err := conn.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]CalendarMeetingRow, 0)
+	for rows.Next() {
+		var m model.Meeting
+		var dealID, dealName *string
+		if err := rows.Scan(&m.ID, &m.OrgID, &m.DealID, &m.Title, &m.MeetingDate,
+			&m.DurationSeconds, &m.Source, &m.SourceURL, &m.FileKey, &m.Status,
+			&m.ErrorMessage, &m.BotEnabled, &m.ExternalEventID, &m.ExternalProvider,
+			&m.CreatedBy, &m.CreatedAt, &m.UpdatedAt, &dealID, &dealName); err != nil {
+			return nil, err
+		}
+		out = append(out, CalendarMeetingRow{Meeting: m, DealID: dealID, DealName: dealName})
+	}
+	return out, rows.Err()
+}
+
+// UpcomingUnassigned returns meetings synced from an external calendar provider
+// that have not yet been assigned to a deal (ports upcoming_unassigned):
+// deal_id IS NULL AND external_provider IS NOT NULL, org-scoped, by meeting_date.
+func UpcomingUnassigned(ctx context.Context, conn *sql.DB, p *Principal) ([]model.Meeting, error) {
+	pred, args := p.OrgFilter("org_id")
+	q := "SELECT " + meetingCols + " FROM meetings " +
+		"WHERE deal_id IS NULL AND external_provider IS NOT NULL AND " + pred +
+		" ORDER BY meeting_date"
+	rows, err := conn.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.Meeting, 0)
+	for rows.Next() {
+		m, err := scanMeeting(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *m)
+	}
+	return items, rows.Err()
+}

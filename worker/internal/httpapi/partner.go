@@ -109,6 +109,12 @@ func (s *Server) partnerListDeals(w http.ResponseWriter, r *http.Request) {
 		dj := toDealJSON(&deals[i])
 		out = append(out, toPartnerDeal(&dj, conns[deals[i].ID]))
 	}
+	// Best-effort partner audit trail (ports record_audit); a failed audit write
+	// must not fail the read, so the error is ignored.
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "list", ResourceType: "partner",
+		Details: map[string]any{"resource": "deals", "count": len(out)},
+	})
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -121,6 +127,12 @@ func (s *Server) partnerGetDeal(w http.ResponseWriter, r *http.Request) {
 	if storeError(w, err) {
 		return
 	}
+	did := d.ID
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "read", ResourceType: "partner",
+		ResourceID: &did, DealID: &did,
+		Details: map[string]any{"resource": "deal"},
+	})
 	dj := toDealJSON(d)
 	writeJSON(w, http.StatusOK, toPartnerDeal(&dj, c))
 }
@@ -179,6 +191,12 @@ func (s *Server) partnerListDocuments(w http.ResponseWriter, r *http.Request) {
 			"document_type": docType, "file_key": fileKey, "file_size": fileSize, "extracted_text": extracted,
 			"uploaded_by": uploadedBy, "created_at": createdAt, "updated_at": updatedAt})
 	}
+	did := chi.URLParam(r, "dealID")
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "list", ResourceType: "partner",
+		ResourceID: &did, DealID: &did,
+		Details: map[string]any{"resource": "documents", "count": len(out)},
+	})
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -207,6 +225,12 @@ func (s *Server) partnerCreateDocument(w http.ResponseWriter, r *http.Request) {
 	if storeError(w, err) {
 		return
 	}
+	docID, did := id, d.ID
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: d.OrgID, Action: "create", ResourceType: "partner",
+		ResourceID: &docID, DealID: &did,
+		Details: map[string]any{"resource": "document", "title": b.Title},
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "org_id": d.OrgID, "deal_id": d.ID,
 		"title": b.Title, "document_type": b.DocumentType, "file_key": b.FileKey, "file_size": b.FileSize,
 		"extracted_text": b.ExtractedText, "uploaded_by": uploadedBy, "created_at": createdAt, "updated_at": createdAt})
@@ -240,6 +264,12 @@ func (s *Server) partnerGetTranscript(w http.ResponseWriter, r *http.Request) {
 	if storeError(w, err) {
 		return
 	}
+	tid := t.id
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "read", ResourceType: "partner",
+		ResourceID: &tid,
+		Details: map[string]any{"resource": "transcript", "meeting_id": chi.URLParam(r, "meetingID")},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"id": t.id, "org_id": t.orgID, "meeting_id": t.meetingID,
 		"full_text": t.fullText, "language": t.language, "word_count": t.wordCount,
 		"confidence_score": t.confidence, "created_at": t.createdAt, "updated_at": t.updatedAt})
@@ -283,6 +313,10 @@ func (s *Server) partnerListAnalyses(w http.ResponseWriter, r *http.Request) {
 			"structured_output": so, "model_used": modelUsed, "prompt_version": promptVer, "grounding_score": grounding,
 			"status": status, "version": version, "created_at": createdAt, "updated_at": updatedAt})
 	}
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "list", ResourceType: "partner",
+		Details: map[string]any{"resource": "analyses", "meeting_id": chi.URLParam(r, "meetingID"), "count": len(out)},
+	})
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -357,5 +391,11 @@ func (s *Server) partnerSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, searchHitJSON{h.ID, h.SourceType, h.SourceID, h.ChunkText, h.Similarity, md})
 	}
+	did := chi.URLParam(r, "dealID")
+	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
+		OrgID: k.OrgID, Action: "search", ResourceType: "partner",
+		ResourceID: &did, DealID: &did,
+		Details: map[string]any{"resource": "search", "hits": len(out)},
+	})
 	writeJSON(w, http.StatusOK, out)
 }

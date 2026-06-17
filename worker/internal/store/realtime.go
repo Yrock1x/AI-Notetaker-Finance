@@ -55,31 +55,46 @@ type SegmentUpsert struct {
 // new row. transcript_segments has a partial unique index on recall_segment_id.
 func UpsertTranscriptSegment(ctx context.Context, conn *sql.DB, row SegmentUpsert) error {
 	now := util.NowISO()
+	// Serialize the read-modify-write in one transaction: two concurrent webhook
+	// deliveries for the same recall_segment_id must not both observe "no row" and
+	// double-insert (the partial unique index would reject the loser, surfacing a
+	// 500 on otherwise-valid live traffic). With _txlock=immediate the write lock
+	// is taken at BEGIN, so the second caller waits out busy_timeout for the first
+	// to commit instead of racing it.
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once Commit has succeeded
+
 	var existingID string
-	err := conn.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		`SELECT id FROM transcript_segments WHERE recall_segment_id = ? LIMIT 1`,
 		row.RecallSegmentID).Scan(&existingID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		_, err = conn.ExecContext(ctx,
+		if _, err = tx.ExecContext(ctx,
 			`INSERT INTO transcript_segments
 			   (id, meeting_id, recall_segment_id, speaker_label, speaker_name, text,
 			    start_time, end_time, confidence, segment_index, is_partial, created_at, updated_at)
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			util.NewUUID(), row.MeetingID, row.RecallSegmentID, row.SpeakerLabel, row.SpeakerName,
-			row.Text, row.StartTime, row.EndTime, row.Confidence, row.SegmentIndex, row.IsPartial, now, now)
-		return err
+			row.Text, row.StartTime, row.EndTime, row.Confidence, row.SegmentIndex, row.IsPartial, now, now); err != nil {
+			return err
+		}
 	case err != nil:
 		return err
 	default:
-		_, err = conn.ExecContext(ctx,
+		if _, err = tx.ExecContext(ctx,
 			`UPDATE transcript_segments
 			   SET meeting_id = ?, speaker_label = ?, speaker_name = ?, text = ?,
 			       start_time = ?, end_time = ?, confidence = ?, segment_index = ?,
 			       is_partial = ?, updated_at = ?
 			 WHERE id = ?`,
 			row.MeetingID, row.SpeakerLabel, row.SpeakerName, row.Text,
-			row.StartTime, row.EndTime, row.Confidence, row.SegmentIndex, row.IsPartial, now, existingID)
-		return err
+			row.StartTime, row.EndTime, row.Confidence, row.SegmentIndex, row.IsPartial, now, existingID); err != nil {
+			return err
+		}
 	}
+	return tx.Commit()
 }

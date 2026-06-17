@@ -24,7 +24,13 @@ var schemaSQL string
 func Open(path string) (*sql.DB, error) {
 	sqlite_vec.Auto() // auto-load vec0 on every new connection (process-global)
 
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL", path)
+	// _txlock=immediate: explicit transactions (BeginTx) take SQLite's write lock
+	// at BEGIN rather than lazily on first write. This stops two concurrent
+	// read-modify-write transactions (e.g. the live transcript upsert) from both
+	// starting deferred, both reading, then deadlocking when each tries to upgrade
+	// to the write lock — instead the second blocks at BEGIN and waits out
+	// busy_timeout. Autocommit reads are unaffected (they never BEGIN).
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL&_txlock=immediate", path)
 	conn, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)

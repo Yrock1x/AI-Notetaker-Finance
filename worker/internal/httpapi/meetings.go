@@ -52,6 +52,55 @@ func (s *Server) RegisterMeetings(r chi.Router) {
 	r.Post("/deals/{dealID}/meetings", s.createMeeting)
 	r.Get("/meetings/{meetingID}", s.getMeeting)
 	r.Patch("/meetings/{meetingID}", s.patchMeeting)
+	r.Get("/calendar/meetings", s.calendarMeetings)
+	r.Get("/dashboard/upcoming-unassigned", s.upcomingUnassigned)
+}
+
+// dealRefJSON matches DealRef ({id, name}).
+type dealRefJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// calendarMeetingJSON matches CalendarMeetingResponse: every MeetingResponse
+// field (embedded) plus an optional deal {id,name} ref.
+type calendarMeetingJSON struct {
+	meetingJSON
+	Deal *dealRefJSON `json:"deal"`
+}
+
+func (s *Server) calendarMeetings(w http.ResponseWriter, r *http.Request) {
+	p := principalFromCtx(r.Context())
+	rows, err := store.CalendarMeetings(r.Context(), s.DB, p)
+	if storeError(w, err) {
+		return
+	}
+	out := make([]calendarMeetingJSON, 0, len(rows))
+	for i := range rows {
+		cm := calendarMeetingJSON{meetingJSON: toMeetingJSON(&rows[i].Meeting)}
+		if rows[i].DealID != nil {
+			name := ""
+			if rows[i].DealName != nil {
+				name = *rows[i].DealName
+			}
+			cm.Deal = &dealRefJSON{ID: *rows[i].DealID, Name: name}
+		}
+		out = append(out, cm)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) upcomingUnassigned(w http.ResponseWriter, r *http.Request) {
+	p := principalFromCtx(r.Context())
+	rows, err := store.UpcomingUnassigned(r.Context(), s.DB, p)
+	if storeError(w, err) {
+		return
+	}
+	out := make([]meetingJSON, 0, len(rows))
+	for i := range rows {
+		out = append(out, toMeetingJSON(&rows[i]))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) listDealMeetings(w http.ResponseWriter, r *http.Request) {

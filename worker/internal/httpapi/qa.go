@@ -95,10 +95,10 @@ const ragQAUserPromptTemplate = `Answer the following question using ONLY the pr
 // sibling routes under the shared prefixes.
 func (s *Server) RegisterQA(r chi.Router) {
 	r.Post("/deals/{dealID}/qa/ask", s.qaAsk)
-	r.Get("/deals/{dealID}/qa", s.qaHistory)
-	r.Get("/deals/{dealID}/qa/{interactionID}", s.qaGetInteraction)
+	r.Get("/deals/{dealID}/qa/history", s.qaHistory)
+	r.Get("/deals/{dealID}/qa/history/{interactionID}", s.qaGetInteraction)
 	r.Post("/meetings/{meetingID}/qa/ask", s.qaAskMeeting)
-	r.Get("/meetings/{meetingID}/qa", s.qaMeetingHistory)
+	r.Get("/meetings/{meetingID}/qa/history", s.qaMeetingHistory)
 }
 
 // ---- wire shapes -----------------------------------------------------------
