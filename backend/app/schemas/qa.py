@@ -24,6 +24,10 @@ class Citation(BaseSchema):
 
 class QARequest(BaseSchema):
     question: str = Field(min_length=1, max_length=2000)
+    # Optional meeting-scope narrowing for the deal /ask endpoint. None or []
+    # means the whole deal (current behaviour); a non-empty list restricts the
+    # answer to those meetings' transcripts (one, several, or — explicitly — all).
+    meeting_ids: list[UUID] | None = Field(default=None)
 
 
 class QAResponse(BaseSchema):

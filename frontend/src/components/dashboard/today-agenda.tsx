@@ -29,6 +29,10 @@ export function TodayAgenda() {
     day: "numeric",
   });
 
+  // Collapse entirely on a clear day — the dashboard's job is the ask box and
+  // the deal switcher; today's calls only earn screen space when they exist.
+  if (!isLoading && meetings.length === 0) return null;
+
   return (
     <section
       className={`rounded-2xl border p-6 ${

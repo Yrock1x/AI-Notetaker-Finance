@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { CalendarClock, Video } from "lucide-react";
 import { useScribeTheme } from "@/components/cogniscribe/theme-provider";
 import { useUpcomingUnassigned } from "@/hooks/use-upcoming-unassigned";
-import { useStaleDeals } from "@/hooks/use-stale-deals";
 import { AssignMeetingDialog } from "@/components/meetings/assign-meeting-dialog";
 import type { Meeting } from "@/types";
 
@@ -29,13 +27,11 @@ function formatWhen(iso: string): string {
 
 export function NeedsAttention() {
   const { isDark } = useScribeTheme();
-  const { data: unassigned = [], isLoading: unassignedLoading } = useUpcomingUnassigned();
-  const { staleDeals, isLoading: staleLoading } = useStaleDeals(14);
+  const { data: unassigned = [], isLoading } = useUpcomingUnassigned();
   const [active, setActive] = useState<Meeting | null>(null);
 
-  const isLoading = unassignedLoading || staleLoading;
-  const hasNothing = !isLoading && unassigned.length === 0 && staleDeals.length === 0;
-  const totalCount = unassigned.length + staleDeals.length;
+  const hasNothing = !isLoading && unassigned.length === 0;
+  const totalCount = unassigned.length;
 
   return (
     <section
@@ -77,7 +73,7 @@ export function NeedsAttention() {
             ✓
           </div>
           <p className={`text-sm ${isDark ? "text-white/55" : "text-black/55"}`}>
-            You&apos;re all clear — no unassigned meetings, no stale deals.
+            You&apos;re all clear — every meeting is assigned to a deal.
           </p>
         </div>
       )}
@@ -129,56 +125,6 @@ export function NeedsAttention() {
             {unassigned.length > 4 && (
               <li className={`text-[11px] pl-3 ${isDark ? "text-white/40" : "text-black/40"}`}>
                 + {unassigned.length - 4} more
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
-
-      {staleDeals.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${
-                isDark ? "bg-amber-400" : "bg-amber-500"
-              }`}
-            />
-            <h3 className={`text-[12.5px] font-semibold ${isDark ? "text-white/85" : "text-black/85"}`}>
-              {staleDeals.length} {staleDeals.length === 1 ? "deal" : "deals"} with no recent meeting
-            </h3>
-          </div>
-          <ul className="space-y-1.5">
-            {staleDeals.slice(0, 4).map(({ deal, daysSince }) => (
-              <li key={deal.id}>
-                <Link
-                  href={`/deals/${deal.id}`}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2 transition-colors border ${
-                    isDark
-                      ? "border-transparent hover:border-amber-400/20 hover:bg-amber-500/[0.05]"
-                      : "border-transparent hover:border-amber-200 hover:bg-amber-50/40"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{deal.name}</p>
-                    {deal.target_company && (
-                      <p className={`truncate text-[11px] ${isDark ? "text-white/45" : "text-black/45"}`}>
-                        {deal.target_company}
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className={`text-[11px] tabular-nums font-medium ${
-                      isDark ? "text-amber-300" : "text-amber-600"
-                    }`}
-                  >
-                    {daysSince === null ? "no meetings" : `${daysSince}d ago`}
-                  </span>
-                </Link>
-              </li>
-            ))}
-            {staleDeals.length > 4 && (
-              <li className={`text-[11px] pl-3 ${isDark ? "text-white/40" : "text-black/40"}`}>
-                + {staleDeals.length - 4} more
               </li>
             )}
           </ul>

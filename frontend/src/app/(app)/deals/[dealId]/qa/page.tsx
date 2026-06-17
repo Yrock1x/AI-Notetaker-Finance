@@ -102,10 +102,15 @@ export default function ChatPage() {
               dealId,
               payload: { question: q },
             })
-          : await meetingAsk.mutateAsync({
-              meetingId: scope.meetingId,
-              payload: { question: q },
-            });
+          : scope.kind === "meeting"
+            ? await meetingAsk.mutateAsync({
+                meetingId: scope.meetingId,
+                payload: { question: q },
+              })
+            : await dealAsk.mutateAsync({
+                dealId,
+                payload: { question: q, meeting_ids: scope.meetingIds },
+              });
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiMsg.id

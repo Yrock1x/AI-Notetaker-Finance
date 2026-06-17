@@ -7,6 +7,7 @@ import {
   useDisconnectVdr,
 } from "@/hooks/use-cognivault";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { toast } from "@/lib/toast-store";
 import { VDR_SHARE_SCOPES, type VdrShareScope } from "@/types";
 
 const SCOPE_LABELS: Record<VdrShareScope, string> = {
@@ -26,9 +27,13 @@ export function CogniVaultShareCard({ dealId }: { dealId: string }) {
   const disconnect = useDisconnectVdr();
 
   const handleConnect = async () => {
-    const { authorization_url } = await connect.mutateAsync(dealId);
-    // Full-page navigation to CogniVault's consent screen.
-    window.location.href = authorization_url;
+    try {
+      const { authorization_url } = await connect.mutateAsync(dealId);
+      // Full-page navigation to CogniVault's consent screen.
+      window.location.href = authorization_url;
+    } catch {
+      toast.error("Couldn't start the CogniVault connection. Please try again.");
+    }
   };
 
   const toggleScope = async (scope: VdrShareScope) => {

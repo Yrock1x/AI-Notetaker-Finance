@@ -1,9 +1,11 @@
 """Unit tests for QAService on the SQLite + sqlite-vec layer.
 
-ask_meeting feeds a meeting's full transcript to a cheap model when it fits, and
-falls back to deal-scoped RAG (QAService.ask) when the transcript is empty or too
-large. These tests pin that decision boundary and the full-transcript prompt path,
-plus the deal RAG path (embed + sqlite-vec KNN + citation of a retrieved chunk).
+ask_meeting feeds a meeting's full transcript to a cheap model when it fits. When
+the transcript is too large it falls back to RAG scoped to that one meeting's
+segments; when the meeting has no transcript at all it returns a clear "no
+transcript" answer (no retrieval). These tests pin that decision boundary and the
+full-transcript prompt path, plus the deal RAG path (embed + sqlite-vec KNN +
+citation of a retrieved chunk) and the meeting-subset scope narrowing.
 """
 
 from __future__ import annotations
@@ -205,7 +207,7 @@ async def test_small_transcript_uses_cheap_model_with_full_transcript(db):
 
 
 @pytest.mark.asyncio
-async def test_empty_transcript_falls_back_to_rag(db):
+async def test_empty_transcript_returns_no_transcript_answer(db):
     session = get_session_factory()()
     try:
         s = _seed_base(session)  # no segments, no embeddings
@@ -216,15 +218,18 @@ async def test_empty_transcript_falls_back_to_rag(db):
 
         from uuid import UUID
 
-        await qa.ask_meeting(
+        result = await qa.ask_meeting(
             deal_id=UUID(s.deal_id),
             meeting_id=UUID(s.meeting_id),
             question="What did John say?",
         )
 
-        # Fallback went through the RAG path: it embedded the question and ran
-        # the sqlite-vec KNN (which returned nothing here).
-        assert router.embed_calls == ["What did John say?"]
+        # A single meeting with no transcript short-circuits: it asked about THIS
+        # meeting specifically, so it does not silently answer from the deal.
+        assert router.embed_calls == []
+        assert router.complete_calls == []
+        assert result.citations == []
+        assert result.confidence == "low"
     finally:
         session.close()
 
@@ -385,5 +390,162 @@ async def test_deal_ask_oversized_corpus_falls_back_to_rag(db, monkeypatch):
         await qa.ask(deal_id=UUID(s.deal_id), question="What did John say?")
 
         assert router.embed_calls == ["What did John say?"]
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_meeting_subset_context_first_narrows_corpus(db):
+    """Scoping ask() to a subset of meetings feeds ONLY those meetings'
+    transcripts (and skips deal-wide documents) into the context-first prompt."""
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)
+        m2 = Meeting(org_id=s.org_id, deal_id=s.deal_id, title="Kickoff",
+                     created_by=s.user_id)
+        session.add(m2)
+        session.flush()
+
+        _add_segment(session, s.meeting_id,
+                     text="Revenue grew 15% to fifty million.", speaker="John")
+        _add_segment(session, m2.id, text="Timeline is Q3.", speaker="Mary")
+        _add_document(session, org_id=s.org_id, deal_id=s.deal_id,
+                      user_id=s.user_id, title="CIM",
+                      extracted_text="The target operates in fintech.")
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        await qa.ask(
+            deal_id=UUID(s.deal_id),
+            question="What did John say?",
+            meeting_ids=[UUID(s.meeting_id)],
+        )
+
+        # Context-first over the subset: cheap model, no embedding.
+        assert router.embed_calls == []
+        prompt = router.complete_calls[0]["user_prompt"]
+        assert "John: Revenue grew 15% to fifty million." in prompt
+        # The other meeting and the deal-wide document are excluded by the scope.
+        assert "Mary: Timeline is Q3." not in prompt
+        assert "The target operates in fintech." not in prompt
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_meeting_subset_rag_filters_to_selected_segments(
+    db, monkeypatch
+):
+    """In the RAG path, a meeting-subset scope restricts retrieval to the
+    selected meetings' transcript segments even when other meetings' chunks
+    match the query equally well."""
+    monkeypatch.setattr(QAService, "DEAL_FULL_MAX_TOKENS", 0)  # force RAG
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)
+        m2 = Meeting(org_id=s.org_id, deal_id=s.deal_id, title="Other",
+                     created_by=s.user_id)
+        session.add(m2)
+        session.flush()
+
+        seg1 = _add_segment(session, s.meeting_id,
+                            text="Revenue grew 15% to fifty million.",
+                            speaker="John")
+        seg2 = _add_segment(session, m2.id, text="Revenue figures repeated.",
+                            speaker="Mary")
+        # Both chunks have the same vector → both are equally good KNN hits.
+        _add_embedding(session, org_id=s.org_id, deal_id=s.deal_id,
+                       chunk_text="John: Revenue grew 15% to fifty million.",
+                       source_type="transcript_segment", source_id=seg1.id,
+                       vector=list(QUERY_VECTOR))
+        _add_embedding(session, org_id=s.org_id, deal_id=s.deal_id,
+                       chunk_text="Mary: Revenue figures repeated.",
+                       source_type="transcript_segment", source_id=seg2.id,
+                       vector=list(QUERY_VECTOR))
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        result = await qa.ask(
+            deal_id=UUID(s.deal_id),
+            question="What about revenue?",
+            meeting_ids=[UUID(s.meeting_id)],
+        )
+
+        assert router.embed_calls == ["What about revenue?"]
+        # Only the selected meeting's segment is cited; m2's chunk is filtered out.
+        assert len(result.citations) == 1
+        assert result.citations[0].source_id == seg1.id
+        assert result.citations[0].metadata.get("meeting_id") == s.meeting_id
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_meeting_subset_without_transcript_short_circuits(db):
+    """Scoping to a meeting that has no transcript segments returns a clear
+    'no transcript' answer without spending an embedding call."""
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)  # meeting exists but has no segments
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        result = await qa.ask(
+            deal_id=UUID(s.deal_id),
+            question="What was said?",
+            meeting_ids=[UUID(s.meeting_id)],
+        )
+
+        assert router.embed_calls == []
+        assert router.complete_calls == []
+        assert result.citations == []
+        assert result.confidence == "low"
+    finally:
+        session.close()
+
+
+@pytest.mark.asyncio
+async def test_deal_ask_meeting_subset_only_partial_segments_short_circuits(
+    db, monkeypatch
+):
+    """A meeting still being live-transcribed has only partial segments, which
+    are never embedded. Scoping to it must short-circuit to the 'no transcript'
+    answer — not run a KNN that finds nothing and reports the wrong message."""
+    monkeypatch.setattr(QAService, "DEAL_FULL_MAX_TOKENS", 0)  # force the RAG path
+    session = get_session_factory()()
+    try:
+        s = _seed_base(session)
+        _add_segment(session, s.meeting_id, text="live words so far",
+                     speaker="John", is_partial=True)
+        session.commit()
+
+        router = _FakeRouter()
+        qa = QAService(session=session, llm_router=router)
+
+        from uuid import UUID
+
+        result = await qa.ask(
+            deal_id=UUID(s.deal_id),
+            question="What was said?",
+            meeting_ids=[UUID(s.meeting_id)],
+        )
+
+        # Only partials exist → no finalized segment ids → short-circuit, no KNN.
+        assert router.embed_calls == []
+        assert router.complete_calls == []
+        assert result.citations == []
+        assert result.confidence == "low"
     finally:
         session.close()

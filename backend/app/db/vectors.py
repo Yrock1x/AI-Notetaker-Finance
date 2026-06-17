@@ -68,13 +68,25 @@ def match_embeddings_for_deal(
     query_vector: list[float],
     top_k: int = 15,
     min_similarity: float = 0.3,
+    source_ids: list[str] | None = None,
 ) -> list[dict]:
     """Cosine KNN over a deal's embeddings.
 
     Returns the same shape the old Postgres RPC did:
     ``{id, source_type, source_id, chunk_text, similarity, metadata}``.
+
+    ``source_ids`` optionally restricts results to embeddings whose
+    ``source_id`` is in the allowlist (used to scope Q&A to a subset of
+    meetings — the allowlist is that subset's transcript-segment ids). vec0's
+    partitioned KNN can't join an arbitrary IN-list, so we over-fetch on the
+    ``deal_id`` partition and filter the hydrated rows, then truncate to
+    ``top_k``.
     """
     blob = sqlite_vec.serialize_float32(query_vector)
+    # Over-fetch when filtering by source so enough candidates survive the
+    # allowlist to still return up to top_k.
+    knn_k = top_k * 4 if source_ids is not None else top_k
+    source_id_set = set(source_ids) if source_ids is not None else None
     knn = session.execute(
         text(
             "SELECT embedding_id, distance "  # noqa: S608 — constant table name, bound params
@@ -82,7 +94,7 @@ def match_embeddings_for_deal(
             "WHERE deal_id = :deal_id AND embedding MATCH :q AND k = :k "
             "ORDER BY distance"
         ),
-        {"deal_id": str(deal_id), "q": blob, "k": top_k},
+        {"deal_id": str(deal_id), "q": blob, "k": knn_k},
     ).all()
     if not knn:
         return []
@@ -101,6 +113,8 @@ def match_embeddings_for_deal(
         row = by_id.get(emb_id)
         if row is None:
             continue
+        if source_id_set is not None and row.source_id not in source_id_set:
+            continue
         out.append(
             {
                 "id": row.id,
@@ -111,4 +125,6 @@ def match_embeddings_for_deal(
                 "metadata": row.metadata_json or {},
             }
         )
+        if len(out) >= top_k:
+            break
     return out

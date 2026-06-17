@@ -80,8 +80,8 @@ export interface AnalysisRequest {
 // Q&A requests
 export interface QARequest {
   question: string;
-  include_meeting_ids?: string[];
-  include_document_ids?: string[];
+  // Narrow a deal /ask to a subset of meetings. Omit/empty = whole deal.
+  meeting_ids?: string[];
 }
 
 export interface QAResponse {

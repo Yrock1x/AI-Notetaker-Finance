@@ -6,18 +6,13 @@
 
 import { useParams } from "next/navigation";
 import { useDeal } from "@/hooks/use-deals";
-import { isBotSessionLive } from "@/lib/meeting-status";
 import { useMeetings } from "@/hooks/use-meetings";
-import { useDealStats } from "@/hooks/use-deal-stats";
 import { useDealExtractions } from "@/hooks/use-deal-extractions";
-import { useBotSessions } from "@/hooks/use-bot-sessions";
 import { LoadingState } from "@/components/shared/loading-state";
 import {
-  ActionsCard,
-  ExtractionsCard,
-  ProjectPulse,
+  DealAskBar,
+  LatestInsights,
   RecentMeetings,
-  StatsRow,
   UpcomingCard,
 } from "@/components/deals/overview-cards";
 
@@ -26,9 +21,7 @@ export default function DealOverviewPage() {
   const dealId = params.dealId;
   const { data: deal, isLoading: dealLoading } = useDeal(dealId);
   const { data: meetingsResp, isLoading: meetingsLoading } = useMeetings(dealId);
-  const { data: stats } = useDealStats(dealId);
   const { data: extractions } = useDealExtractions(dealId);
-  const { data: sessions } = useBotSessions({ deal_id: dealId });
 
   if (dealLoading || !deal) {
     return (
@@ -56,29 +49,20 @@ export default function DealOverviewPage() {
     .filter((m) => m.status !== "scheduled" && m.status !== "recording")
     .slice(0, 6);
 
-  const isLive = sessions?.some(isBotSessionLive);
-
   return (
     <div
       className="flex flex-col gap-4 px-7 pt-4 pb-10"
       style={{ background: "var(--ws-sub)", minHeight: "100%" }}
     >
-      <StatsRow stats={stats} totalActions={extractions?.actions.length ?? 0} totalDecisions={extractions?.decisions.length ?? 0} totalQuestions={extractions?.questions.length ?? 0} liveCount={isLive ? 1 : 0} />
-
-      <ProjectPulse
-        dealId={dealId}
-        meetingsCount={meetings.length}
-        actionCount={extractions?.actions.length ?? 0}
-        decisionCount={extractions?.decisions.length ?? 0}
-      />
+      <DealAskBar dealId={dealId} />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-4">
         <RecentMeetings dealId={dealId} meetings={recent} loading={meetingsLoading} />
 
         <div className="flex flex-col gap-4">
           <UpcomingCard upcoming={upcoming} dealId={dealId} />
-          <ActionsCard actions={extractions?.actions ?? []} dealId={dealId} />
-          <ExtractionsCard
+          <LatestInsights
+            actions={extractions?.actions ?? []}
             decisions={extractions?.decisions ?? []}
             questions={extractions?.questions ?? []}
             dealId={dealId}
