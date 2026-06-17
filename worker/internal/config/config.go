@@ -89,6 +89,19 @@ func Load() *Config {
 
 func (c *Config) IsProduction() bool { return c.AppEnv == "production" }
 
+// SessionSigningSecret returns the HS256 secret for session JWTs, mirroring
+// app/auth/tokens.py: SESSION_JWT_SECRET, falling back to WORKER_INTERNAL_TOKEN
+// only outside production (prod boot requires SESSION_JWT_SECRET via Validate).
+func (c *Config) SessionSigningSecret() (string, error) {
+	if c.SessionJWTSecret != "" {
+		return c.SessionJWTSecret, nil
+	}
+	if !c.IsProduction() && c.WorkerInternalToken != "" {
+		return c.WorkerInternalToken, nil
+	}
+	return "", fmt.Errorf("no session signing secret configured (set SESSION_JWT_SECRET)")
+}
+
 // StorageSigningKeyOrFallback mirrors the Python fallback to worker_internal_token
 // in non-prod. In production the validator requires it set explicitly + distinct.
 func (c *Config) StorageSigningKeyOrFallback() string {

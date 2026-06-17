@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/config"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/db"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 // Server holds the shared dependencies handlers need.
@@ -37,12 +39,44 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(s.cors())
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", s.health)
 		r.Get("/health/ready", s.ready)
+
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/register", s.authRegister)
+			r.Post("/login", s.authLogin)
+			r.Post("/signout", s.authSignout)
+			r.Get("/login/{provider}", s.oauthLogin)
+			r.Get("/callback/{provider}", s.oauthCallback)
+			r.With(s.requireAuth).Get("/session", s.authSession)
+		})
 	})
 	return r
+}
+
+// cors mirrors the Python CORS config (app/main.py): the explicit origin list
+// plus the preview regex, credentialed, with the verbs/headers the frontend uses.
+func (s *Server) cors() func(http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	for _, o := range s.Cfg.CORSOriginList() {
+		allowed[o] = true
+	}
+	var re *regexp.Regexp
+	if s.Cfg.CORSOriginRegex != "" {
+		re = regexp.MustCompile(s.Cfg.CORSOriginRegex)
+	}
+	return cors.Handler(cors.Options{
+		AllowOriginFunc: func(_ *http.Request, origin string) bool {
+			return allowed[origin] || (re != nil && re.MatchString(origin))
+		},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Internal-Token", "X-Requested-With"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	})
 }
 
 // GET /api/v1/health — liveness. Matches app/api/v1/health.py exactly.
