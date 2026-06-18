@@ -76,6 +76,43 @@ func SetBotStatus(ctx context.Context, conn *sql.DB, sessionID, status string) e
 	return err
 }
 
+// BotSessionByRecallBot resolves a session by its recall_bot_id (ports
+// _session_for_bot). Returns (nil, nil) for an unknown bot — a non-fatal ACK.
+func BotSessionByRecallBot(ctx context.Context, conn *sql.DB, botID string) (*model.MeetingBotSession, error) {
+	if botID == "" {
+		return nil, nil
+	}
+	q := "SELECT " + botSessionCols + " FROM meeting_bot_sessions WHERE recall_bot_id = ? LIMIT 1"
+	b, err := scanBotSession(conn.QueryRowContext(ctx, q, botID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return b, err
+}
+
+// UpdateBotSessionStatus applies a Recall lifecycle status to a session, also
+// stamping actual_start (on 'recording') / actual_end (on 'completed'/'failed')
+// when the provider supplied a timestamp (ports the _handle_status_change writes).
+func UpdateBotSessionStatus(ctx context.Context, conn *sql.DB, sessionID, status string, actualStart, actualEnd *string) error {
+	now := util.NowISO()
+	switch {
+	case actualStart != nil:
+		_, err := conn.ExecContext(ctx,
+			"UPDATE meeting_bot_sessions SET status=?, actual_start=?, updated_at=? WHERE id=?",
+			status, *actualStart, now, sessionID)
+		return err
+	case actualEnd != nil:
+		_, err := conn.ExecContext(ctx,
+			"UPDATE meeting_bot_sessions SET status=?, actual_end=?, updated_at=? WHERE id=?",
+			status, *actualEnd, now, sessionID)
+		return err
+	default:
+		_, err := conn.ExecContext(ctx,
+			"UPDATE meeting_bot_sessions SET status=?, updated_at=? WHERE id=?", status, now, sessionID)
+		return err
+	}
+}
+
 // ScheduledBot is one auto-scheduled session (ports the scheduled[] dicts).
 type ScheduledBot struct {
 	SessionID string  `json:"session_id"`

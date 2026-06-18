@@ -273,9 +273,102 @@ func (s *Server) recallWebhook(w http.ResponseWriter, r *http.Request) {
 		s.handleRecallTranscript(w, r, payload.Event, payload.Data)
 		return
 	}
-	// Other event types (transcript.*, bot.*, participant*, chat*, recording.* …)
-	// are outside this area's scope — ACK without handling.
+	if strings.HasPrefix(payload.Event, "bot.") {
+		s.handleRecallStatusChange(w, r, payload.Event, payload.Data)
+		return
+	}
+	// Other event types (participant*, chat*, recording.* …) are outside this
+	// area's scope — ACK without handling.
 	ack(w, map[string]any{"received": true, "handled": false, "event": payload.Event})
+}
+
+// recallStatusMap maps Recall's lifecycle `code` to a meeting_bot_sessions.status
+// (ports the status_map in _handle_status_change).
+var recallStatusMap = map[string]string{
+	"ready": "scheduled", "joining_call": "joining", "in_waiting_room": "joining",
+	"in_call_not_recording": "joining", "in_call_recording": "recording",
+	"recording_permission_allowed": "recording", "call_ended": "completed",
+	"done": "completed", "fatal": "failed",
+}
+
+// handleRecallStatusChange ports _handle_status_change: map a bot.* lifecycle
+// event to a session status, flip the meeting to 'recording' once the bot is
+// recording, and fire meeting/bot-completed (the sole trigger for the
+// /internal/bot/finalize pipeline) when the call ends. Without this the bot
+// pipeline would never reach completed/failed and finalize would never run.
+func (s *Server) handleRecallStatusChange(w http.ResponseWriter, r *http.Request, event string, raw json.RawMessage) {
+	var d struct {
+		Bot struct {
+			ID string `json:"id"`
+		} `json:"bot"`
+		BotID string `json:"bot_id"`
+		Data  *struct {
+			Code string `json:"code"`
+		} `json:"data"`
+		Status *struct {
+			Code string `json:"code"`
+		} `json:"status"`
+		UpdatedAt *string `json:"updated_at"`
+	}
+	_ = json.Unmarshal(raw, &d)
+	botID := d.Bot.ID
+	if botID == "" {
+		botID = d.BotID
+	}
+	recallStatus := ""
+	if d.Data != nil {
+		recallStatus = d.Data.Code
+	}
+	if recallStatus == "" && d.Status != nil {
+		recallStatus = d.Status.Code
+	}
+	if recallStatus == "" {
+		if i := strings.Index(event, "."); i >= 0 {
+			recallStatus = event[i+1:]
+		}
+	}
+
+	bs, err := store.BotSessionByRecallBot(r.Context(), s.DB, botID)
+	if storeError(w, err) {
+		return
+	}
+	if bs == nil {
+		ack(w, map[string]any{"received": true, "handled": false, "reason": "unknown_bot"})
+		return
+	}
+
+	next := recallStatusMap[recallStatus]
+	if next == "" && (event == "bot.call_ended" || event == "bot.done") {
+		next = "completed"
+	}
+	if next == "" {
+		ack(w, map[string]any{"received": true, "handled": false, "recall_status": recallStatus})
+		return
+	}
+
+	var actualStart, actualEnd *string
+	if next == "recording" {
+		actualStart = d.UpdatedAt
+	} else if next == "completed" || next == "failed" {
+		actualEnd = d.UpdatedAt
+	}
+	if storeError(w, store.UpdateBotSessionStatus(r.Context(), s.DB, bs.ID, next, actualStart, actualEnd)) {
+		return
+	}
+
+	if bs.MeetingID != nil && *bs.MeetingID != "" {
+		switch next {
+		case "recording":
+			_ = store.SetMeetingStatus(r.Context(), s.DB, *bs.MeetingID, "recording", nil)
+		case "completed":
+			// Drives the bot-finalize pipeline (pull transcript+participants, then
+			// embed+analyze) — the Go equivalent of the Python send_event.
+			s.inngest().Send(r.Context(), "meeting/bot-completed", map[string]any{
+				"session_id": bs.ID, "meeting_id": *bs.MeetingID, "deal_id": bs.DealID,
+			})
+		}
+	}
+	ack(w, map[string]any{"received": true, "handled": true, "status": next})
 }
 
 // recallTranscriptData is the realtime_endpoints transcript payload shape (ports

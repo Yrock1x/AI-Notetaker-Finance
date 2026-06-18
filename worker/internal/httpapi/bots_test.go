@@ -94,6 +94,52 @@ func TestBotAutoScheduleDue(t *testing.T) {
 	}
 }
 
+// TestRecallBotStatusChange covers the bot.* lifecycle handling on the recall
+// webhook (the adversarial-review gap): in_call_recording -> session+meeting
+// recording; done -> session completed (and would fire meeting/bot-completed).
+func TestRecallBotStatusChange(t *testing.T) {
+	ts, _, conn := botTestServer(t) // no RecallWebhookSecret -> unsigned webhooks accepted
+	org, user, deal, _ := seedUserOrgDeal(t, ts, conn, "bot-status@x.com")
+	mustExec(t, conn, `INSERT INTO meetings(id,org_id,deal_id,title,source,status,bot_enabled,created_by,created_at,updated_at)
+	  VALUES('m-s',?,?,?,?,?,?,?,?,?)`, org, deal, "M", "zoom", "scheduled", true, user, "x", "x")
+	mustExec(t, conn, `INSERT INTO meeting_bot_sessions(id,org_id,deal_id,meeting_id,platform,meeting_url,status,recall_bot_id,consent_obtained,created_by,created_at,updated_at)
+	  VALUES('bs-s',?,?,?,?,?,?,?,?,?,?,?)`, org, deal, "m-s", "zoom", "https://zoom.us/j/1", "joining", "rb-1", false, user, "x", "x")
+
+	post := func(body string) int {
+		resp, err := http.Post(ts.URL+"/api/v1/webhooks/recall", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("webhook: %v", err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// in_call_recording -> session 'recording', meeting 'recording'.
+	if c := post(`{"event":"bot.in_call_recording","data":{"bot":{"id":"rb-1"},"data":{"code":"in_call_recording"}}}`); c != 200 {
+		t.Fatalf("recording event: %d", c)
+	}
+	var ss, ms string
+	_ = conn.QueryRow("SELECT status FROM meeting_bot_sessions WHERE id='bs-s'").Scan(&ss)
+	_ = conn.QueryRow("SELECT status FROM meetings WHERE id='m-s'").Scan(&ms)
+	if ss != "recording" || ms != "recording" {
+		t.Fatalf("after recording: session=%q meeting=%q", ss, ms)
+	}
+
+	// done -> session 'completed' (and fires meeting/bot-completed, no-op w/o key).
+	if c := post(`{"event":"bot.done","data":{"bot":{"id":"rb-1"},"data":{"code":"done"}}}`); c != 200 {
+		t.Fatalf("done event: %d", c)
+	}
+	_ = conn.QueryRow("SELECT status FROM meeting_bot_sessions WHERE id='bs-s'").Scan(&ss)
+	if ss != "completed" {
+		t.Fatalf("after done: session=%q, want completed", ss)
+	}
+
+	// Unknown bot -> handled:false, still 200.
+	if c := post(`{"event":"bot.fatal","data":{"bot":{"id":"nope"},"data":{"code":"fatal"}}}`); c != 200 {
+		t.Fatalf("unknown bot: %d", c)
+	}
+}
+
 // fakeRecallRT serves the Recall create_bot + get_bot + the transcript download.
 type fakeRecallRT struct{}
 
