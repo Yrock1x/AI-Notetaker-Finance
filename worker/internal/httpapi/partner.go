@@ -268,7 +268,7 @@ func (s *Server) partnerGetTranscript(w http.ResponseWriter, r *http.Request) {
 	_ = store.RecordAudit(r.Context(), s.DB, store.Audit{
 		OrgID: k.OrgID, Action: "read", ResourceType: "partner",
 		ResourceID: &tid,
-		Details: map[string]any{"resource": "transcript", "meeting_id": chi.URLParam(r, "meetingID")},
+		Details:    map[string]any{"resource": "transcript", "meeting_id": chi.URLParam(r, "meetingID")},
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"id": t.id, "org_id": t.orgID, "meeting_id": t.meetingID,
 		"full_text": t.fullText, "language": t.language, "word_count": t.wordCount,

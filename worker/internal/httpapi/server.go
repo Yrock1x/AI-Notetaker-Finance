@@ -77,6 +77,9 @@ func (s *Server) Router() http.Handler {
 		// Signed object PUT/GET — NOT session-authed; a valid HMAC signature is
 		// the capability, so these live outside the requireAuth group.
 		s.RegisterStorageObjects(r)
+		// OAuth provider callback — the provider redirects the browser here with
+		// no session cookie, so it lives outside the requireAuth group.
+		s.RegisterIntegrationsCallback(r)
 		// Self-applying auth: internal (X-Internal-Token), deliverables (own
 		// requireAuth group), realtime (SSE self-auths, webhook is public).
 		s.RegisterInternal(r)

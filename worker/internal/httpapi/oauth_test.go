@@ -38,6 +38,11 @@ func oauthTestServer(t *testing.T) (*httptest.Server, *Server, *sql.DB) {
 		GoogleClientSecret:    "gsecret",
 		MicrosoftClientID:     "mcid",
 		MicrosoftClientSecret: "msecret",
+		ZoomClientID:          "zcid",
+		ZoomClientSecret:      "zsecret",
+		WorkerInternalToken:   "internal-token-0123456789abcdef0",
+		// Valid Fernet key (the official spec key) for credential encryption.
+		TokenEncryptionKey: "cw_0x689RpI-jtRR7oE8h_eQsKImvJapLeSbXpwF4e4=",
 	}
 	srv := &Server{Cfg: cfg, DB: conn}
 	ts := httptest.NewServer(srv.Router())

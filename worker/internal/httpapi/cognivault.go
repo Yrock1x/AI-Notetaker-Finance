@@ -118,53 +118,5 @@ func (s *Server) cognivaultDisconnect(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RegisterIntegrations mounts /integrations/* (auth-required). Prod has no OAuth
-// provider creds, so connect reports "not configured"; the list reads the org's
-// integration_credentials so the integrations page renders.
-func (s *Server) RegisterIntegrations(r chi.Router) {
-	r.Get("/integrations", s.integrationsList)
-	r.Post("/integrations/{platform}/connect", s.integrationsConnect)
-	r.Delete("/integrations/{platform}/disconnect", s.integrationsDisconnect)
-}
-
-func (s *Server) integrationsList(w http.ResponseWriter, r *http.Request) {
-	p := principalFromCtx(r.Context())
-	pred, args := p.OrgFilter("org_id")
-	rows, err := s.DB.QueryContext(r.Context(),
-		"SELECT platform, is_active FROM integration_credentials WHERE "+pred, args...)
-	if storeError(w, err) {
-		return
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var platform string
-		var active bool
-		if err := rows.Scan(&platform, &active); err != nil {
-			storeError(w, err)
-			return
-		}
-		status := "disconnected"
-		if active {
-			status = "connected"
-		}
-		out = append(out, map[string]any{"platform": platform, "status": status})
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) integrationsConnect(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusServiceUnavailable, chi.URLParam(r, "platform")+" integration is not configured")
-}
-
-func (s *Server) integrationsDisconnect(w http.ResponseWriter, r *http.Request) {
-	p := principalFromCtx(r.Context())
-	pred, args := p.OrgFilter("org_id")
-	all := append([]any{chi.URLParam(r, "platform")}, args...)
-	_, err := s.DB.ExecContext(r.Context(),
-		"UPDATE integration_credentials SET is_active = 0 WHERE platform = ? AND "+pred, all...)
-	if storeError(w, err) {
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
+// The /integrations/* OAuth connect / callback / disconnect handlers live in
+// integrations.go.

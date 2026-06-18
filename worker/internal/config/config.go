@@ -111,6 +111,16 @@ func Load() *Config {
 
 func (c *Config) IsProduction() bool { return c.AppEnv == "production" }
 
+// OAuthStateSecret is the HS256 key for signing integration OAuth state tokens,
+// mirroring app/services/oauth_tokens._state_secret (WORKER_INTERNAL_TOKEN, else
+// TOKEN_ENCRYPTION_KEY).
+func (c *Config) OAuthStateSecret() string {
+	if c.WorkerInternalToken != "" {
+		return c.WorkerInternalToken
+	}
+	return c.TokenEncryptionKey
+}
+
 // SessionSigningSecret returns the HS256 secret for session JWTs, mirroring
 // app/auth/tokens.py: SESSION_JWT_SECRET, falling back to WORKER_INTERNAL_TOKEN
 // only outside production (prod boot requires SESSION_JWT_SECRET via Validate).
