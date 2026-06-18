@@ -6,8 +6,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/crypto/fernet"
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/integrations/calendar"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/integrations/deepgram"
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/integrations/oauth"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/llm"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/storage"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/store"
@@ -86,6 +90,8 @@ func (s *Server) RegisterInternal(r chi.Router) {
 		r.Post("/embed", s.internalEmbed)
 		r.Post("/analyze", s.internalAnalyze)
 		r.Post("/process-document", s.internalProcessDocument)
+		r.Post("/calendar/sync", s.internalCalendarSync)
+		r.Get("/calendar/list-active-integrations", s.internalCalendarListActiveIntegrations)
 	})
 }
 
@@ -404,6 +410,93 @@ func (s *Server) internalProcessDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"embedding_count": count})
+}
+
+// ---------------------------------------------------------------------------
+// POST /internal/calendar/sync  {user_id, org_id, platform, lookahead_days?}
+//
+//	-> {platform, events_seen, meetings_upserted}
+//
+// ---------------------------------------------------------------------------
+func (s *Server) internalCalendarSync(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		UserID        string `json:"user_id"`
+		OrgID         string `json:"org_id"`
+		Platform      string `json:"platform"`
+		LookaheadDays int    `json:"lookahead_days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" || body.OrgID == "" || body.Platform == "" {
+		writeError(w, http.StatusUnprocessableEntity, "user_id, org_id and platform are required")
+		return
+	}
+	prov, ok := oauth.ByName(body.Platform)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Unsupported platform "+body.Platform)
+		return
+	}
+	lookahead := body.LookaheadDays
+	if lookahead <= 0 {
+		lookahead = 14
+	}
+	fkey, err := fernet.ParseKey(s.Cfg.TokenEncryptionKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "token encryption is not configured")
+		return
+	}
+	clientID, clientSecret := s.integrationClientCreds(body.Platform)
+	access, err := store.GetValidAccessToken(r.Context(), s.DB, fkey, prov, clientID, clientSecret, oauthHTTPClient, body.OrgID, body.UserID, body.Platform)
+	if err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "No active "+body.Platform+" credentials for user")
+		return
+	}
+	if err != nil {
+		slog.Error("calendar sync token error", "platform", body.Platform, "err", err)
+		writeError(w, http.StatusBadGateway, "Calendar provider unavailable")
+		return
+	}
+
+	now := time.Now().UTC()
+	timeMax := now.Add(time.Duration(lookahead) * 24 * time.Hour)
+	var events []calendar.SyncedMeeting
+	var seen int
+	switch body.Platform {
+	case "zoom":
+		events, seen, err = calendar.ListZoom(r.Context(), oauthHTTPClient, access)
+	case "microsoft":
+		events, seen, err = calendar.ListGraph(r.Context(), oauthHTTPClient, access, now, timeMax)
+	case "google":
+		events, seen, err = calendar.ListGoogle(r.Context(), oauthHTTPClient, access, now, timeMax)
+	}
+	if err != nil {
+		slog.Error("calendar sync fetch error", "platform", body.Platform, "err", err)
+		writeError(w, http.StatusBadGateway, "Calendar provider unavailable")
+		return
+	}
+
+	inputs := make([]store.SyncedMeetingInput, 0, len(events))
+	for i := range events {
+		inputs = append(inputs, store.SyncedMeetingInput{
+			Title: events[i].Title, MeetingDate: events[i].MeetingDate, Source: events[i].Source,
+			SourceURL: events[i].SourceURL, ExternalEventID: events[i].ExternalEventID,
+			BotEnabled: events[i].BotEnabled,
+		})
+	}
+	upserted, err := store.UpsertSyncedMeetings(r.Context(), s.DB, body.OrgID, body.UserID, body.Platform, inputs)
+	if storeError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"platform": body.Platform, "events_seen": seen, "meetings_upserted": upserted,
+	})
+}
+
+// GET /internal/calendar/list-active-integrations -> {integrations: [...]}
+func (s *Server) internalCalendarListActiveIntegrations(w http.ResponseWriter, r *http.Request) {
+	rows, err := store.ListActiveCalendarIntegrations(r.Context(), s.DB)
+	if storeError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"integrations": rows})
 }
 
 // extractDocumentText extracts UTF-8 text from a document's bytes. Plaintext

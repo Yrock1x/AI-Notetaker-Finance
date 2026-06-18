@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/crypto/fernet"
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/integrations/oauth"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/util"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -135,6 +137,99 @@ func DeactivateCredentials(ctx context.Context, conn *sql.DB, orgID, userID, pla
 		"UPDATE integration_credentials SET is_active=0, updated_at=? WHERE org_id=? AND user_id=? AND platform=?",
 		util.NowISO(), orgID, userID, platform)
 	return err
+}
+
+// GetValidAccessToken returns a usable access token for (org,user,platform),
+// refreshing via the provider if the stored one is within 60s of expiry (ports
+// get_valid_access_token). The refreshed token set is re-saved. The caller
+// supplies the provider config + client creds + http client.
+func GetValidAccessToken(ctx context.Context, conn *sql.DB, fkey *fernet.Key, prov oauth.Provider, clientID, clientSecret string, hc *http.Client, orgID, userID, platform string) (string, error) {
+	var accessEnc string
+	var refreshEnc, expiresAt, scopes *string
+	err := conn.QueryRowContext(ctx,
+		`SELECT access_token_encrypted, refresh_token_encrypted, token_expires_at, scopes
+		 FROM integration_credentials
+		 WHERE org_id=? AND user_id=? AND platform=? AND is_active=1 LIMIT 1`,
+		orgID, userID, platform).Scan(&accessEnc, &refreshEnc, &expiresAt, &scopes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+
+	accessBytes, err := fkey.Decrypt(accessEnc)
+	if err != nil {
+		return "", err
+	}
+	access := string(accessBytes)
+
+	needsRefresh := false
+	if expiresAt != nil && *expiresAt != "" {
+		if exp, perr := time.Parse(time.RFC3339, *expiresAt); perr == nil {
+			needsRefresh = !exp.After(time.Now().Add(60 * time.Second))
+		}
+	}
+	if !needsRefresh {
+		return access, nil
+	}
+	if refreshEnc == nil {
+		return "", errors.New("access token expired and no refresh token stored")
+	}
+	refreshBytes, err := fkey.Decrypt(*refreshEnc)
+	if err != nil {
+		return "", err
+	}
+
+	tok, err := prov.Refresh(ctx, hc, clientID, clientSecret, string(refreshBytes))
+	if err != nil {
+		return "", err
+	}
+	// Some providers (Google) omit a new refresh token — keep the old one.
+	newRefresh := tok.RefreshToken
+	if newRefresh == "" {
+		newRefresh = string(refreshBytes)
+	}
+	newScopes := tok.Scope
+	if newScopes == "" && scopes != nil {
+		newScopes = *scopes
+	}
+	if err := SaveCredentials(ctx, conn, fkey, CredentialInput{
+		OrgID: orgID, UserID: userID, Platform: platform,
+		AccessToken: tok.AccessToken, RefreshToken: newRefresh,
+		ExpiresInSeconds: tok.ExpiresIn, Scopes: newScopes,
+	}); err != nil {
+		return "", err
+	}
+	return tok.AccessToken, nil
+}
+
+// ActiveCalendarIntegration is one (org,user,platform) tuple the Inngest cron
+// fans out a sync for (ports list_active_integrations).
+type ActiveCalendarIntegration struct {
+	OrgID    string `json:"org_id"`
+	UserID   string `json:"user_id"`
+	Platform string `json:"platform"`
+}
+
+// ListActiveCalendarIntegrations returns every active zoom/microsoft/google
+// connection across all users.
+func ListActiveCalendarIntegrations(ctx context.Context, conn *sql.DB) ([]ActiveCalendarIntegration, error) {
+	rows, err := conn.QueryContext(ctx,
+		"SELECT org_id, user_id, platform FROM integration_credentials WHERE is_active=1 AND platform IN ('zoom','microsoft','google')")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ActiveCalendarIntegration{}
+	for rows.Next() {
+		var a ActiveCalendarIntegration
+		if err := rows.Scan(&a.OrgID, &a.UserID, &a.Platform); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // IntegrationRow is the list shape the integrations page reads — it filters on
