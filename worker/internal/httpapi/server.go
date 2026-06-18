@@ -80,6 +80,8 @@ func (s *Server) Router() http.Handler {
 		// OAuth provider callback — the provider redirects the browser here with
 		// no session cookie, so it lives outside the requireAuth group.
 		s.RegisterIntegrationsCallback(r)
+		// Provider webhooks (zoom/teams/slack) — provider-signed, no session.
+		s.RegisterWebhooks(r)
 		// Self-applying auth: internal (X-Internal-Token), deliverables (own
 		// requireAuth group), realtime (SSE self-auths, webhook is public).
 		s.RegisterInternal(r)

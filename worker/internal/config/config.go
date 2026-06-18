@@ -34,6 +34,13 @@ type Config struct {
 	RecallAPIKey        string
 	RecallWebhookSecret string
 
+	// Async queue + provider webhook secrets
+	InngestEventKey        string
+	ZoomWebhookSecretToken string
+	SlackSigningSecret     string
+	MicrosoftWebhookSecret string // Graph change-notification clientState
+	TeamsWebhookSecret     string
+
 	// Encryption (Fernet) for stored OAuth refresh tokens
 	TokenEncryptionKey string
 
@@ -80,36 +87,52 @@ func envBool(key string, def bool) bool {
 // Load reads the environment. Defaults match app/core/config.py.
 func Load() *Config {
 	return &Config{
-		AppEnv:                env("APP_ENV", "development"),
-		Port:                  env("PORT", "8000"),
-		SQLiteDBPath:          env("SQLITE_DB_PATH", "/data/app.db"),
-		StorageRoot:           env("STORAGE_ROOT", "/data/storage"),
-		SessionJWTSecret:      env("SESSION_JWT_SECRET", ""),
-		StorageSigningKey:     env("STORAGE_SIGNING_KEY", ""),
-		WorkerInternalToken:   env("WORKER_INTERNAL_TOKEN", ""),
-		SessionCookieName:     env("SESSION_COOKIE_NAME", "cogni_session"),
-		FireworksAPIKey:       env("FIREWORKS_API_KEY", ""),
-		PremiumLLMEnabled:     envBool("PREMIUM_LLM_ENABLED", false),
-		AnthropicAPIKey:       env("ANTHROPIC_API_KEY", ""),
-		DeepgramAPIKey:        env("DEEPGRAM_API_KEY", ""),
-		RecallAPIKey:          env("RECALL_API_KEY", ""),
-		RecallWebhookSecret:   env("RECALL_WEBHOOK_SECRET", ""),
-		TokenEncryptionKey:    env("TOKEN_ENCRYPTION_KEY", ""),
-		GoogleClientID:        env("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret:    env("GOOGLE_CLIENT_SECRET", ""),
-		MicrosoftClientID:     env("MICROSOFT_CLIENT_ID", ""),
-		MicrosoftClientSecret: env("MICROSOFT_CLIENT_SECRET", ""),
-		ZoomClientID:          env("ZOOM_CLIENT_ID", ""),
-		ZoomClientSecret:      env("ZOOM_CLIENT_SECRET", ""),
-		CognivaultClientID:    env("COGNIVAULT_CLIENT_ID", ""),
-		CORSOrigins:           env("CORS_ORIGINS", "http://localhost:3000"),
-		CORSOriginRegex:       env("CORS_ORIGIN_REGEX", ""),
-		FrontendURL:           env("FRONTEND_URL", "http://localhost:3000"),
-		PublicAPIURL:          env("PUBLIC_API_URL", "http://localhost:8000"),
+		AppEnv:                 env("APP_ENV", "development"),
+		Port:                   env("PORT", "8000"),
+		SQLiteDBPath:           env("SQLITE_DB_PATH", "/data/app.db"),
+		StorageRoot:            env("STORAGE_ROOT", "/data/storage"),
+		SessionJWTSecret:       env("SESSION_JWT_SECRET", ""),
+		StorageSigningKey:      env("STORAGE_SIGNING_KEY", ""),
+		WorkerInternalToken:    env("WORKER_INTERNAL_TOKEN", ""),
+		SessionCookieName:      env("SESSION_COOKIE_NAME", "cogni_session"),
+		FireworksAPIKey:        env("FIREWORKS_API_KEY", ""),
+		PremiumLLMEnabled:      envBool("PREMIUM_LLM_ENABLED", false),
+		AnthropicAPIKey:        env("ANTHROPIC_API_KEY", ""),
+		DeepgramAPIKey:         env("DEEPGRAM_API_KEY", ""),
+		RecallAPIKey:           env("RECALL_API_KEY", ""),
+		RecallWebhookSecret:    env("RECALL_WEBHOOK_SECRET", ""),
+		InngestEventKey:        env("INNGEST_EVENT_KEY", ""),
+		ZoomWebhookSecretToken: env("ZOOM_WEBHOOK_SECRET_TOKEN", ""),
+		SlackSigningSecret:     env("SLACK_SIGNING_SECRET", ""),
+		MicrosoftWebhookSecret: env("MICROSOFT_WEBHOOK_SECRET", ""),
+		TeamsWebhookSecret:     env("TEAMS_WEBHOOK_SECRET", ""),
+		TokenEncryptionKey:     env("TOKEN_ENCRYPTION_KEY", ""),
+		GoogleClientID:         env("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:     env("GOOGLE_CLIENT_SECRET", ""),
+		MicrosoftClientID:      env("MICROSOFT_CLIENT_ID", ""),
+		MicrosoftClientSecret:  env("MICROSOFT_CLIENT_SECRET", ""),
+		ZoomClientID:           env("ZOOM_CLIENT_ID", ""),
+		ZoomClientSecret:       env("ZOOM_CLIENT_SECRET", ""),
+		CognivaultClientID:     env("COGNIVAULT_CLIENT_ID", ""),
+		CORSOrigins:            env("CORS_ORIGINS", "http://localhost:3000"),
+		CORSOriginRegex:        env("CORS_ORIGIN_REGEX", ""),
+		FrontendURL:            env("FRONTEND_URL", "http://localhost:3000"),
+		PublicAPIURL:           env("PUBLIC_API_URL", "http://localhost:8000"),
 	}
 }
 
 func (c *Config) IsProduction() bool { return c.AppEnv == "production" }
+
+// TeamsClientStateSecret is the expected Graph change-notification clientState.
+// ensure-subscription sets clientState=MICROSOFT_WEBHOOK_SECRET, so the teams
+// webhook compares against TEAMS_WEBHOOK_SECRET, falling back to it (mirrors the
+// Python config's teams/microsoft secret aliasing).
+func (c *Config) TeamsClientStateSecret() string {
+	if c.TeamsWebhookSecret != "" {
+		return c.TeamsWebhookSecret
+	}
+	return c.MicrosoftWebhookSecret
+}
 
 // OAuthStateSecret is the HS256 key for signing integration OAuth state tokens,
 // mirroring app/services/oauth_tokens._state_secret (WORKER_INTERNAL_TOKEN, else
