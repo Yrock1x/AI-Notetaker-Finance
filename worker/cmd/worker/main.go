@@ -20,6 +20,9 @@ import (
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Make it the package-level default so handlers can slog.* without threading a
+	// logger through every call (e.g. the transcribe handler logs Deepgram errors).
+	slog.SetDefault(log)
 
 	cfg := config.Load()
 	if err := cfg.Validate(); err != nil {

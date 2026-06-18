@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -276,6 +277,10 @@ func (s *Server) internalTranscribe(w http.ResponseWriter, r *http.Request) {
 	rawResp, segments, err := deepgram.New(s.Cfg.DeepgramAPIKey).
 		Transcribe(r.Context(), audio, mimetypeForKey(*fileKey))
 	if err != nil {
+		// Surface the real Deepgram error (status + body are embedded in err) so a
+		// rejected recording is debuggable — the client still gets a generic 502.
+		slog.Error("deepgram transcribe failed", "meeting_id", body.MeetingID,
+			"mimetype", mimetypeForKey(*fileKey), "bytes", len(audio), "err", err)
 		writeError(w, http.StatusBadGateway, "Transcription provider unavailable")
 		return
 	}
@@ -292,10 +297,11 @@ func (s *Server) internalTranscribe(w http.ResponseWriter, r *http.Request) {
 	for _, seg := range segments {
 		parts = append(parts, seg.Text)
 		in.WordCount += len(strings.Fields(seg.Text))
-		if seg.Confidence != 0 {
-			confSum += seg.Confidence
-			confN++
-		}
+		// Every processed segment carries a real (rounded) confidence — the
+		// diarization processor never emits a missing value — so include them all
+		// in the mean, matching Python's "confidence is not None" predicate exactly.
+		confSum += seg.Confidence
+		confN++
 		in.Segments = append(in.Segments, store.TranscriptSegmentInput{
 			SpeakerLabel: seg.SpeakerLabel, SpeakerName: seg.SpeakerName, Text: seg.Text,
 			StartTime: seg.StartTime, EndTime: seg.EndTime, Confidence: seg.Confidence,
