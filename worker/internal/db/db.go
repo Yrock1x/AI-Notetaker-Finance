@@ -30,7 +30,13 @@ func Open(path string) (*sql.DB, error) {
 	// starting deferred, both reading, then deadlocking when each tries to upgrade
 	// to the write lock — instead the second blocks at BEGIN and waits out
 	// busy_timeout. Autocommit reads are unaffected (they never BEGIN).
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL&_txlock=immediate", path)
+	//
+	// busy_timeout=15s (not 5s): the longest write lock-hold is ReplaceEmbeddings,
+	// which inserts a whole chunk batch + vec0 rows in one transaction. A live
+	// transcript-webhook upsert arriving mid-embedding must wait that out rather
+	// than failing with SQLITE_BUSY (a 500 on otherwise-valid traffic); 15s gives
+	// ample headroom over a large embedding batch.
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=15000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL&_txlock=immediate", path)
 	conn, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)

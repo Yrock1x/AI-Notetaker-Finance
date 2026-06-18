@@ -375,8 +375,16 @@ func (s *Server) partnerSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "query_vector must be exactly 768 floats")
 		return
 	}
+	// Mirror Python SearchRequest.top_k = Field(default=15, ge=1, le=100): an
+	// over-limit request is rejected (422), not silently clamped, so the partner
+	// can't quietly get fewer results than asked for. Absent/zero (JSON omits the
+	// field) falls back to the default 15.
 	topK := b.TopK
-	if topK <= 0 || topK > 100 {
+	if topK > 100 {
+		writeError(w, http.StatusUnprocessableEntity, "top_k must be between 1 and 100")
+		return
+	}
+	if topK <= 0 {
 		topK = 15
 	}
 	hits, err := store.MatchEmbeddingsForDeal(r.Context(), s.DB, chi.URLParam(r, "dealID"), vec, topK, 0.3, nil)
