@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -92,6 +94,7 @@ func (s *Server) RegisterInternal(r chi.Router) {
 		r.Post("/process-document", s.internalProcessDocument)
 		r.Post("/calendar/sync", s.internalCalendarSync)
 		r.Get("/calendar/list-active-integrations", s.internalCalendarListActiveIntegrations)
+		r.Post("/zoom/ingest", s.internalZoomIngest)
 		s.RegisterBots(r)
 	})
 }
@@ -490,6 +493,107 @@ func (s *Server) internalCalendarSync(w http.ResponseWriter, r *http.Request) {
 		"platform": body.Platform, "events_seen": seen, "meetings_upserted": upserted,
 	})
 }
+
+// recordingHTTPClient downloads provider recordings (up to ~10 min); a package
+// var so tests can intercept it.
+var recordingHTTPClient = &http.Client{Timeout: 10 * time.Minute}
+
+// POST /internal/zoom/ingest  {zoom_meeting_id, download_url, topic?}
+//
+//	-> {meeting_id, status}. Attribute or create the meeting, download the
+//	recording into storage, mark uploaded, fire meeting/uploaded (ports zoom_ingest).
+func (s *Server) internalZoomIngest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ZoomMeetingID string `json:"zoom_meeting_id"`
+		DownloadURL   string `json:"download_url"`
+		Topic         string `json:"topic"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ZoomMeetingID == "" || body.DownloadURL == "" {
+		writeError(w, http.StatusUnprocessableEntity, "zoom_meeting_id and download_url are required")
+		return
+	}
+
+	match, err := store.FindZoomMeeting(r.Context(), s.DB, body.ZoomMeetingID)
+	if storeError(w, err) {
+		return
+	}
+	var meetingID, orgID, dealID string
+	if match != nil {
+		meetingID, orgID = match.ID, match.OrgID
+		if match.DealID != nil {
+			dealID = *match.DealID
+		}
+	} else {
+		credOrg, credUser, ok, err := store.FirstActiveZoomCredential(r.Context(), s.DB)
+		if storeError(w, err) {
+			return
+		}
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]any{"meeting_id": nil, "status": "no_credential"})
+			return
+		}
+		orgID = credOrg
+		title := body.Topic
+		if title == "" {
+			title = "Zoom recording"
+		}
+		meetingID, err = store.CreateZoomIngestMeeting(r.Context(), s.DB, orgID, title, credUser, body.ZoomMeetingID)
+		if storeError(w, err) {
+			return
+		}
+	}
+
+	// Best-effort download auth (the org's zoom access token).
+	authHeader := ""
+	if enc, _ := store.ZoomAccessEncForOrg(r.Context(), s.DB, orgID); enc != "" {
+		if fkey, err := fernet.ParseKey(s.Cfg.TokenEncryptionKey); err == nil {
+			if tok, err := fkey.Decrypt(enc); err == nil {
+				authHeader = "Bearer " + string(tok)
+			}
+		}
+	}
+
+	fileBytes, err := downloadRecording(r.Context(), body.DownloadURL, authHeader)
+	if err != nil {
+		slog.Error("zoom ingest download failed", "meeting_id", meetingID, "err", err)
+		_ = store.SetMeetingStatus(r.Context(), s.DB, meetingID, "failed", nil)
+		writeError(w, http.StatusBadGateway, "Zoom download failed")
+		return
+	}
+	fileKey := "zoom/" + meetingID + ".mp4"
+	if err := storage.SaveBytes(s.Cfg.StorageRoot, meetingsBucket, fileKey, fileBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to store recording")
+		return
+	}
+	if storeError(w, store.SetMeetingUploaded(r.Context(), s.DB, meetingID, fileKey, body.DownloadURL)) {
+		return
+	}
+	s.inngest().Send(r.Context(), "meeting/uploaded", map[string]any{"meeting_id": meetingID, "deal_id": dealID})
+	writeJSON(w, http.StatusOK, map[string]any{"meeting_id": meetingID, "status": "uploaded"})
+}
+
+func downloadRecording(ctx context.Context, url, authHeader string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	resp, err := recordingHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, &recallStatusError{status: resp.StatusCode}
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 2<<30)) // 2 GiB cap
+}
+
+type recallStatusError struct{ status int }
+
+func (e *recallStatusError) Error() string { return "download returned non-2xx" }
 
 // GET /internal/calendar/list-active-integrations -> {integrations: [...]}
 func (s *Server) internalCalendarListActiveIntegrations(w http.ResponseWriter, r *http.Request) {
