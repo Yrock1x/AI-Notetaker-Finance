@@ -37,6 +37,15 @@ type Config struct {
 	// Encryption (Fernet) for stored OAuth refresh tokens
 	TokenEncryptionKey string
 
+	// OAuth login + calendar integrations (this worker is the client). Empty
+	// client id => the provider's connect/login flow reports "not configured".
+	GoogleClientID        string
+	GoogleClientSecret    string
+	MicrosoftClientID     string
+	MicrosoftClientSecret string
+	ZoomClientID          string
+	ZoomClientSecret      string
+
 	// CogniVault OAuth (this worker is the client). Empty client id => the
 	// connect flow reports "not configured" (same as the Python worker).
 	CognivaultClientID string
@@ -71,26 +80,32 @@ func envBool(key string, def bool) bool {
 // Load reads the environment. Defaults match app/core/config.py.
 func Load() *Config {
 	return &Config{
-		AppEnv:              env("APP_ENV", "development"),
-		Port:                env("PORT", "8000"),
-		SQLiteDBPath:        env("SQLITE_DB_PATH", "/data/app.db"),
-		StorageRoot:         env("STORAGE_ROOT", "/data/storage"),
-		SessionJWTSecret:    env("SESSION_JWT_SECRET", ""),
-		StorageSigningKey:   env("STORAGE_SIGNING_KEY", ""),
-		WorkerInternalToken: env("WORKER_INTERNAL_TOKEN", ""),
-		SessionCookieName:   env("SESSION_COOKIE_NAME", "cogni_session"),
-		FireworksAPIKey:     env("FIREWORKS_API_KEY", ""),
-		PremiumLLMEnabled:   envBool("PREMIUM_LLM_ENABLED", false),
-		AnthropicAPIKey:     env("ANTHROPIC_API_KEY", ""),
-		DeepgramAPIKey:      env("DEEPGRAM_API_KEY", ""),
-		RecallAPIKey:        env("RECALL_API_KEY", ""),
-		RecallWebhookSecret: env("RECALL_WEBHOOK_SECRET", ""),
-		TokenEncryptionKey:  env("TOKEN_ENCRYPTION_KEY", ""),
-		CognivaultClientID:  env("COGNIVAULT_CLIENT_ID", ""),
-		CORSOrigins:         env("CORS_ORIGINS", "http://localhost:3000"),
-		CORSOriginRegex:     env("CORS_ORIGIN_REGEX", ""),
-		FrontendURL:         env("FRONTEND_URL", "http://localhost:3000"),
-		PublicAPIURL:        env("PUBLIC_API_URL", "http://localhost:8000"),
+		AppEnv:                env("APP_ENV", "development"),
+		Port:                  env("PORT", "8000"),
+		SQLiteDBPath:          env("SQLITE_DB_PATH", "/data/app.db"),
+		StorageRoot:           env("STORAGE_ROOT", "/data/storage"),
+		SessionJWTSecret:      env("SESSION_JWT_SECRET", ""),
+		StorageSigningKey:     env("STORAGE_SIGNING_KEY", ""),
+		WorkerInternalToken:   env("WORKER_INTERNAL_TOKEN", ""),
+		SessionCookieName:     env("SESSION_COOKIE_NAME", "cogni_session"),
+		FireworksAPIKey:       env("FIREWORKS_API_KEY", ""),
+		PremiumLLMEnabled:     envBool("PREMIUM_LLM_ENABLED", false),
+		AnthropicAPIKey:       env("ANTHROPIC_API_KEY", ""),
+		DeepgramAPIKey:        env("DEEPGRAM_API_KEY", ""),
+		RecallAPIKey:          env("RECALL_API_KEY", ""),
+		RecallWebhookSecret:   env("RECALL_WEBHOOK_SECRET", ""),
+		TokenEncryptionKey:    env("TOKEN_ENCRYPTION_KEY", ""),
+		GoogleClientID:        env("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:    env("GOOGLE_CLIENT_SECRET", ""),
+		MicrosoftClientID:     env("MICROSOFT_CLIENT_ID", ""),
+		MicrosoftClientSecret: env("MICROSOFT_CLIENT_SECRET", ""),
+		ZoomClientID:          env("ZOOM_CLIENT_ID", ""),
+		ZoomClientSecret:      env("ZOOM_CLIENT_SECRET", ""),
+		CognivaultClientID:    env("COGNIVAULT_CLIENT_ID", ""),
+		CORSOrigins:           env("CORS_ORIGINS", "http://localhost:3000"),
+		CORSOriginRegex:       env("CORS_ORIGIN_REGEX", ""),
+		FrontendURL:           env("FRONTEND_URL", "http://localhost:3000"),
+		PublicAPIURL:          env("PUBLIC_API_URL", "http://localhost:8000"),
 	}
 }
 

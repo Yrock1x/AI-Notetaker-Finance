@@ -8,7 +8,6 @@ import (
 
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/auth"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 // ---- request/response shapes (match app/api/v1/auth_native.py) -------------
@@ -279,19 +278,4 @@ func (s *Server) authSignout(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// GET /api/v1/auth/login/{provider} — OAuth (Google/Microsoft). Full flow ported
-// in the OAuth phase; until provider creds are configured it 503s exactly like
-// the Python worker (404 for unknown providers).
-func (s *Server) oauthLogin(w http.ResponseWriter, r *http.Request) {
-	provider := chi.URLParam(r, "provider")
-	if provider != "google" && provider != "microsoft" {
-		writeError(w, http.StatusNotFound, "Unknown provider")
-		return
-	}
-	writeError(w, http.StatusServiceUnavailable, provider+" OAuth is not configured")
-}
-
-// GET /api/v1/auth/callback/{provider}
-func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, strings.TrimRight(s.Cfg.FrontendURL, "/")+"/login?error=Sign-in+isn%27t+available+right+now.", http.StatusFound)
-}
+// OAuth login/callback (Google/Microsoft) live in oauth.go.
