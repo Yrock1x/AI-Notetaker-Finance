@@ -57,6 +57,37 @@ func VerifyOAuthState(secret, state string) (*OAuthStateClaims, error) {
 	return c, nil
 }
 
+const vdrConnectPurpose = "cognivault_vdr_connect"
+
+// VDRConnectClaims carries the CogniVault VDR-connect state (deal_id survives the
+// redirect; a purpose discriminator keeps it distinct from integration state).
+type VDRConnectClaims struct {
+	OrgID   string `json:"org_id"`
+	UserID  string `json:"user_id"`
+	DealID  string `json:"deal_id"`
+	Purpose string `json:"purpose"`
+	jwt.RegisteredClaims
+}
+
+// VerifyVDRConnectState validates a VDR-connect state JWT (ports
+// verify_vdr_connect_state) — purpose must match.
+func VerifyVDRConnectState(secret, state string) (*VDRConnectClaims, error) {
+	c := &VDRConnectClaims{}
+	_, err := jwt.ParseWithClaims(state, c, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(secret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil {
+		return nil, err
+	}
+	if c.Purpose != vdrConnectPurpose {
+		return nil, errors.New("OAuth state purpose mismatch")
+	}
+	return c, nil
+}
+
 // DefaultOrgForUser returns the user's first org membership, the default scope
 // for a credential row (ports _resolve_default_org). ErrNotFound if none.
 func DefaultOrgForUser(ctx context.Context, conn *sql.DB, userID string) (string, error) {

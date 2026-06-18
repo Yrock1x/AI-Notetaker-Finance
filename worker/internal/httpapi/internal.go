@@ -95,6 +95,8 @@ func (s *Server) RegisterInternal(r chi.Router) {
 		r.Post("/calendar/sync", s.internalCalendarSync)
 		r.Get("/calendar/list-active-integrations", s.internalCalendarListActiveIntegrations)
 		r.Post("/zoom/ingest", s.internalZoomIngest)
+		r.Post("/teams/ingest-call-record", s.internalTeamsIngest)
+		r.Post("/microsoft/ensure-subscription", s.internalEnsureSubscription)
 		s.RegisterBots(r)
 	})
 }

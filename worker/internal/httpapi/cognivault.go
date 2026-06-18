@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/store"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/util"
@@ -28,6 +30,38 @@ func (s *Server) RegisterCognivault(r chi.Router) {
 	r.Post("/cognivault/deals/{dealID}/connect", s.cognivaultConnect)
 	r.Patch("/cognivault/deals/{dealID}/connection", s.cognivaultPatch)
 	r.Delete("/cognivault/deals/{dealID}/connection", s.cognivaultDisconnect)
+}
+
+// RegisterCognivaultCallback mounts the PUBLIC VDR-connect callback (CogniVault
+// redirects the browser here). Wired outside requireAuth.
+func (s *Server) RegisterCognivaultCallback(r chi.Router) {
+	r.Get("/cognivault/callback", s.cognivaultCallback)
+}
+
+// GET /api/v1/cognivault/callback — verify the VDR-connect state and bounce back
+// to the deal settings (ports vdr_callback). CogniVault OAuth is intentionally
+// not configured (no client id), so the token exchange + connection upsert is the
+// deferred CogniVault contract; this completes the redirect gracefully with
+// not_configured rather than dead-ending the user on the worker domain.
+func (s *Server) cognivaultCallback(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		writeError(w, http.StatusBadRequest, "Missing state in OAuth callback")
+		return
+	}
+	claims, err := store.VerifyVDRConnectState(s.Cfg.OAuthStateSecret(), state)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid OAuth state")
+		return
+	}
+	returnTo := strings.TrimRight(s.Cfg.FrontendURL, "/") + "/deals/" + claims.DealID + "/settings"
+	if e := r.URL.Query().Get("error"); e != "" {
+		http.Redirect(w, r, returnTo+"?error="+url.QueryEscape(e), http.StatusFound)
+		return
+	}
+	// CogniVault OAuth is not configured -> the connect flow 500s, so a real
+	// callback is unreachable; redirect with a clear, usable error.
+	http.Redirect(w, r, returnTo+"?error=not_configured", http.StatusFound)
 }
 
 func (s *Server) cognivaultGetConnection(w http.ResponseWriter, r *http.Request) {

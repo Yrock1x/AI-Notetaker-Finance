@@ -82,6 +82,8 @@ func (s *Server) Router() http.Handler {
 		s.RegisterIntegrationsCallback(r)
 		// Provider webhooks (zoom/teams/slack) — provider-signed, no session.
 		s.RegisterWebhooks(r)
+		// CogniVault VDR-connect callback — browser redirect, no session.
+		s.RegisterCognivaultCallback(r)
 		// Self-applying auth: internal (X-Internal-Token), deliverables (own
 		// requireAuth group), realtime (SSE self-auths, webhook is public).
 		s.RegisterInternal(r)
