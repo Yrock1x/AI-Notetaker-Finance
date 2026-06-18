@@ -92,6 +92,7 @@ func (s *Server) RegisterInternal(r chi.Router) {
 		r.Post("/process-document", s.internalProcessDocument)
 		r.Post("/calendar/sync", s.internalCalendarSync)
 		r.Get("/calendar/list-active-integrations", s.internalCalendarListActiveIntegrations)
+		s.RegisterBots(r)
 	})
 }
 

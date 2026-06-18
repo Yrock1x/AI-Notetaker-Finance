@@ -33,6 +33,7 @@ type Config struct {
 	DeepgramAPIKey      string
 	RecallAPIKey        string
 	RecallWebhookSecret string
+	RecallRegion        string
 
 	// Async queue + provider webhook secrets
 	InngestEventKey        string
@@ -101,6 +102,7 @@ func Load() *Config {
 		DeepgramAPIKey:         env("DEEPGRAM_API_KEY", ""),
 		RecallAPIKey:           env("RECALL_API_KEY", ""),
 		RecallWebhookSecret:    env("RECALL_WEBHOOK_SECRET", ""),
+		RecallRegion:           env("RECALL_REGION", "us-west-2"),
 		InngestEventKey:        env("INNGEST_EVENT_KEY", ""),
 		ZoomWebhookSecretToken: env("ZOOM_WEBHOOK_SECRET_TOKEN", ""),
 		SlackSigningSecret:     env("SLACK_SIGNING_SECRET", ""),
