@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/integrations/deepgram"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/llm"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/storage"
 	"github.com/Yrock1x/AI-Notetaker-Finance/worker/internal/store"
@@ -18,9 +19,31 @@ const (
 	chunkOverlap   = 50
 )
 
-// The /internal/process-document handler reads from this bucket (ports
-// DOCUMENTS_BUCKET in app/api/v1/internal/_common.py).
-const documentsBucket = "deal-documents"
+// Storage buckets the /internal handlers read from (port DOCUMENTS_BUCKET /
+// MEETINGS_BUCKET in app/api/v1/internal/_common.py).
+const (
+	documentsBucket = "deal-documents"
+	meetingsBucket  = "meeting-recordings"
+)
+
+// extMimetypes maps a recording's extension to a Deepgram-friendly mimetype
+// (ports _EXT_MIMETYPES). Default audio/mp4.
+var extMimetypes = map[string]string{
+	"mp4": "audio/mp4", "m4a": "audio/mp4", "mp3": "audio/mpeg",
+	"wav": "audio/wav", "webm": "audio/webm", "ogg": "audio/ogg",
+	"flac": "audio/flac", "aac": "audio/aac",
+}
+
+func mimetypeForKey(fileKey string) string {
+	ext := ""
+	if i := strings.LastIndex(fileKey, "."); i >= 0 {
+		ext = strings.ToLower(fileKey[i+1:])
+	}
+	if mt, ok := extMimetypes[ext]; ok {
+		return mt
+	}
+	return "audio/mp4"
+}
 
 // requireInternalToken is the service-to-service auth guard (ports
 // require_internal_token in app/api/v1/internal/_common.py): 500 if
@@ -57,6 +80,8 @@ func llmError(w http.ResponseWriter, err error) bool {
 func (s *Server) RegisterInternal(r chi.Router) {
 	r.Route("/internal", func(r chi.Router) {
 		r.Use(s.requireInternalToken)
+		r.Post("/meeting-status", s.internalMeetingStatus)
+		r.Post("/transcribe", s.internalTranscribe)
 		r.Post("/embed", s.internalEmbed)
 		r.Post("/analyze", s.internalAnalyze)
 		r.Post("/process-document", s.internalProcessDocument)
@@ -155,20 +180,139 @@ func (s *Server) internalAnalyze(w http.ResponseWriter, r *http.Request) {
 		body.CallType = "summarization"
 	}
 
-	// The meeting must exist (ports session.get(Meeting, id) -> 404).
-	if _, err := store.GetEmbedMeetingRef(r.Context(), s.DB, body.MeetingID); err == store.ErrNotFound {
+	// The meeting must exist; org_id is derived from it (never the client),
+	// matching the synchronous POST /meetings/{id}/analyses path.
+	ref, err := store.GetEmbedMeetingRef(r.Context(), s.DB, body.MeetingID)
+	if err == store.ErrNotFound {
 		writeError(w, http.StatusNotFound, "Meeting not found")
 		return
-	} else if storeError(w, err) {
+	}
+	if storeError(w, err) {
 		return
 	}
 
-	// TODO(port): delegate to the analysis service once app/services/
-	// analysis_service.py is ported to Go (it runs the LLM, persists an
-	// `analyses` row, and returns {id, status}). Until then this endpoint is a
-	// stub so the route + auth + request contract are wired, but no analysis is
-	// produced.
-	writeError(w, http.StatusNotImplemented, "analysis service not yet ported to Go")
+	// The analysis service is already ported (runAnalysis): fetch transcript,
+	// render the call-type prompt, call the LLM, parse, and persist an analyses
+	// row. The Inngest pipeline's analyze step calls this with call_type
+	// "summarization".
+	a, err := s.runAnalysis(r.Context(), ref.OrgID, body.MeetingID, body.CallType, body.RequestedBy)
+	if err != nil {
+		s.writeAnalysisError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"analysis_id": a.ID, "status": a.Status})
+}
+
+// ---------------------------------------------------------------------------
+// POST /internal/meeting-status  {meeting_id, status, error_message?} -> {ok}
+// ---------------------------------------------------------------------------
+func (s *Server) internalMeetingStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MeetingID    string  `json:"meeting_id"`
+		Status       string  `json:"status"`
+		ErrorMessage *string `json:"error_message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.MeetingID == "" || body.Status == "" {
+		writeError(w, http.StatusUnprocessableEntity, "meeting_id and status are required")
+		return
+	}
+	err := store.SetMeetingStatus(r.Context(), s.DB, body.MeetingID, body.Status, body.ErrorMessage)
+	if err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "Meeting not found")
+		return
+	}
+	if storeError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ---------------------------------------------------------------------------
+// POST /internal/transcribe  {meeting_id} -> {transcript_id, segment_count}
+// ---------------------------------------------------------------------------
+func (s *Server) internalTranscribe(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MeetingID string `json:"meeting_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.MeetingID == "" {
+		writeError(w, http.StatusUnprocessableEntity, "meeting_id is required")
+		return
+	}
+
+	orgID, fileKey, err := store.MeetingFile(r.Context(), s.DB, body.MeetingID)
+	if err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "Meeting not found")
+		return
+	}
+	if storeError(w, err) {
+		return
+	}
+	if fileKey == nil || *fileKey == "" {
+		writeError(w, http.StatusBadRequest, "Meeting has no file_key")
+		return
+	}
+
+	// Read the recording from local object storage (it lives on the worker disk;
+	// no signed URL needed — Deepgram gets the bytes directly).
+	path, err := storage.ObjectPath(s.Cfg.StorageRoot, meetingsBucket, *fileKey)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid meeting file_key")
+		return
+	}
+	audio, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		writeError(w, http.StatusNotFound, "Meeting recording not found in storage")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if s.Cfg.DeepgramAPIKey == "" {
+		writeError(w, http.StatusInternalServerError, "DEEPGRAM_API_KEY is not configured")
+		return
+	}
+	rawResp, segments, err := deepgram.New(s.Cfg.DeepgramAPIKey).
+		Transcribe(r.Context(), audio, mimetypeForKey(*fileKey))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Transcription provider unavailable")
+		return
+	}
+
+	// Build the transcript summary (full text, word count, mean confidence).
+	in := store.TranscriptInput{
+		OrgID: orgID, MeetingID: body.MeetingID, Language: "en",
+		DeepgramResponse: rawResp,
+		Segments:         make([]store.TranscriptSegmentInput, 0, len(segments)),
+	}
+	var parts []string
+	var confSum float64
+	confN := 0
+	for _, seg := range segments {
+		parts = append(parts, seg.Text)
+		in.WordCount += len(strings.Fields(seg.Text))
+		if seg.Confidence != 0 {
+			confSum += seg.Confidence
+			confN++
+		}
+		in.Segments = append(in.Segments, store.TranscriptSegmentInput{
+			SpeakerLabel: seg.SpeakerLabel, SpeakerName: seg.SpeakerName, Text: seg.Text,
+			StartTime: seg.StartTime, EndTime: seg.EndTime, Confidence: seg.Confidence,
+			SegmentIndex: seg.SegmentIndex,
+		})
+	}
+	in.FullText = strings.Join(parts, " ")
+	if confN > 0 {
+		avg := confSum / float64(confN)
+		in.ConfidenceScore = &avg
+	}
+
+	transcriptID, count, err := store.SaveTranscript(r.Context(), s.DB, in)
+	if storeError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"transcript_id": transcriptID, "segment_count": count})
 }
 
 // ---------------------------------------------------------------------------

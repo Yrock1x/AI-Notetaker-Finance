@@ -30,6 +30,7 @@ type Config struct {
 	AnthropicAPIKey   string
 
 	// Transcription / bots
+	DeepgramAPIKey      string
 	RecallAPIKey        string
 	RecallWebhookSecret string
 
@@ -81,6 +82,7 @@ func Load() *Config {
 		FireworksAPIKey:     env("FIREWORKS_API_KEY", ""),
 		PremiumLLMEnabled:   envBool("PREMIUM_LLM_ENABLED", false),
 		AnthropicAPIKey:     env("ANTHROPIC_API_KEY", ""),
+		DeepgramAPIKey:      env("DEEPGRAM_API_KEY", ""),
 		RecallAPIKey:        env("RECALL_API_KEY", ""),
 		RecallWebhookSecret: env("RECALL_WEBHOOK_SECRET", ""),
 		TokenEncryptionKey:  env("TOKEN_ENCRYPTION_KEY", ""),
